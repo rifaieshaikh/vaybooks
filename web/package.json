@@ -8,6 +8,7 @@
     "mfe-inventory",
     "mfe-finance",
     "mfe-purchases",
+    "mfe-sales",
     "desktop-compose"
   ],
   "scripts": {
@@ -16,7 +17,8 @@
     "dev:inventory": "npm run dev -w mfe-inventory",
     "dev:finance": "npm run dev -w mfe-finance",
     "dev:purchases": "npm run dev -w mfe-purchases",
+    "dev:sales": "npm run dev -w mfe-sales",
     "dev:desktop": "npm run dev -w desktop-compose",
-    "build": "npm run build -w shell -w mfe-parties -w mfe-inventory -w mfe-finance -w mfe-purchases -w desktop-compose"
+    "build": "npm run build -w shell -w mfe-parties -w mfe-inventory -w mfe-finance -w mfe-purchases -w mfe-sales -w desktop-compose"
   }
 }

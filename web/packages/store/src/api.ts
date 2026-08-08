@@ -37,6 +37,12 @@ export const baseApi = createApi({
     'Worker',
     'PartySegment',
     'SalesInvoice',
+    'SalesOrder',
+    'SalesEstimate',
+    'SalesQuotation',
+    'SalesDeliveryNote',
+    'SalesReturn',
+    'Sales',
     'PurchaseOrder',
     'PurchaseBill',
     'PurchaseGoodsReceipt',
@@ -320,16 +326,168 @@ export const baseApi = createApi({
     }),
 
     // Sales
+    salesHealth: build.query<Record<string, unknown>, void>({
+      query: () => '/sales/health',
+      providesTags: ['Sales'],
+    }),
+    salesOverview: build.query<Record<string, unknown>, void>({
+      query: () => '/sales/overview',
+      providesTags: ['Sales', 'SalesOrder', 'SalesInvoice', 'SalesDeliveryNote', 'SalesReturn'],
+    }),
+    listSalesEstimates: build.query<Record<string, unknown>[], void>({
+      query: () => '/sales/estimates',
+      providesTags: ['SalesEstimate'],
+    }),
+    getSalesEstimate: build.query<Record<string, unknown>, string>({
+      query: (id) => `/sales/estimates/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'SalesEstimate', id }],
+    }),
+    createSalesEstimate: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/sales/estimates', method: 'POST', body }),
+      invalidatesTags: ['SalesEstimate', 'Sales'],
+    }),
+    setSalesEstimateStatus: build.mutation<
+      Record<string, unknown>,
+      { id: string; status: string }
+    >({
+      query: ({ id, status }) => ({
+        url: `/sales/estimates/${id}/status`,
+        method: 'POST',
+        body: { status },
+      }),
+      invalidatesTags: ['SalesEstimate', 'Sales'],
+    }),
+    convertEstimateToOrder: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/sales/estimates/${id}/convert-order`, method: 'POST', body: {} }),
+      invalidatesTags: ['SalesEstimate', 'SalesOrder', 'Sales'],
+    }),
+    listSalesQuotations: build.query<Record<string, unknown>[], void>({
+      query: () => '/sales/quotations',
+      providesTags: ['SalesQuotation'],
+    }),
+    getSalesQuotation: build.query<Record<string, unknown>, string>({
+      query: (id) => `/sales/quotations/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'SalesQuotation', id }],
+    }),
+    createSalesQuotation: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/sales/quotations', method: 'POST', body }),
+      invalidatesTags: ['SalesQuotation', 'Sales'],
+    }),
+    setSalesQuotationStatus: build.mutation<
+      Record<string, unknown>,
+      { id: string; status: string }
+    >({
+      query: ({ id, status }) => ({
+        url: `/sales/quotations/${id}/status`,
+        method: 'POST',
+        body: { status },
+      }),
+      invalidatesTags: ['SalesQuotation', 'Sales'],
+    }),
+    convertQuotationToOrder: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/sales/quotations/${id}/convert-order`, method: 'POST', body: {} }),
+      invalidatesTags: ['SalesQuotation', 'SalesOrder', 'Sales'],
+    }),
+    listSalesOrders: build.query<Record<string, unknown>[], void>({
+      query: () => '/sales/orders',
+      providesTags: ['SalesOrder'],
+    }),
+    getSalesOrder: build.query<Record<string, unknown>, string>({
+      query: (id) => `/sales/orders/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'SalesOrder', id }],
+    }),
+    createSalesOrder: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/sales/orders', method: 'POST', body }),
+      invalidatesTags: ['SalesOrder', 'Sales'],
+    }),
+    cancelSalesOrder: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/sales/orders/${id}/cancel`, method: 'POST' }),
+      invalidatesTags: ['SalesOrder', 'Sales'],
+    }),
+    closeSalesOrder: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/sales/orders/${id}/close`, method: 'POST' }),
+      invalidatesTags: ['SalesOrder', 'Sales'],
+    }),
+    convertSalesOrderToInvoice: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({
+        url: `/sales/orders/${id}/convert-invoice`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['SalesOrder', 'SalesInvoice', 'Sales'],
+    }),
+    listDeliveryNotes: build.query<Record<string, unknown>[], void>({
+      query: () => '/sales/delivery-notes',
+      providesTags: ['SalesDeliveryNote'],
+    }),
+    getDeliveryNote: build.query<Record<string, unknown>, string>({
+      query: (id) => `/sales/delivery-notes/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'SalesDeliveryNote', id }],
+    }),
+    createDeliveryNote: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/sales/delivery-notes', method: 'POST', body }),
+      invalidatesTags: ['SalesDeliveryNote', 'SalesOrder', 'Sales', 'Inventory'],
+    }),
+    confirmDeliveryNote: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/sales/delivery-notes/${id}/confirm`, method: 'POST' }),
+      invalidatesTags: ['SalesDeliveryNote', 'Sales'],
+    }),
+    dispatchDeliveryNote: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/sales/delivery-notes/${id}/dispatch`, method: 'POST' }),
+      invalidatesTags: ['SalesDeliveryNote', 'Sales', 'Inventory'],
+    }),
+    deliverDeliveryNote: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/sales/delivery-notes/${id}/deliver`, method: 'POST' }),
+      invalidatesTags: ['SalesDeliveryNote', 'SalesOrder', 'Sales'],
+    }),
+    cancelDeliveryNote: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/sales/delivery-notes/${id}/cancel`, method: 'POST' }),
+      invalidatesTags: ['SalesDeliveryNote', 'Sales'],
+    }),
     listSalesInvoices: build.query<Record<string, unknown>[], void>({
       query: () => '/sales/invoices',
       providesTags: ['SalesInvoice'],
     }),
-    createSalesInvoice: build.mutation<
-      Record<string, unknown>,
-      { customer_id: string; total: number }
-    >({
+    getSalesInvoice: build.query<Record<string, unknown>, string>({
+      query: (id) => `/sales/invoices/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'SalesInvoice', id }],
+    }),
+    createSalesInvoice: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/sales/invoices', method: 'POST', body }),
-      invalidatesTags: ['SalesInvoice'],
+      invalidatesTags: ['SalesInvoice', 'Sales', 'Finance', 'Inventory'],
+    }),
+    listSalesReturns: build.query<Record<string, unknown>[], void>({
+      query: () => '/sales/returns',
+      providesTags: ['SalesReturn'],
+    }),
+    getSalesReturn: build.query<Record<string, unknown>, string>({
+      query: (id) => `/sales/returns/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'SalesReturn', id }],
+    }),
+    createSalesReturn: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/sales/returns', method: 'POST', body }),
+      invalidatesTags: ['SalesReturn', 'Sales'],
+    }),
+    approveSalesReturn: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/sales/returns/${id}/approve`, method: 'POST' }),
+      invalidatesTags: ['SalesReturn', 'Sales'],
+    }),
+    rejectSalesReturn: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/sales/returns/${id}/reject`, method: 'POST' }),
+      invalidatesTags: ['SalesReturn', 'Sales'],
+    }),
+    salesReportsCatalog: build.query<{ report_types: string[] }, void>({
+      query: () => '/sales/reports',
+      providesTags: ['Sales'],
+    }),
+    runSalesReport: build.mutation<
+      { report_type: string; rows: Record<string, unknown>[] },
+      { report_type: string; filters?: Record<string, unknown> }
+    >({
+      query: (body) => ({ url: '/sales/reports/run', method: 'POST', body }),
     }),
 
     // Purchases
@@ -909,8 +1067,41 @@ export const {
   useDeletePartySegmentMutation,
   useListPartiesQuery,
   useCreatePartyMutation,
+  useSalesHealthQuery,
+  useSalesOverviewQuery,
+  useListSalesEstimatesQuery,
+  useGetSalesEstimateQuery,
+  useCreateSalesEstimateMutation,
+  useSetSalesEstimateStatusMutation,
+  useConvertEstimateToOrderMutation,
+  useListSalesQuotationsQuery,
+  useGetSalesQuotationQuery,
+  useCreateSalesQuotationMutation,
+  useSetSalesQuotationStatusMutation,
+  useConvertQuotationToOrderMutation,
+  useListSalesOrdersQuery,
+  useGetSalesOrderQuery,
+  useCreateSalesOrderMutation,
+  useCancelSalesOrderMutation,
+  useCloseSalesOrderMutation,
+  useConvertSalesOrderToInvoiceMutation,
+  useListDeliveryNotesQuery,
+  useGetDeliveryNoteQuery,
+  useCreateDeliveryNoteMutation,
+  useConfirmDeliveryNoteMutation,
+  useDispatchDeliveryNoteMutation,
+  useDeliverDeliveryNoteMutation,
+  useCancelDeliveryNoteMutation,
   useListSalesInvoicesQuery,
+  useGetSalesInvoiceQuery,
   useCreateSalesInvoiceMutation,
+  useListSalesReturnsQuery,
+  useGetSalesReturnQuery,
+  useCreateSalesReturnMutation,
+  useApproveSalesReturnMutation,
+  useRejectSalesReturnMutation,
+  useSalesReportsCatalogQuery,
+  useRunSalesReportMutation,
   usePurchasesHealthQuery,
   usePurchasesOverviewQuery,
   useListPurchaseOrdersQuery,

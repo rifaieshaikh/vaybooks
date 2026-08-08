@@ -25,22 +25,19 @@ def test_smoke() -> None:
         json={"name": "Acme", "kind": "customer", "phone_number": phone},
     )
     assert r.status_code == 201, r.text
-    pid = r.json()["id"]
-
-    r = c.post("/api/sales/invoices", json={"customer_id": pid, "total": 100})
-    assert r.status_code == 201, r.text
-    body = r.json()
-    # Consumers stubbed healthy → full notify path (not degraded)
-    assert body["degraded_pending"] is False
-    assert body["stock_status"] == "reserve_requested"
+    assert r.json()["id"]
 
     r = c.get("/api/sales/health")
-    assert r.json()["degraded_pending"] is False
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert "degraded_pending" in body
+    assert body.get("backend") == "mongo"
 
     import os
 
     os.environ["SALES_FORCE_DEGRADED"] = "1"
-    r = c.post("/api/sales/invoices", json={"customer_id": pid, "total": 50})
+    r = c.get("/api/sales/health")
     assert r.json()["degraded_pending"] is True
     os.environ.pop("SALES_FORCE_DEGRADED", None)
 

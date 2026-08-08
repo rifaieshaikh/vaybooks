@@ -37,14 +37,14 @@ Track migration parity for each Streamlit `url_path` route.
 | 29 | `dashboard` | `core.dashboard.view` | ☐ | |
 | 30 | `data-migration` | `migration.run` | ☐ | |
 | 31 | `debit-notes` | `finance.debit_notes.view` | ✅ | Finance wave |
-| 32 | `delivery-note-detail` | `sales.delivery_notes.view` | ☐ | |
-| 33 | `delivery-notes` | `sales.delivery_notes.view` | ☐ | |
+| 32 | `delivery-note-detail` | `sales.delivery_notes.view` | ✅ | Sales wave |
+| 33 | `delivery-notes` | `sales.delivery_notes.view` | ✅ | Sales wave |
 | 34 | `delivery-partner-detail` | `parties.delivery_partners.view` | ✅ | Parties wave |
 | 35 | `delivery-partners` | `parties.delivery_partners.view` | ✅ | Parties wave |
 | 36 | `discounts` | `settings.discounts.view` | ☐ | |
 | 37 | `employees` | `parties.employees.view` | ✅ | Parties wave |
-| 38 | `estimate-detail` | `sales.estimates.view` | ☐ | |
-| 39 | `estimates` | `sales.estimates.view` | ☐ | |
+| 38 | `estimate-detail` | `sales.estimates.view` | ✅ | Sales wave |
+| 39 | `estimates` | `sales.estimates.view` | ✅ | Sales wave |
 | 40 | `export-backup` | `finance.export.view` | ✅ | Finance wave |
 | 41 | `feature-flags-settings` | `settings.feature_flags.view` | ☐ | |
 | 42 | `finance-overview` | `finance.overview.view` | ✅ | Finance wave |
@@ -110,27 +110,27 @@ Track migration parity for each Streamlit `url_path` route.
 | 102 | `purchases-overview` | `purchases.overview.view` | ✅ | Purchases wave |
 | 103 | `purchases-reports` | `purchases.reports.view` | ✅ | Purchases wave |
 | 104 | `purchases-scheduled-reports` | `schedulers.view` | ✅ | Link stub to schedulers |
-| 105 | `quotation-detail` | `sales.quotations.view` | ☐ | |
-| 106 | `quotations` | `sales.quotations.view` | ☐ | |
+| 105 | `quotation-detail` | `sales.quotations.view` | ✅ | Sales wave |
+| 106 | `quotations` | `sales.quotations.view` | ✅ | Sales wave |
 | 107 | `receipts` | `finance.receipts.view` | ✅ | Finance wave |
 | 108 | `reports` | `finance.reports.view` | ✅ | Finance wave |
 | 109 | `roles-settings` | `settings.roles.view` | ☐ | |
-| 110 | `sales` | `sales.invoices.view` | ☐ | |
-| 111 | `sales-detail` | `sales.invoices.view` | ☐ | |
-| 112 | `sales-order-detail` | `sales.orders.view` | ☐ | |
-| 113 | `sales-orders` | `sales.orders.view` | ☐ | |
-| 114 | `sales-overview` | `sales.overview.view` | ☐ | |
-| 115 | `sales-reports` | `sales.reports.view` | ☐ | |
-| 116 | `sales-return-detail` | `sales.returns.view` | ☐ | |
-| 117 | `sales-returns` | `sales.returns.view` | ☐ | |
-| 118 | `sales-scheduled-reports` | `schedulers.view` | ☐ | |
+| 110 | `sales` | `sales.invoices.view` | ✅ | Sales wave |
+| 111 | `sales-detail` | `sales.invoices.view` | ✅ | Sales wave |
+| 112 | `sales-order-detail` | `sales.orders.view` | ✅ | Sales wave |
+| 113 | `sales-orders` | `sales.orders.view` | ✅ | Sales wave |
+| 114 | `sales-overview` | `sales.overview.view` | ✅ | Sales wave |
+| 115 | `sales-reports` | `sales.reports.view` | ✅ | Sales wave |
+| 116 | `sales-return-detail` | `sales.returns.view` | ✅ | Sales wave |
+| 117 | `sales-returns` | `sales.returns.view` | ✅ | Sales wave |
+| 118 | `sales-scheduled-reports` | `schedulers.view` | ✅ | Link stub to schedulers |
 | 119 | `schedulers-boutique` | `schedulers.view` | ☐ | |
 | 120 | `schedulers-crm` | `schedulers.view` | ☐ | |
 | 121 | `schedulers-inventory` | `schedulers.view` | ☐ | |
 | 122 | `schedulers-production` | `schedulers.view` | ☐ | |
 | 123 | `schedulers-projects` | `schedulers.view` | ☐ | |
 | 124 | `schedulers-purchases` | `schedulers.view` | ✅ | Link stub from purchases |
-| 125 | `schedulers-sales` | `schedulers.view` | ☐ | |
+| 125 | `schedulers-sales` | `schedulers.view` | ✅ | Link stub from sales |
 | 126 | `services` | `settings.services.view` | ☐ | |
 | 127 | `settings-locations` | `inventory.warehouses.view` | ☐ | |
 | 128 | `store-activities` | `settings.store_activities.view` | ☐ | |

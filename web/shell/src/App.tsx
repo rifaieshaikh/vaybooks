@@ -12,7 +12,6 @@ import {
   ProductionPage,
   ProjectsPage,
   ReportsPage,
-  SalesPage,
   SchedulersPage,
   SettingsPage,
   StorePage,
@@ -72,6 +71,23 @@ import {
   PurchasesReportsPage,
   PurchasesScheduledReportsPage,
 } from '../../mfe-purchases/src';
+import {
+  DeliveryNoteDetailPage,
+  DeliveryNotesListPage,
+  EstimateDetailPage,
+  EstimatesListPage,
+  QuotationDetailPage,
+  QuotationsListPage,
+  SalesInvoiceDetailPage,
+  SalesInvoicesListPage,
+  SalesOrderDetailPage,
+  SalesOrdersListPage,
+  SalesOverviewPage,
+  SalesReportsPage,
+  SalesReturnDetailPage,
+  SalesReturnsListPage,
+  SalesScheduledReportsPage,
+} from '../../mfe-sales/src';
 
 /** Unmigrated Streamlit child routes land on the module stub until that wave ships. */
 function stubRoutes(prefix: string, element: JSX.Element) {
@@ -119,7 +135,21 @@ export default function App() {
         {stubRoutes('crm', <CrmPage />)}
         {stubRoutes('boutique', <BoutiquePage />)}
         {stubRoutes('projects', <ProjectsPage />)}
-        {stubRoutes('sales', <SalesPage />)}
+        <Route path="sales" element={<SalesOverviewPage />} />
+        <Route path="sales/estimates" element={<EstimatesListPage />} />
+        <Route path="sales/estimates/:id" element={<EstimateDetailPage />} />
+        <Route path="sales/quotations" element={<QuotationsListPage />} />
+        <Route path="sales/quotations/:id" element={<QuotationDetailPage />} />
+        <Route path="sales/orders" element={<SalesOrdersListPage />} />
+        <Route path="sales/orders/:id" element={<SalesOrderDetailPage />} />
+        <Route path="sales/delivery-notes" element={<DeliveryNotesListPage />} />
+        <Route path="sales/delivery-notes/:id" element={<DeliveryNoteDetailPage />} />
+        <Route path="sales/invoices" element={<SalesInvoicesListPage />} />
+        <Route path="sales/invoices/:id" element={<SalesInvoiceDetailPage />} />
+        <Route path="sales/returns" element={<SalesReturnsListPage />} />
+        <Route path="sales/returns/:id" element={<SalesReturnDetailPage />} />
+        <Route path="sales/reports" element={<SalesReportsPage />} />
+        <Route path="sales/scheduled-reports" element={<SalesScheduledReportsPage />} />
 
         <Route path="purchases" element={<PurchasesOverviewPage />} />
         <Route path="purchases/orders" element={<PurchaseOrdersListPage />} />

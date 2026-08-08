@@ -16,6 +16,7 @@ for key in (
     "INVENTORY_BACKEND",
     "FINANCE_BACKEND",
     "PURCHASES_BACKEND",
+    "SALES_BACKEND",
 ):
     os.environ.pop(key, None)
 
@@ -47,5 +48,11 @@ def reset_all_containers() -> None:
         from packages.services_kit.purchases_container import reset_purchases_container
 
         reset_purchases_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.sales_container import reset_sales_container
+
+        reset_sales_container()
     except ImportError:
         pass
