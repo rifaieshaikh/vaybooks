@@ -1,0 +1,57 @@
+{
+  "bundles": [
+    {
+      "id": "core",
+      "name": "Core",
+      "description": "Shell, auth, access, settings, and home — minimum installable stack.",
+      "modules": ["core", "parties", "settings"]
+    },
+    {
+      "id": "boutique",
+      "name": "Boutique",
+      "description": "Core plus boutique tailoring and store operations.",
+      "modules": ["core", "parties", "boutique", "store", "finance", "settings"]
+    },
+    {
+      "id": "trade",
+      "name": "Trade",
+      "description": "Core trading: inventory, sales, purchases, and finance.",
+      "modules": ["core", "parties", "inventory", "sales", "purchases", "finance", "settings"]
+    },
+    {
+      "id": "crm",
+      "name": "CRM",
+      "description": "Core plus CRM — leads, enquiries, activities, and reports.",
+      "modules": ["core", "parties", "crm", "settings"],
+      "warn_without": ["sales"]
+    },
+    {
+      "id": "projects",
+      "name": "Projects",
+      "description": "Core plus project accounting and site operations.",
+      "modules": ["core", "parties", "projects", "finance", "settings"]
+    },
+    {
+      "id": "full",
+      "name": "Full",
+      "description": "All modules including production, schedulers, migration, and system admin.",
+      "modules": [
+        "core",
+        "parties",
+        "crm",
+        "boutique",
+        "store",
+        "projects",
+        "sales",
+        "purchases",
+        "inventory",
+        "production",
+        "finance",
+        "schedulers",
+        "migration",
+        "settings",
+        "system"
+      ]
+    }
+  ]
+}

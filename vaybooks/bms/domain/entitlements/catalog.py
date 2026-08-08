@@ -12,6 +12,7 @@ MODULE_CORE = "core"
 MODULE_PARTIES = "parties"
 MODULE_CRM = "crm"
 MODULE_BOUTIQUE = "boutique"
+MODULE_STORE = "store"
 MODULE_PROJECTS = "projects"
 MODULE_SALES = "sales"
 MODULE_PURCHASES = "purchases"
@@ -28,6 +29,7 @@ ALL_MODULES: Tuple[str, ...] = (
     MODULE_PARTIES,
     MODULE_CRM,
     MODULE_BOUTIQUE,
+    MODULE_STORE,
     MODULE_PROJECTS,
     MODULE_SALES,
     MODULE_PURCHASES,
@@ -47,6 +49,7 @@ MODULE_LABELS: Dict[str, str] = {
     MODULE_PARTIES: "Parties",
     MODULE_CRM: "CRM",
     MODULE_BOUTIQUE: "Boutique",
+    MODULE_STORE: "Store",
     MODULE_PROJECTS: "Projects",
     MODULE_SALES: "Sales",
     MODULE_PURCHASES: "Purchases",

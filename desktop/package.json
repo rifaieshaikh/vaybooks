@@ -1,0 +1,13 @@
+{
+  "name": "vaybooks-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VayBooks Electron desktop shell (Phase 1c)",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

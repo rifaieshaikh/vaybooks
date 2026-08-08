@@ -1,0 +1,20 @@
+{
+  "name": "vaybooks-web",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "shell",
+    "mfe-parties",
+    "mfe-inventory",
+    "mfe-finance",
+    "desktop-compose"
+  ],
+  "scripts": {
+    "dev:shell": "npm run dev -w shell",
+    "dev:parties": "npm run dev -w mfe-parties",
+    "dev:inventory": "npm run dev -w mfe-inventory",
+    "dev:finance": "npm run dev -w mfe-finance",
+    "dev:desktop": "npm run dev -w desktop-compose",
+    "build": "npm run build -w shell -w mfe-parties -w mfe-inventory -w mfe-finance -w desktop-compose"
+  }
+}

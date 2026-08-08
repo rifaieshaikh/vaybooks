@@ -1,0 +1,83 @@
+# VayBooks local stack (Phase 3 compose scaffolding)
+#
+# Start core infra:
+#   docker compose up -d
+#
+# With Kafka (Redpanda single-node):
+#   docker compose --profile kafka up -d
+#
+# API gateway / microservices are not wired yet — use restart_vaybooks.ps1 -Mode Dev
+# for the embedded gateway + combined API process.
+
+services:
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: vaybooks
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # gateway:
+  #   build:
+  #     context: .
+  #     dockerfile: services/gateway/Dockerfile
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     MONGODB_URI: mongodb://mongo:27017
+  #     REDIS_URL: redis://redis:6379/0
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #     mongo:
+  #       condition: service_healthy
+
+  # Optional Kafka-compatible broker (profile: kafka)
+  # Redpanda is easier to run as a single node than bitnami/kafka + zookeeper.
+  redpanda:
+    profiles: ["kafka"]
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 512M
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://localhost:9092
+    ports:
+      - "9092:9092"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+
+volumes:
+  redis_data:
+  mongo_data:
+  redpanda_data:

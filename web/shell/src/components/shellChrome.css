@@ -1,0 +1,311 @@
+.vb-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  font-family: system-ui, sans-serif;
+  color: var(--vb-color-text, #1a1a1a);
+  background: #f7f8f7;
+}
+
+.vb-sidebar {
+  width: 250px;
+  min-width: 250px;
+  max-width: 250px;
+  height: 100%;
+  background: #f0f5f2;
+  border-right: 1px solid #d5e0da;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.vb-shell-rail .vb-sidebar {
+  width: 72px;
+  min-width: 72px;
+  max-width: 72px;
+}
+
+.vb-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0.85rem 0.75rem;
+  border-bottom: 1px solid #d5e0da;
+  flex-shrink: 0;
+  background: #f0f5f2;
+  z-index: 1;
+}
+
+.vb-logo {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--vb-color-primary, #185c4c);
+}
+
+.vb-logo-mark {
+  width: 36px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--vb-color-primary, #185c4c);
+  color: #fff;
+  font-weight: 700;
+  margin: 0 auto;
+}
+
+.vb-rail-toggle {
+  border: 1px solid #c5d4cc;
+  background: #fff;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  color: #355;
+  flex-shrink: 0;
+}
+
+.vb-shell-rail .vb-sidebar-header {
+  flex-direction: column;
+}
+
+.vb-sidebar-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.5rem 0.55rem 1rem;
+  display: grid;
+  gap: 0.15rem;
+  align-content: start;
+}
+
+.vb-nav-group {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 0.55rem;
+}
+
+.vb-nav-caption {
+  font-size: 11px;
+  color: #667a72;
+  text-transform: none;
+  font-weight: 600;
+  padding: 0.35rem 0.5rem 0.15rem;
+}
+
+.vb-sidebar-footer {
+  padding: 0.75rem;
+  border-top: 1px solid #d5e0da;
+  font-size: 11px;
+  color: #667a72;
+  flex-shrink: 0;
+  background: #f0f5f2;
+}
+
+.vb-sidebar-license {
+  margin-top: 4px;
+}
+
+.vb-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.vb-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 1.1rem;
+  background: #fff;
+  border-bottom: 1px solid #dde5e1;
+  flex-shrink: 0;
+  z-index: 20;
+}
+
+.vb-topbar-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #f3f6f4;
+  border: 1px solid #d9e3de;
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  min-width: min(320px, 40vw);
+  color: #789;
+}
+
+.vb-search-input {
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font-size: 13px;
+  color: #567;
+}
+
+.vb-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.vb-topbar-divider {
+  width: 1px;
+  height: 22px;
+  background: #d5e0da;
+  margin: 0 0.2rem;
+}
+
+.vb-topbar-btn,
+.vb-icon-btn {
+  border: 1px solid #d0dbd5;
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.35rem 0.65rem;
+  font-size: 13px;
+  cursor: pointer;
+  color: #234;
+}
+
+.vb-icon-btn {
+  min-width: 36px;
+  padding: 0.35rem 0.5rem;
+}
+
+.vb-topbar-btn:hover,
+.vb-icon-btn:hover:not(:disabled),
+.vb-rail-toggle:hover {
+  border-color: var(--vb-color-primary, #185c4c);
+  color: var(--vb-color-primary, #185c4c);
+}
+
+.vb-icon-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.vb-account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid #d0dbd5;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem 0.2rem 0.25rem;
+  cursor: pointer;
+}
+
+.vb-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--vb-color-primary, #185c4c);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.vb-account-name {
+  font-size: 13px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vb-popover {
+  position: relative;
+}
+
+.vb-popover-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  max-height: 360px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #d5e0da;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  padding: 0.4rem;
+  z-index: 40;
+}
+
+.vb-popover-menu-right {
+  left: auto;
+  right: 0;
+}
+
+.vb-popover-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #456;
+  padding: 0.35rem 0.55rem;
+}
+
+.vb-popover-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  text-decoration: none;
+  color: inherit;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.45rem 0.55rem;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.vb-popover-item:hover {
+  background: #eef5f1;
+}
+
+.vb-popover-danger {
+  color: #a12828;
+}
+
+.vb-popover-divider {
+  height: 1px;
+  background: #e5ece8;
+  margin: 0.35rem 0;
+}
+
+.vb-account-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.45rem 0.55rem;
+}
+
+.vb-muted {
+  color: #789;
+  font-size: 12px;
+}
+
+.vb-content {
+  padding: 1.25rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.vb-shell-rail .vb-nav-link {
+  text-align: center;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
