@@ -24,22 +24,55 @@ _CORS_ORIGINS = [
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    from packages.services_kit.access_container import get_access_container
+    from packages.services_kit.boutique_container import get_boutique_container
+    from packages.services_kit.crm_container import get_crm_container
     from packages.services_kit.finance_container import get_finance_container
     from packages.services_kit.inventory_container import get_inventory_container
+    from packages.services_kit.migration_container import get_migration_container
     from packages.services_kit.parties_container import get_parties_container
+    from packages.services_kit.production_container import get_production_container
+    from packages.services_kit.projects_container import get_projects_container
     from packages.services_kit.purchases_container import get_purchases_container
+    from packages.services_kit.reports_container import get_reports_container
     from packages.services_kit.sales_container import get_sales_container
+    from packages.services_kit.schedulers_container import get_schedulers_container
+    from packages.services_kit.settings_container import get_settings_container
+    from packages.services_kit.store_container import get_store_container
+    from packages.services_kit.system_container import get_system_container
 
     parties = get_parties_container()
     inventory = get_inventory_container()
     finance = get_finance_container()
     purchases = get_purchases_container()
     sales = get_sales_container()
+    boutique = get_boutique_container()
+    crm = get_crm_container()
+    projects = get_projects_container()
+    store = get_store_container()
+    production = get_production_container()
+    access = get_access_container()
+    settings = get_settings_container()
+    schedulers = get_schedulers_container()
+    migration = get_migration_container()
+    reports = get_reports_container()
+    system = get_system_container()
     app.state.parties = parties
     app.state.inventory = inventory
     app.state.finance = finance
     app.state.purchases = purchases
     app.state.sales = sales
+    app.state.boutique = boutique
+    app.state.crm = crm
+    app.state.projects = projects
+    app.state.store = store
+    app.state.production = production
+    app.state.access = access
+    app.state.settings = settings
+    app.state.schedulers = schedulers
+    app.state.migration = migration
+    app.state.reports = reports
+    app.state.system = system
     yield
 
 

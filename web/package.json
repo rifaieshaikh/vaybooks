@@ -9,6 +9,17 @@
     "mfe-finance",
     "mfe-purchases",
     "mfe-sales",
+    "mfe-boutique",
+    "mfe-crm",
+    "mfe-projects",
+    "mfe-access",
+    "mfe-settings",
+    "mfe-store",
+    "mfe-production",
+    "mfe-schedulers",
+    "mfe-migration",
+    "mfe-system",
+    "mfe-home",
     "desktop-compose"
   ],
   "scripts": {
@@ -18,7 +29,18 @@
     "dev:finance": "npm run dev -w mfe-finance",
     "dev:purchases": "npm run dev -w mfe-purchases",
     "dev:sales": "npm run dev -w mfe-sales",
+    "dev:boutique": "npm run dev -w mfe-boutique",
+    "dev:crm": "npm run dev -w mfe-crm",
+    "dev:projects": "npm run dev -w mfe-projects",
+    "dev:access": "npm run dev -w mfe-access",
+    "dev:settings": "npm run dev -w mfe-settings",
+    "dev:store": "npm run dev -w mfe-store",
+    "dev:production": "npm run dev -w mfe-production",
+    "dev:schedulers": "npm run dev -w mfe-schedulers",
+    "dev:migration": "npm run dev -w mfe-migration",
+    "dev:system": "npm run dev -w mfe-system",
+    "dev:home": "npm run dev -w mfe-home",
     "dev:desktop": "npm run dev -w desktop-compose",
-    "build": "npm run build -w shell -w mfe-parties -w mfe-inventory -w mfe-finance -w mfe-purchases -w mfe-sales -w desktop-compose"
+    "build": "npm run build -w shell -w mfe-parties -w mfe-inventory -w mfe-finance -w mfe-purchases -w mfe-sales -w mfe-boutique -w mfe-crm -w mfe-projects -w mfe-access -w mfe-settings -w mfe-store -w mfe-production -w mfe-schedulers -w mfe-migration -w mfe-system -w mfe-home -w desktop-compose"
   }
 }

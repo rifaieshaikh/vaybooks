@@ -685,7 +685,12 @@ export function AccessPage() {
               { name: 'display_name', label: 'Display name' },
             ]}
             onSubmit={async (v) => {
-              await createUser({ username: v.username, display_name: v.display_name, role_ids: ['staff'] });
+              await createUser({
+                username: v.username,
+                display_name: v.display_name,
+                password: 'changeme',
+                role_ids: [],
+              });
             }}
           />
         }

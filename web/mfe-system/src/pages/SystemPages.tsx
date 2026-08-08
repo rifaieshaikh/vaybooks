@@ -1,0 +1,153 @@
+import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  useCheckSystemUpdatesMutation,
+  useListSystemLogsQuery,
+  useListSystemSettingsQuery,
+  useSystemDiagnosticsQuery,
+  useSystemUpdatesQuery,
+  useUpsertSystemSettingMutation,
+} from '@vaybooks/store';
+import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
+import { extractError } from '../utils';
+
+export function SystemHubPage() {
+  const { data, isLoading, error, refetch } = useSystemDiagnosticsQuery();
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 16px', color: 'var(--vb-color-primary, #185c4c)' }}>System</h2>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+        <Link to="/system/settings">Settings</Link>
+        <Link to="/system/updates">Updates</Link>
+        <Link to="/system/logs">Logs</Link>
+      </div>
+      {isLoading && <p>Loading diagnostics…</p>}
+      {error ? <ErrorText>{extractError(error)}</ErrorText> : null}
+      {data && (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div>Status: {String(data.status)}</div>
+          <div>Process: {String(data.process)}</div>
+          <div>Server UTC: {String(data.server_time_utc)}</div>
+          <div>Settings: {String(data.settings_count)}</div>
+          <Button type="button" variant="ghost" onClick={() => refetch()}>
+            Refresh
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function SystemSettingsPage() {
+  const { data = [], isLoading, error, refetch } = useListSystemSettingsQuery();
+  const [upsert] = useUpsertSystemSettingMutation();
+  const [key, setKey] = useState('app.timezone');
+  const [value, setValue] = useState('UTC');
+  const [formError, setFormError] = useState('');
+
+  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+    () => [
+      { key: 'key', header: 'Key' },
+      { key: 'value', header: 'Value' },
+      { key: 'updated_at', header: 'Updated' },
+    ],
+    [],
+  );
+
+  async function onSave() {
+    setFormError('');
+    try {
+      await upsert({ key, value }).unwrap();
+      refetch();
+    } catch (e) {
+      setFormError(extractError(e));
+    }
+  }
+
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 16px', color: 'var(--vb-color-primary, #185c4c)' }}>System Settings</h2>
+      <Link to="/system">← System</Link>
+      {isLoading && <p>Loading…</p>}
+      {error ? <ErrorText>{extractError(error)}</ErrorText> : null}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end', margin: '16px 0' }}>
+        <FormRow label="Key">
+          <input value={key} onChange={(e) => setKey(e.target.value)} style={{ padding: 8 }} />
+        </FormRow>
+        <FormRow label="Value">
+          <input value={value} onChange={(e) => setValue(e.target.value)} style={{ padding: 8 }} />
+        </FormRow>
+        <Button type="button" onClick={onSave}>
+          Save
+        </Button>
+      </div>
+      {formError ? <ErrorText>{formError}</ErrorText> : null}
+      <DataTable columns={columns} rows={data as Record<string, unknown>[]} />
+    </div>
+  );
+}
+
+export function SystemUpdatesPage() {
+  const { data, isLoading, error, refetch } = useSystemUpdatesQuery();
+  const [check, checkState] = useCheckSystemUpdatesMutation();
+
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 16px', color: 'var(--vb-color-primary, #185c4c)' }}>System Updates</h2>
+      <Link to="/system">← System</Link>
+      {isLoading && <p>Loading…</p>}
+      {error ? <ErrorText>{extractError(error)}</ErrorText> : null}
+      {data && (
+        <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
+          <div>Current: {String(data.current_version)}</div>
+          <div>Channel: {String(data.channel)}</div>
+          <div>Update available: {String(data.update_available)}</div>
+          <div>Latest: {String(data.latest_version || '—')}</div>
+          <div>Notes: {String(data.notes || '—')}</div>
+        </div>
+      )}
+      <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+        <Button
+          type="button"
+          onClick={async () => {
+            await check();
+            refetch();
+          }}
+          disabled={checkState.isLoading}
+        >
+          {checkState.isLoading ? 'Checking…' : 'Check for updates'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function SystemLogsPage() {
+  const { data = [], isLoading, error, refetch } = useListSystemLogsQuery();
+  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+    () => [
+      { key: 'created_at', header: 'When' },
+      { key: 'level', header: 'Level' },
+      { key: 'source', header: 'Source' },
+      { key: 'message', header: 'Message' },
+    ],
+    [],
+  );
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, gap: 12 }}>
+        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>System Logs</h2>
+        <Button type="button" variant="ghost" onClick={() => refetch()}>
+          Refresh
+        </Button>
+      </div>
+      <Link to="/system">← System</Link>
+      {isLoading && <p>Loading…</p>}
+      {error ? <ErrorText>{extractError(error)}</ErrorText> : null}
+      <div style={{ marginTop: 16 }}>
+        <DataTable columns={columns} rows={data as Record<string, unknown>[]} />
+      </div>
+    </div>
+  );
+}

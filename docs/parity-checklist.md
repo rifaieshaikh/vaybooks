@@ -9,44 +9,44 @@ Track migration parity for each Streamlit `url_path` route.
 | 1 | `account-detail` | `finance.accounts.view` | ✅ | Finance wave |
 | 2 | `accounting-invoices` | `finance.accounting_invoices.view` | ✅ | Finance wave |
 | 3 | `accounts` | `finance.accounts.view` | ✅ | Finance wave |
-| 4 | `audit-logs` | `settings.audit.view` | ☐ | |
-| 5 | `boutique-overview` | `boutique.overview.view` | ☐ | |
-| 6 | `boutique-reports` | `boutique.reports.view` | ☐ | |
-| 7 | `boutique-scheduled-reports` | `schedulers.view` | ☐ | |
-| 8 | `business-settings` | `settings.business.view` | ☐ | |
-| 9 | `calendar` | `boutique.calendar.view` | ☐ | |
+| 4 | `audit-logs` | `settings.audit.view` | ✅ | Access wave |
+| 5 | `boutique-overview` | `boutique.overview.view` | ✅ | Boutique wave |
+| 6 | `boutique-reports` | `boutique.reports.view` | ✅ | Boutique wave |
+| 7 | `boutique-scheduled-reports` | `schedulers.view` | ✅ | Link stub to schedulers |
+| 8 | `business-settings` | `settings.business.view` | ✅ | Settings wave |
+| 9 | `calendar` | `boutique.calendar.view` | ✅ | Boutique wave |
 | 10 | `commission-agent-detail` | `parties.commission_agents.view` | ✅ | Parties wave |
 | 11 | `commission-agents` | `parties.commission_agents.view` | ✅ | Parties wave |
 | 12 | `credit-notes` | `finance.credit_notes.view` | ✅ | Finance wave |
-| 13 | `crm-activities` | `crm.activities.view` | ☐ | |
-| 14 | `crm-activity-detail` | `crm.activities.view` | ☐ | |
-| 15 | `crm-calendar` | `crm.calendar.view` | ☐ | |
-| 16 | `crm-dashboard` | `crm.dashboard.view` | ☐ | |
-| 17 | `crm-enquiries` | `crm.enquiries.view` | ☐ | |
-| 18 | `crm-enquiry-detail` | `crm.enquiries.view` | ☐ | |
-| 19 | `crm-lead-detail` | `crm.leads.view` | ☐ | |
-| 20 | `crm-leads` | `crm.leads.view` | ☐ | |
-| 21 | `crm-reports` | `crm.reports.view` | ☐ | |
-| 22 | `crm-scheduled-reports` | `schedulers.view` | ☐ | |
-| 23 | `crm-settings` | `crm.settings.view` | ☐ | |
+| 13 | `crm-activities` | `crm.activities.view` | ✅ | CRM wave ||
+| 14 | `crm-activity-detail` | `crm.activities.view` | ✅ | CRM wave ||
+| 15 | `crm-calendar` | `crm.calendar.view` | ✅ | CRM wave ||
+| 16 | `crm-dashboard` | `crm.dashboard.view` | ✅ | CRM wave ||
+| 17 | `crm-enquiries` | `crm.enquiries.view` | ✅ | CRM wave ||
+| 18 | `crm-enquiry-detail` | `crm.enquiries.view` | ✅ | CRM wave ||
+| 19 | `crm-lead-detail` | `crm.leads.view` | ✅ | CRM wave ||
+| 20 | `crm-leads` | `crm.leads.view` | ✅ | CRM wave ||
+| 21 | `crm-reports` | `crm.reports.view` | ✅ | CRM wave ||
+| 22 | `crm-scheduled-reports` | `schedulers.view` | ✅ | CRM wave ||
+| 23 | `crm-settings` | `crm.settings.view` | ✅ | CRM wave ||
 | 24 | `customer-detail` | `parties.customers.view` | ✅ | Parties wave |
 | 25 | `customers` | `parties.customers.view` | ✅ | Parties wave |
-| 26 | `customization-activities` | `settings.customization_activities.view` | ☐ | |
-| 27 | `customizationItems` | `boutique.items.view` | ☐ | |
-| 28 | `customizationOrders` | `boutique.orders.view` | ☐ | |
-| 29 | `dashboard` | `core.dashboard.view` | ☐ | |
-| 30 | `data-migration` | `migration.run` | ☐ | |
+| 26 | `customization-activities` | `settings.customization_activities.view` | ✅ | |
+| 27 | `customizationItems` | `boutique.items.view` | ✅ | Boutique wave |
+| 28 | `customizationOrders` | `boutique.orders.view` | ✅ | Boutique wave |
+| 29 | `dashboard` | `core.dashboard.view` | ✅ | Home wave |
+| 30 | `data-migration` | `migration.run` | ✅ | Migration wave |
 | 31 | `debit-notes` | `finance.debit_notes.view` | ✅ | Finance wave |
 | 32 | `delivery-note-detail` | `sales.delivery_notes.view` | ✅ | Sales wave |
 | 33 | `delivery-notes` | `sales.delivery_notes.view` | ✅ | Sales wave |
 | 34 | `delivery-partner-detail` | `parties.delivery_partners.view` | ✅ | Parties wave |
 | 35 | `delivery-partners` | `parties.delivery_partners.view` | ✅ | Parties wave |
-| 36 | `discounts` | `settings.discounts.view` | ☐ | |
+| 36 | `discounts` | `settings.discounts.view` | ✅ | |
 | 37 | `employees` | `parties.employees.view` | ✅ | Parties wave |
 | 38 | `estimate-detail` | `sales.estimates.view` | ✅ | Sales wave |
 | 39 | `estimates` | `sales.estimates.view` | ✅ | Sales wave |
 | 40 | `export-backup` | `finance.export.view` | ✅ | Finance wave |
-| 41 | `feature-flags-settings` | `settings.feature_flags.view` | ☐ | |
+| 41 | `feature-flags-settings` | `settings.feature_flags.view` | ✅ | |
 | 42 | `finance-overview` | `finance.overview.view` | ✅ | Finance wave |
 | 43 | `goods-receipt` | `purchases.grn.view` | ✅ | Purchases wave |
 | 44 | `grn-detail` | `purchases.grn.view` | ✅ | Purchases wave |
@@ -63,44 +63,44 @@ Track migration parity for each Streamlit `url_path` route.
 | 55 | `inventory-transfer-detail` | `inventory.transfers.view` | ✅ | Inventory wave |
 | 56 | `inventory-transfers` | `inventory.transfers.view` | ✅ | Inventory wave |
 | 57 | `inventory-warehouses` | `inventory.warehouses.view` | ✅ | Via `/locations` read API |
-| 58 | `item-detail` | `boutique.items.view` | ☐ | |
+| 58 | `item-detail` | `boutique.items.view` | ✅ | Boutique wave |
 | 59 | `journal` | `finance.journal.view` | ✅ | Finance wave |
-| 60 | `keyboard-shortcuts` | `settings.keyboard.view` | ☐ | |
-| 61 | `measurement-detail` | `boutique.measurements.view` | ☐ | |
-| 62 | `measurement-specs` | `settings.measurement_specs.view` | ☐ | |
-| 63 | `measurements` | `boutique.measurements.view` | ☐ | |
-| 64 | `mtd-dashboard` | `core.mtd.view` | ☐ | |
-| 65 | `order-detail` | `boutique.orders.view` | ☐ | |
-| 66 | `order-workspace` | `boutique.orders.view` | ☐ | |
+| 60 | `keyboard-shortcuts` | `settings.keyboard.view` | ✅ | |
+| 61 | `measurement-detail` | `boutique.measurements.view` | ✅ | Boutique wave |
+| 62 | `measurement-specs` | `settings.measurement_specs.view` | ✅ | |
+| 63 | `measurements` | `boutique.measurements.view` | ✅ | Boutique wave |
+| 64 | `mtd-dashboard` | `core.mtd.view` | ✅ | Home wave |
+| 65 | `order-detail` | `boutique.orders.view` | ✅ | Boutique wave |
+| 66 | `order-workspace` | `boutique.orders.view` | ✅ | Boutique wave (create dialog) |
 | 67 | `party-segments` | `parties.segments.view` | ✅ | Parties wave |
 | 68 | `payments` | `finance.payments.view` | ✅ | Finance wave |
-| 69 | `permissions-settings` | `settings.permissions.view` | ☐ | |
-| 70 | `plans-settings` | `settings.plans.view` | ☐ | |
-| 71 | `print-settings` | `settings.print.view` | ☐ | |
-| 72 | `production-batch-detail` | `production.batches.view` | ☐ | |
-| 73 | `production-batches` | `production.batches.view` | ☐ | |
-| 74 | `production-dashboard` | `production.dashboard.view` | ☐ | |
-| 75 | `production-day-book` | `production.day_book.view` | ☐ | |
-| 76 | `production-margins` | `production.margins.view` | ☐ | |
-| 77 | `production-recipes` | `production.recipes.view` | ☐ | |
-| 78 | `production-reports` | `production.reports.view` | ☐ | |
-| 79 | `production-scheduled-reports` | `schedulers.view` | ☐ | |
-| 80 | `production-settings` | `production.settings.view` | ☐ | |
-| 81 | `production-yield` | `production.yield.view` | ☐ | |
-| 82 | `project-activities` | `settings.project_activities.view` | ☐ | |
-| 83 | `project-detail` | `projects.projects.view` | ☐ | |
-| 84 | `project-enquiries` | `projects.enquiries.view` | ☐ | |
-| 85 | `project-enquiry-workspace` | `projects.enquiries.view` | ☐ | |
-| 86 | `project-measurements` | `projects.measurements.view` | ☐ | |
-| 87 | `project-portal` | `projects.portal.manage` | ☐ | |
-| 88 | `project-ra-bills` | `projects.ra_bills.view` | ☐ | |
-| 89 | `project-site-mobile` | `projects.site_mobile.view` | ☐ | |
-| 90 | `project-workspace` | `projects.projects.view` | ☐ | |
-| 91 | `projects` | `projects.projects.view` | ☐ | |
-| 92 | `projects-dashboard` | `projects.overview.view` | ☐ | |
-| 93 | `projects-reports` | `projects.reports.view` | ☐ | |
-| 94 | `projects-scheduled-reports` | `schedulers.view` | ☐ | |
-| 95 | `projects-settings` | `projects.settings.view` | ☐ | |
+| 69 | `permissions-settings` | `settings.permissions.view` | ✅ | |
+| 70 | `plans-settings` | `settings.plans.view` | ✅ | |
+| 71 | `print-settings` | `settings.print.view` | ✅ | |
+| 72 | `production-batch-detail` | `production.batches.view` | ✅ | Production wave |
+| 73 | `production-batches` | `production.batches.view` | ✅ | Production wave |
+| 74 | `production-dashboard` | `production.dashboard.view` | ✅ | Production wave |
+| 75 | `production-day-book` | `production.day_book.view` | ✅ | Production wave |
+| 76 | `production-margins` | `production.margins.view` | ✅ | Production wave |
+| 77 | `production-recipes` | `production.recipes.view` | ✅ | Production wave |
+| 78 | `production-reports` | `production.reports.view` | ✅ | Production wave |
+| 79 | `production-scheduled-reports` | `schedulers.view` | ✅ | Link stub to schedulers |
+| 80 | `production-settings` | `production.settings.view` | ✅ | Production wave |
+| 81 | `production-yield` | `production.yield.view` | ✅ | Production wave |
+| 82 | `project-activities` | `settings.project_activities.view` | ✅ | |
+| 83 | `project-detail` | `projects.projects.view` | ✅ | Projects wave |
+| 84 | `project-enquiries` | `projects.enquiries.view` | ✅ | Projects wave |
+| 85 | `project-enquiry-workspace` | `projects.enquiries.view` | ✅ | Projects wave |
+| 86 | `project-measurements` | `projects.measurements.view` | ✅ | Projects wave |
+| 87 | `project-portal` | `projects.portal.manage` | ✅ | Projects wave |
+| 88 | `project-ra-bills` | `projects.ra_bills.view` | ✅ | Projects wave |
+| 89 | `project-site-mobile` | `projects.site_mobile.view` | ✅ | Projects wave |
+| 90 | `project-workspace` | `projects.projects.view` | ✅ | Projects wave |
+| 91 | `projects` | `projects.projects.view` | ✅ | Projects wave |
+| 92 | `projects-dashboard` | `projects.overview.view` | ✅ | Projects wave |
+| 93 | `projects-reports` | `projects.reports.view` | ✅ | Projects wave |
+| 94 | `projects-scheduled-reports` | `schedulers.view` | ✅ | Link stub to schedulers |
+| 95 | `projects-settings` | `projects.settings.view` | ✅ | Projects wave |
 | 96 | `purchase-detail` | `purchases.bills.view` | ✅ | Purchases wave |
 | 97 | `purchase-order-detail` | `purchases.orders.view` | ✅ | Purchases wave |
 | 98 | `purchase-orders` | `purchases.orders.view` | ✅ | Purchases wave |
@@ -114,7 +114,7 @@ Track migration parity for each Streamlit `url_path` route.
 | 106 | `quotations` | `sales.quotations.view` | ✅ | Sales wave |
 | 107 | `receipts` | `finance.receipts.view` | ✅ | Finance wave |
 | 108 | `reports` | `finance.reports.view` | ✅ | Finance wave |
-| 109 | `roles-settings` | `settings.roles.view` | ☐ | |
+| 109 | `roles-settings` | `settings.roles.view` | ✅ | |
 | 110 | `sales` | `sales.invoices.view` | ✅ | Sales wave |
 | 111 | `sales-detail` | `sales.invoices.view` | ✅ | Sales wave |
 | 112 | `sales-order-detail` | `sales.orders.view` | ✅ | Sales wave |
@@ -124,23 +124,23 @@ Track migration parity for each Streamlit `url_path` route.
 | 116 | `sales-return-detail` | `sales.returns.view` | ✅ | Sales wave |
 | 117 | `sales-returns` | `sales.returns.view` | ✅ | Sales wave |
 | 118 | `sales-scheduled-reports` | `schedulers.view` | ✅ | Link stub to schedulers |
-| 119 | `schedulers-boutique` | `schedulers.view` | ☐ | |
-| 120 | `schedulers-crm` | `schedulers.view` | ☐ | |
-| 121 | `schedulers-inventory` | `schedulers.view` | ☐ | |
-| 122 | `schedulers-production` | `schedulers.view` | ☐ | |
-| 123 | `schedulers-projects` | `schedulers.view` | ☐ | |
+| 119 | `schedulers-boutique` | `schedulers.view` | ✅ | Link stub from boutique |
+| 120 | `schedulers-crm` | `schedulers.view` | ✅ | Schedulers wave |
+| 121 | `schedulers-inventory` | `schedulers.view` | ✅ | Schedulers wave |
+| 122 | `schedulers-production` | `schedulers.view` | ✅ | Link stub from production |
+| 123 | `schedulers-projects` | `schedulers.view` | ✅ | Schedulers wave |
 | 124 | `schedulers-purchases` | `schedulers.view` | ✅ | Link stub from purchases |
 | 125 | `schedulers-sales` | `schedulers.view` | ✅ | Link stub from sales |
-| 126 | `services` | `settings.services.view` | ☐ | |
-| 127 | `settings-locations` | `inventory.warehouses.view` | ☐ | |
-| 128 | `store-activities` | `settings.store_activities.view` | ☐ | |
-| 129 | `store-time` | `parties.store_tasks.view` | ☐ | |
-| 130 | `system-logs` | `system.logs.view` | ☐ | |
-| 131 | `system-settings` | `system.settings.view` | ☐ | |
-| 132 | `system-updates` | `system.updates.view` | ☐ | |
-| 133 | `time` | `boutique.tasks.view` | ☐ | |
+| 126 | `services` | `settings.services.view` | ✅ | |
+| 127 | `settings-locations` | `inventory.warehouses.view` | ✅ | |
+| 128 | `store-activities` | `settings.store_activities.view` | ✅ | Settings wave (+ store API) |
+| 129 | `store-time` | `parties.store_tasks.view` | ✅ | Store wave |
+| 130 | `system-logs` | `system.logs.view` | ✅ | System wave |
+| 131 | `system-settings` | `system.settings.view` | ✅ | System wave |
+| 132 | `system-updates` | `system.updates.view` | ✅ | System wave |
+| 133 | `time` | `boutique.tasks.view` | ✅ | Boutique wave |
 | 134 | `trial-balance` | `finance.trial_balance.view` | ✅ | Finance wave |
-| 135 | `users-settings` | `settings.users.view` | ☐ | |
+| 135 | `users-settings` | `settings.users.view` | ✅ | |
 | 136 | `vendor-detail` | `parties.vendors.view` | ✅ | Parties wave |
 | 137 | `vendors` | `parties.vendors.view` | ✅ | Parties wave |
 | 138 | `vouchers` | `finance.vouchers.view` | ✅ | Finance wave |

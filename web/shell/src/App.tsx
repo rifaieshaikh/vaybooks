@@ -4,19 +4,95 @@ import { AppLayout } from './components/AppLayout';
 import { LicenseBlockedPage } from './components/LicenseBlockedPage';
 import { LoginPage } from './components/LoginPage';
 import {
-  AccessPage,
-  BoutiquePage,
-  CrmPage,
-  HomePage,
-  MigrationPage,
-  ProductionPage,
-  ProjectsPage,
-  ReportsPage,
-  SchedulersPage,
-  SettingsPage,
-  StorePage,
-  SystemPage,
-} from './pages/Modules';
+  AccessAuditLogsPage,
+  AccessFeatureFlagsPage,
+  AccessPermissionsPage,
+  AccessPlansPage,
+  AccessRoleDetailPage,
+  AccessRolesListPage,
+  AccessUserDetailPage,
+  AccessUsersListPage,
+} from '../../mfe-access/src';
+import {
+  BusinessSettingsPage,
+  CrmSettingsRedirectPage,
+  CustomizationActivitiesPage,
+  DiscountsSettingsPage,
+  KeyboardShortcutsPage,
+  MeasurementSpecsPage,
+  PrintSettingsPage,
+  ProjectActivitiesSettingsPage,
+  ServicesSettingsPage,
+  SettingsHomeRedirect,
+  SettingsLocationsPage,
+  StoreActivitiesSettingsPage,
+} from '../../mfe-settings/src';
+import {
+  HomeDashboardPage,
+  MtdDashboardPage,
+  ReportsCatalogPage,
+} from '../../mfe-home/src';
+import { SchedulersHubPage, SchedulersModulePage } from '../../mfe-schedulers/src';
+import { MigrationHubPage } from '../../mfe-migration/src';
+import {
+  SystemHubPage,
+  SystemLogsPage,
+  SystemSettingsPage,
+  SystemUpdatesPage,
+} from '../../mfe-system/src';
+import {
+  StoreOverviewPage,
+  StoreTimePage,
+} from '../../mfe-store/src';
+import {
+  ProductionBatchDetailPage,
+  ProductionBatchesListPage,
+  ProductionDayBookPage,
+  ProductionMarginsPage,
+  ProductionOverviewPage,
+  ProductionRecipesPage,
+  ProductionReportsPage,
+  ProductionScheduledReportsPage,
+  ProductionSettingsPage,
+  ProductionYieldPage,
+} from '../../mfe-production/src';
+import {
+  ProjectDetailPage,
+  ProjectEnquiriesListPage,
+  ProjectEnquiryDetailPage,
+  ProjectMeasurementsPage,
+  ProjectRaBillsPage,
+  ProjectsListPage,
+  ProjectsOverviewPage,
+  ProjectsReportsPage,
+  ProjectsScheduledReportsPage,
+  ProjectsSettingsPage,
+} from '../../mfe-projects/src';
+import {
+  CrmActivitiesListPage,
+  CrmActivityDetailPage,
+  CrmCalendarPage,
+  CrmEnquiriesListPage,
+  CrmEnquiryDetailPage,
+  CrmLeadDetailPage,
+  CrmLeadsListPage,
+  CrmOverviewPage,
+  CrmReportsPage,
+  CrmScheduledReportsPage,
+} from '../../mfe-crm/src';
+import {
+  BoutiqueCalendarPage,
+  BoutiqueItemDetailPage,
+  BoutiqueItemsListPage,
+  BoutiqueMeasurementDetailPage,
+  BoutiqueMeasurementsListPage,
+  BoutiqueOrderDetailPage,
+  BoutiqueOrdersListPage,
+  BoutiqueOverviewPage,
+  BoutiqueReportsPage,
+  BoutiqueScheduledReportsPage,
+  BoutiqueTimePage,
+} from '../../mfe-boutique/src';
 import {
   CommissionAgentDetailPage,
   CommissionAgentsListPage,
@@ -89,16 +165,6 @@ import {
   SalesScheduledReportsPage,
 } from '../../mfe-sales/src';
 
-/** Unmigrated Streamlit child routes land on the module stub until that wave ships. */
-function stubRoutes(prefix: string, element: JSX.Element) {
-  return (
-    <>
-      <Route path={prefix} element={element} />
-      <Route path={`${prefix}/*`} element={element} />
-    </>
-  );
-}
-
 export default function App() {
   const accessToken = useAppSelector((s) => s.session.accessToken);
   const licenseStatus = useAppSelector((s) => s.license.status);
@@ -114,9 +180,9 @@ export default function App() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route index element={<HomePage />} />
+        <Route index element={<HomeDashboardPage />} />
         <Route path="dashboard" element={<Navigate to="/" replace />} />
-        <Route path="mtd-dashboard" element={<HomePage />} />
+        <Route path="mtd-dashboard" element={<MtdDashboardPage />} />
 
         <Route path="parties" element={<Navigate to="/parties/customers" replace />} />
         <Route path="parties/customers" element={<CustomersListPage />} />
@@ -132,9 +198,37 @@ export default function App() {
         <Route path="parties/segments" element={<SegmentsListPage />} />
         <Route path="party-segments" element={<Navigate to="/parties/segments" replace />} />
 
-        {stubRoutes('crm', <CrmPage />)}
-        {stubRoutes('boutique', <BoutiquePage />)}
-        {stubRoutes('projects', <ProjectsPage />)}
+        <Route path="crm" element={<CrmOverviewPage />} />
+        <Route path="crm/leads" element={<CrmLeadsListPage />} />
+        <Route path="crm/leads/:id" element={<CrmLeadDetailPage />} />
+        <Route path="crm/enquiries" element={<CrmEnquiriesListPage />} />
+        <Route path="crm/enquiries/:id" element={<CrmEnquiryDetailPage />} />
+        <Route path="crm/activities" element={<CrmActivitiesListPage />} />
+        <Route path="crm/activities/:id" element={<CrmActivityDetailPage />} />
+        <Route path="crm/calendar" element={<CrmCalendarPage />} />
+        <Route path="crm/reports" element={<CrmReportsPage />} />
+        <Route path="crm/scheduled-reports" element={<CrmScheduledReportsPage />} />
+        <Route path="boutique" element={<BoutiqueOverviewPage />} />
+        <Route path="boutique/orders" element={<BoutiqueOrdersListPage />} />
+        <Route path="boutique/orders/:id" element={<BoutiqueOrderDetailPage />} />
+        <Route path="boutique/items" element={<BoutiqueItemsListPage />} />
+        <Route path="boutique/items/:id" element={<BoutiqueItemDetailPage />} />
+        <Route path="boutique/measurements" element={<BoutiqueMeasurementsListPage />} />
+        <Route path="boutique/measurements/:id" element={<BoutiqueMeasurementDetailPage />} />
+        <Route path="boutique/time" element={<BoutiqueTimePage />} />
+        <Route path="boutique/calendar" element={<BoutiqueCalendarPage />} />
+        <Route path="boutique/reports" element={<BoutiqueReportsPage />} />
+        <Route path="boutique/scheduled-reports" element={<BoutiqueScheduledReportsPage />} />
+        <Route path="projects" element={<ProjectsOverviewPage />} />
+        <Route path="projects/list" element={<ProjectsListPage />} />
+        <Route path="projects/list/:id" element={<ProjectDetailPage />} />
+        <Route path="projects/enquiries" element={<ProjectEnquiriesListPage />} />
+        <Route path="projects/enquiries/:id" element={<ProjectEnquiryDetailPage />} />
+        <Route path="projects/measurements" element={<ProjectMeasurementsPage />} />
+        <Route path="projects/ra-bills" element={<ProjectRaBillsPage />} />
+        <Route path="projects/reports" element={<ProjectsReportsPage />} />
+        <Route path="projects/scheduled-reports" element={<ProjectsScheduledReportsPage />} />
+        <Route path="projects/settings" element={<ProjectsSettingsPage />} />
         <Route path="sales" element={<SalesOverviewPage />} />
         <Route path="sales/estimates" element={<EstimatesListPage />} />
         <Route path="sales/estimates/:id" element={<EstimateDetailPage />} />
@@ -185,7 +279,16 @@ export default function App() {
         <Route path="inventory-customer-prices" element={<Navigate to="/inventory/customer-prices" replace />} />
         <Route path="inventory-reports" element={<Navigate to="/inventory/reports" replace />} />
 
-        {stubRoutes('production', <ProductionPage />)}
+        <Route path="production" element={<ProductionOverviewPage />} />
+        <Route path="production/recipes" element={<ProductionRecipesPage />} />
+        <Route path="production/batches" element={<ProductionBatchesListPage />} />
+        <Route path="production/batches/:id" element={<ProductionBatchDetailPage />} />
+        <Route path="production/day-book" element={<ProductionDayBookPage />} />
+        <Route path="production/margins" element={<ProductionMarginsPage />} />
+        <Route path="production/yield" element={<ProductionYieldPage />} />
+        <Route path="production/reports" element={<ProductionReportsPage />} />
+        <Route path="production/scheduled-reports" element={<ProductionScheduledReportsPage />} />
+        <Route path="production/settings" element={<ProductionSettingsPage />} />
 
         <Route path="finance" element={<FinanceOverviewPage />} />
         <Route path="finance/accounts" element={<AccountsListPage />} />
@@ -201,17 +304,41 @@ export default function App() {
         <Route path="finance/reports" element={<FinanceReportsPage />} />
         <Route path="finance/export-backup" element={<ExportBackupPage />} />
 
-        {stubRoutes('schedulers', <SchedulersPage />)}
-        {stubRoutes('access', <AccessPage />)}
-        {stubRoutes('settings', <SettingsPage />)}
-        {stubRoutes('system', <SystemPage />)}
+        <Route path="schedulers" element={<SchedulersHubPage />} />
+        <Route path="schedulers/:module" element={<SchedulersModulePage />} />
+        <Route path="access" element={<Navigate to="/access/users" replace />} />
+        <Route path="access/users" element={<AccessUsersListPage />} />
+        <Route path="access/users/:id" element={<AccessUserDetailPage />} />
+        <Route path="access/roles" element={<AccessRolesListPage />} />
+        <Route path="access/roles/:id" element={<AccessRoleDetailPage />} />
+        <Route path="access/permissions" element={<AccessPermissionsPage />} />
+        <Route path="access/audit-logs" element={<AccessAuditLogsPage />} />
+        <Route path="access/plans" element={<AccessPlansPage />} />
+        <Route path="access/feature-flags" element={<AccessFeatureFlagsPage />} />
 
-        <Route path="reports" element={<ReportsPage />} />
-        <Route path="migration" element={<MigrationPage />} />
-        <Route path="store" element={<StorePage />} />
-        <Route path="store-time" element={<StorePage />} />
-        <Route path="business-settings" element={<SettingsPage />} />
-        <Route path="settings-locations" element={<SettingsPage />} />
+        <Route path="settings" element={<SettingsHomeRedirect />} />
+        <Route path="settings/print" element={<PrintSettingsPage />} />
+        <Route path="settings/keyboard" element={<KeyboardShortcutsPage />} />
+        <Route path="settings/activities" element={<CustomizationActivitiesPage />} />
+        <Route path="settings/project-activities" element={<ProjectActivitiesSettingsPage />} />
+        <Route path="settings/store-activities" element={<StoreActivitiesSettingsPage />} />
+        <Route path="settings/measurement-specs" element={<MeasurementSpecsPage />} />
+        <Route path="settings/services" element={<ServicesSettingsPage />} />
+        <Route path="settings/discounts" element={<DiscountsSettingsPage />} />
+        <Route path="settings/crm" element={<CrmSettingsRedirectPage />} />
+        <Route path="settings/production" element={<Navigate to="/production/settings" replace />} />
+
+        <Route path="system" element={<SystemHubPage />} />
+        <Route path="system/settings" element={<SystemSettingsPage />} />
+        <Route path="system/updates" element={<SystemUpdatesPage />} />
+        <Route path="system/logs" element={<SystemLogsPage />} />
+
+        <Route path="reports" element={<ReportsCatalogPage />} />
+        <Route path="migration" element={<MigrationHubPage />} />
+        <Route path="store" element={<StoreOverviewPage />} />
+        <Route path="store-time" element={<StoreTimePage />} />
+        <Route path="business-settings" element={<BusinessSettingsPage />} />
+        <Route path="settings-locations" element={<SettingsLocationsPage />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

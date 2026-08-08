@@ -17,6 +17,7 @@ for key in (
     "FINANCE_BACKEND",
     "PURCHASES_BACKEND",
     "SALES_BACKEND",
+    "BOUTIQUE_BACKEND",
 ):
     os.environ.pop(key, None)
 
@@ -54,5 +55,71 @@ def reset_all_containers() -> None:
         from packages.services_kit.sales_container import reset_sales_container
 
         reset_sales_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.boutique_container import reset_boutique_container
+
+        reset_boutique_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.crm_container import reset_crm_container
+
+        reset_crm_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.projects_container import reset_projects_container
+
+        reset_projects_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.schedulers_container import reset_schedulers_container
+
+        reset_schedulers_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.migration_container import reset_migration_container
+
+        reset_migration_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.reports_container import reset_reports_container
+
+        reset_reports_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.system_container import reset_system_container
+
+        reset_system_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.access_container import reset_access_container
+
+        reset_access_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.settings_container import reset_settings_container
+
+        reset_settings_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.store_container import reset_store_container
+
+        reset_store_container()
+    except ImportError:
+        pass
+    try:
+        from packages.services_kit.production_container import reset_production_container
+
+        reset_production_container()
     except ImportError:
         pass

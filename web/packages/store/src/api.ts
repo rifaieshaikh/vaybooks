@@ -50,6 +50,9 @@ export const baseApi = createApi({
     'Purchases',
     'BoutiqueOrder',
     'BoutiqueItem',
+    'BoutiqueMeasurement',
+    'BoutiqueTime',
+    'Boutique',
     'StoreActivity',
     'StoreTime',
     'CrmLead',
@@ -60,15 +63,29 @@ export const baseApi = createApi({
     'ProjectEnquiry',
     'Recipe',
     'Batch',
+    'Production',
     'MigrationBatch',
     'SystemSetting',
     'AccessUser',
     'AccessRole',
+    'AccessPlan',
+    'AccessFlag',
+    'AccessAudit',
+    'AccessPermission',
     'Flags',
     'License',
     'Home',
     'Reports',
     'Settings',
+    'BusinessProfile',
+    'PrintSettings',
+    'KeyboardShortcuts',
+    'SettingsActivity',
+    'SettingsStoreActivity',
+    'SettingsProjectActivity',
+    'MeasurementSpec',
+    'VendorService',
+    'DiscountRule',
     'Inventory',
     'Finance',
   ],
@@ -111,10 +128,18 @@ export const baseApi = createApi({
       query: () => '/home/dashboard',
       providesTags: ['Home'],
     }),
-    reportsCatalog: build.query<{ reports: { id: string; title: string }[] }, void>({
+    homeMtd: build.query<Record<string, unknown>, void>({
+      query: () => '/home/mtd',
+      providesTags: ['Home'],
+    }),
+    reportsCatalog: build.query<
+      { reports: { id: string; title: string; module?: string; href?: string }[] },
+      void
+    >({
       query: () => '/reports/catalog',
       providesTags: ['Reports'],
     }),
+
     getPrefs: build.query<{ timezone: string; locale: string }, void>({
       query: () => '/settings/prefs',
       providesTags: ['Settings'],
@@ -122,6 +147,86 @@ export const baseApi = createApi({
     putPrefs: build.mutation<{ timezone: string; locale: string }, Partial<{ timezone: string; locale: string }>>({
       query: (body) => ({ url: '/settings/prefs', method: 'PUT', body }),
       invalidatesTags: ['Settings'],
+    }),
+    settingsHealth: build.query<Record<string, unknown>, void>({
+      query: () => '/settings/health',
+      providesTags: ['Settings'],
+    }),
+    getBusinessProfile: build.query<Record<string, unknown>, void>({
+      query: () => '/settings/business',
+      providesTags: ['BusinessProfile'],
+    }),
+    updateBusinessProfile: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/settings/business', method: 'PATCH', body }),
+      invalidatesTags: ['BusinessProfile'],
+    }),
+    getPrintSettings: build.query<Record<string, unknown>, void>({
+      query: () => '/settings/print',
+      providesTags: ['PrintSettings'],
+    }),
+    updatePrintSettings: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/settings/print', method: 'PUT', body }),
+      invalidatesTags: ['PrintSettings'],
+    }),
+    getKeyboardShortcuts: build.query<Record<string, unknown>, void>({
+      query: () => '/settings/keyboard',
+      providesTags: ['KeyboardShortcuts'],
+    }),
+    updateKeyboardShortcuts: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/settings/keyboard', method: 'PUT', body }),
+      invalidatesTags: ['KeyboardShortcuts'],
+    }),
+    listSettingsActivities: build.query<Record<string, unknown>[], void>({
+      query: () => '/settings/activities',
+      providesTags: ['SettingsActivity'],
+    }),
+    createSettingsActivity: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/settings/activities', method: 'POST', body }),
+      invalidatesTags: ['SettingsActivity'],
+    }),
+    listSettingsStoreActivities: build.query<Record<string, unknown>[], void>({
+      query: () => '/settings/store-activities',
+      providesTags: ['SettingsStoreActivity'],
+    }),
+    createSettingsStoreActivity: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/settings/store-activities', method: 'POST', body }),
+      invalidatesTags: ['SettingsStoreActivity'],
+    }),
+    listSettingsProjectActivities: build.query<Record<string, unknown>[], void>({
+      query: () => '/settings/project-activities',
+      providesTags: ['SettingsProjectActivity'],
+    }),
+    createSettingsProjectActivity: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/settings/project-activities', method: 'POST', body }),
+      invalidatesTags: ['SettingsProjectActivity'],
+    }),
+    listMeasurementSpecs: build.query<Record<string, unknown>[], void>({
+      query: () => '/settings/measurement-specs',
+      providesTags: ['MeasurementSpec'],
+    }),
+    createMeasurementSpec: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/settings/measurement-specs', method: 'POST', body }),
+      invalidatesTags: ['MeasurementSpec'],
+    }),
+    listVendorServices: build.query<Record<string, unknown>[], void>({
+      query: () => '/settings/services',
+      providesTags: ['VendorService'],
+    }),
+    createVendorService: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/settings/services', method: 'POST', body }),
+      invalidatesTags: ['VendorService'],
+    }),
+    listDiscountRules: build.query<Record<string, unknown>[], void>({
+      query: () => '/settings/discounts',
+      providesTags: ['DiscountRule'],
+    }),
+    createDiscountRule: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/settings/discounts', method: 'POST', body }),
+      invalidatesTags: ['DiscountRule'],
+    }),
+    getProductionSettingsStub: build.query<Record<string, unknown>, void>({
+      query: () => '/settings/production',
+      providesTags: ['Settings'],
     }),
 
     // Parties — typed resources
@@ -827,90 +932,405 @@ export const baseApi = createApi({
     }),
 
     // Boutique
-    listBoutiqueOrders: build.query<Record<string, unknown>[], void>({
-      query: () => '/boutique/orders',
+    boutiqueHealth: build.query<Record<string, unknown>, void>({
+      query: () => '/boutique/health',
+      providesTags: ['Boutique'],
+    }),
+    boutiqueOverview: build.query<Record<string, unknown>, void>({
+      query: () => '/boutique/overview',
+      providesTags: ['Boutique', 'BoutiqueOrder', 'BoutiqueItem', 'BoutiqueMeasurement', 'BoutiqueTime'],
+    }),
+    listBoutiqueActivities: build.query<Record<string, unknown>[], void>({
+      query: () => '/boutique/activities',
+      providesTags: ['Boutique'],
+    }),
+    listBoutiqueOrders: build.query<Record<string, unknown>[], { q?: string } | void>({
+      query: (args) => ({ url: '/boutique/orders', params: args || undefined }),
       providesTags: ['BoutiqueOrder'],
     }),
-    createBoutiqueOrder: build.mutation<
-      Record<string, unknown>,
-      { customer_id: string; notes?: string }
-    >({
-      query: (body) => ({ url: '/boutique/orders', method: 'POST', body }),
-      invalidatesTags: ['BoutiqueOrder'],
+    getBoutiqueOrder: build.query<Record<string, unknown>, string>({
+      query: (id) => `/boutique/orders/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'BoutiqueOrder', id }],
     }),
-    listBoutiqueItems: build.query<Record<string, unknown>[], void>({
-      query: () => '/boutique/items',
+    createBoutiqueOrder: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/boutique/orders', method: 'POST', body }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    patchBoutiqueOrder: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/boutique/orders/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    confirmBoutiqueOrder: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/boutique/orders/${id}/confirm`, method: 'POST' }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    cancelBoutiqueOrder: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/boutique/orders/${id}/cancel`, method: 'POST' }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    completeBoutiqueOrder: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/boutique/orders/${id}/complete`, method: 'POST' }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    addBoutiqueOrderItem: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; body: Record<string, unknown> }
+    >({
+      query: ({ orderId, body }) => ({
+        url: `/boutique/orders/${orderId}/items`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'BoutiqueItem', 'Boutique'],
+    }),
+    removeBoutiqueOrderItem: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; itemId: string }
+    >({
+      query: ({ orderId, itemId }) => ({
+        url: `/boutique/orders/${orderId}/items/${itemId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'BoutiqueItem', 'Boutique'],
+    }),
+    completeBoutiqueActivity: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; activityId: string; body?: Record<string, unknown> }
+    >({
+      query: ({ orderId, activityId, body }) => ({
+        url: `/boutique/orders/${orderId}/activities/${activityId}/complete`,
+        method: 'POST',
+        body: body || { completed_by: 'web' },
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    skipBoutiqueActivity: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; activityId: string; body?: Record<string, unknown> }
+    >({
+      query: ({ orderId, activityId, body }) => ({
+        url: `/boutique/orders/${orderId}/activities/${activityId}/skip`,
+        method: 'POST',
+        body: body || { completed_by: 'web' },
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    recordBoutiqueAdvance: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; body: Record<string, unknown> }
+    >({
+      query: ({ orderId, body }) => ({
+        url: `/boutique/orders/${orderId}/advances`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    listBoutiqueOrderInvoices: build.query<Record<string, unknown>[], string>({
+      query: (orderId) => `/boutique/orders/${orderId}/invoices`,
+      providesTags: ['BoutiqueOrder'],
+    }),
+    createBoutiqueOrderInvoice: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; body: Record<string, unknown> }
+    >({
+      query: ({ orderId, body }) => ({
+        url: `/boutique/orders/${orderId}/invoices`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    listBoutiqueOrderDeliveries: build.query<Record<string, unknown>[], string>({
+      query: (orderId) => `/boutique/orders/${orderId}/deliveries`,
+      providesTags: ['BoutiqueOrder'],
+    }),
+    createBoutiqueOrderDelivery: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; body: Record<string, unknown> }
+    >({
+      query: ({ orderId, body }) => ({
+        url: `/boutique/orders/${orderId}/deliveries`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    listBoutiqueOrderExpenses: build.query<Record<string, unknown>[], string>({
+      query: (orderId) => `/boutique/orders/${orderId}/expenses`,
+      providesTags: ['BoutiqueOrder'],
+    }),
+    listBoutiqueItems: build.query<Record<string, unknown>[], { q?: string } | void>({
+      query: (args) => ({ url: '/boutique/items', params: args || undefined }),
       providesTags: ['BoutiqueItem'],
     }),
-    createBoutiqueItem: build.mutation<
+    getBoutiqueItem: build.query<
       Record<string, unknown>,
-      { order_id: string; name: string; quantity?: number }
+      { itemId: string; orderId?: string }
     >({
+      query: ({ itemId, orderId }) => ({
+        url: `/boutique/items/${itemId}`,
+        params: orderId ? { order_id: orderId } : undefined,
+      }),
+      providesTags: ['BoutiqueItem'],
+    }),
+    createBoutiqueItem: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/boutique/items', method: 'POST', body }),
-      invalidatesTags: ['BoutiqueItem'],
+      invalidatesTags: ['BoutiqueItem', 'BoutiqueOrder', 'Boutique'],
+    }),
+    listBoutiqueMeasurementSpecs: build.query<Record<string, unknown>[], void>({
+      query: () => '/boutique/measurement-specs',
+      providesTags: ['BoutiqueMeasurement'],
+    }),
+    listBoutiqueMeasurements: build.query<
+      Record<string, unknown>[],
+      { customer_id?: string } | void
+    >({
+      query: (args) => ({ url: '/boutique/measurements', params: args || undefined }),
+      providesTags: ['BoutiqueMeasurement'],
+    }),
+    getBoutiqueMeasurement: build.query<Record<string, unknown>, string>({
+      query: (id) => `/boutique/measurements/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'BoutiqueMeasurement', id }],
+    }),
+    createBoutiqueMeasurement: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/boutique/measurements', method: 'POST', body }),
+      invalidatesTags: ['BoutiqueMeasurement', 'Boutique'],
+    }),
+    updateBoutiqueMeasurement: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/boutique/measurements/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['BoutiqueMeasurement', 'Boutique'],
+    }),
+    deleteBoutiqueMeasurement: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/boutique/measurements/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['BoutiqueMeasurement', 'Boutique'],
+    }),
+    listBoutiqueTimeEntries: build.query<
+      Record<string, unknown>[],
+      Record<string, string | undefined> | void
+    >({
+      query: (args) => ({ url: '/boutique/time-entries', params: args || undefined }),
+      providesTags: ['BoutiqueTime'],
+    }),
+    createBoutiqueTimeEntry: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/boutique/time-entries', method: 'POST', body }),
+      invalidatesTags: ['BoutiqueTime', 'Boutique'],
+    }),
+    updateBoutiqueTimeEntry: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/boutique/time-entries/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['BoutiqueTime', 'Boutique'],
+    }),
+    deleteBoutiqueTimeEntry: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/boutique/time-entries/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['BoutiqueTime', 'Boutique'],
+    }),
+    boutiqueCalendar: build.query<
+      Record<string, unknown>[],
+      { start_date?: string; end_date?: string; worker_name?: string } | void
+    >({
+      query: (args) => ({ url: '/boutique/calendar', params: args || undefined }),
+      providesTags: ['BoutiqueTime', 'Boutique'],
+    }),
+    boutiqueReportsCatalog: build.query<{ report_types: string[] }, void>({
+      query: () => '/boutique/reports/catalog',
+      providesTags: ['Boutique'],
+    }),
+    runBoutiqueReport: build.mutation<
+      { report_type: string; rows: Record<string, unknown>[] },
+      { report_type: string; filters?: Record<string, unknown> }
+    >({
+      query: (body) => ({ url: '/boutique/reports/run', method: 'POST', body }),
     }),
 
     // Store
-    listStoreActivities: build.query<Record<string, unknown>[], void>({
-      query: () => '/store/activities',
+    storeHealth: build.query<Record<string, unknown>, void>({
+      query: () => '/store/health',
+      providesTags: ['StoreActivity', 'StoreTime'],
+    }),
+    storeOverview: build.query<Record<string, unknown>, void>({
+      query: () => '/store/overview',
+      providesTags: ['StoreActivity', 'StoreTime'],
+    }),
+    listStoreActivities: build.query<
+      Record<string, unknown>[],
+      { active_only?: boolean } | void
+    >({
+      query: (args) => ({ url: '/store/activities', params: args || undefined }),
       providesTags: ['StoreActivity'],
     }),
-    createStoreActivity: build.mutation<Record<string, unknown>, { name: string }>({
+    getStoreActivity: build.query<Record<string, unknown>, string>({
+      query: (id) => `/store/activities/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'StoreActivity', id }],
+    }),
+    createStoreActivity: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/store/activities', method: 'POST', body }),
       invalidatesTags: ['StoreActivity'],
     }),
-    listStoreTimeEntries: build.query<Record<string, unknown>[], void>({
-      query: () => '/store/time-entries',
+    updateStoreActivity: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/store/activities/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['StoreActivity'],
+    }),
+    deactivateStoreActivity: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/store/activities/${id}/deactivate`, method: 'POST' }),
+      invalidatesTags: ['StoreActivity'],
+    }),
+    listStoreTimeEntries: build.query<
+      Record<string, unknown>[],
+      Record<string, string | undefined> | void
+    >({
+      query: (args) => ({ url: '/store/time-entries', params: args || undefined }),
       providesTags: ['StoreTime'],
     }),
-    createStoreTimeEntry: build.mutation<
-      Record<string, unknown>,
-      { worker_id: string; activity_id: string; hours: number }
-    >({
+    getStoreTimeEntry: build.query<Record<string, unknown>, string>({
+      query: (id) => `/store/time-entries/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'StoreTime', id }],
+    }),
+    createStoreTimeEntry: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/store/time-entries', method: 'POST', body }),
+      invalidatesTags: ['StoreTime'],
+    }),
+    updateStoreTimeEntry: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/store/time-entries/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['StoreTime'],
+    }),
+    completeStoreTimeEntry: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/store/time-entries/${id}/complete`, method: 'POST' }),
+      invalidatesTags: ['StoreTime'],
+    }),
+    deleteStoreTimeEntry: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/store/time-entries/${id}`, method: 'DELETE' }),
       invalidatesTags: ['StoreTime'],
     }),
 
     // CRM
-    listCrmLeads: build.query<Record<string, unknown>[], void>({
-      query: () => '/crm/leads',
+    crmHealth: build.query<Record<string, unknown>, void>({
+      query: () => '/crm/health',
+    }),
+    crmOverview: build.query<Record<string, unknown>, void>({
+      query: () => '/crm/overview',
+      providesTags: ['CrmLead', 'CrmEnquiry', 'CrmActivity'],
+    }),
+    listCrmLeads: build.query<Record<string, unknown>[], { status?: string; search?: string } | void>({
+      query: (args) => ({ url: '/crm/leads', params: args || undefined }),
       providesTags: ['CrmLead'],
     }),
-    createCrmLead: build.mutation<Record<string, unknown>, { name: string; source?: string }>({
+    getCrmLead: build.query<Record<string, unknown>, string>({
+      query: (id) => `/crm/leads/${id}`,
+      providesTags: ['CrmLead'],
+    }),
+    createCrmLead: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/crm/leads', method: 'POST', body }),
       invalidatesTags: ['CrmLead'],
     }),
-    listCrmEnquiries: build.query<Record<string, unknown>[], void>({
-      query: () => '/crm/enquiries',
+    updateCrmLead: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/crm/leads/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['CrmLead'],
+    }),
+    deleteCrmLead: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/crm/leads/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['CrmLead'],
+    }),
+    listCrmEnquiries: build.query<Record<string, unknown>[], { status?: string } | void>({
+      query: (args) => ({ url: '/crm/enquiries', params: args || undefined }),
       providesTags: ['CrmEnquiry'],
     }),
-    createCrmEnquiry: build.mutation<
-      Record<string, unknown>,
-      { subject: string; lead_id?: string }
-    >({
+    getCrmEnquiry: build.query<Record<string, unknown>, string>({
+      query: (id) => `/crm/enquiries/${id}`,
+      providesTags: ['CrmEnquiry'],
+    }),
+    createCrmEnquiry: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/crm/enquiries', method: 'POST', body }),
       invalidatesTags: ['CrmEnquiry'],
     }),
-    listCrmActivities: build.query<Record<string, unknown>[], void>({
-      query: () => '/crm/activities',
+    updateCrmEnquiry: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/crm/enquiries/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['CrmEnquiry'],
+    }),
+    listCrmActivities: build.query<
+      Record<string, unknown>[],
+      { lead_id?: string; enquiry_id?: string } | void
+    >({
+      query: (args) => ({ url: '/crm/activities', params: args || undefined }),
       providesTags: ['CrmActivity'],
     }),
-    createCrmActivity: build.mutation<
-      Record<string, unknown>,
-      { kind?: string; notes?: string; lead_id?: string }
-    >({
+    getCrmActivity: build.query<Record<string, unknown>, string>({
+      query: (id) => `/crm/activities/${id}`,
+      providesTags: ['CrmActivity'],
+    }),
+    createCrmActivity: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/crm/activities', method: 'POST', body }),
+      invalidatesTags: ['CrmActivity', 'CrmLead'],
+    }),
+    updateCrmActivity: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/crm/activities/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['CrmActivity'],
+    }),
+    crmCalendar: build.query<
+      Record<string, unknown>[],
+      { scheduled_from?: string; scheduled_to?: string } | void
+    >({
+      query: (args) => ({ url: '/crm/calendar', params: args || undefined }),
+      providesTags: ['CrmActivity'],
+    }),
+    crmReportsCatalog: build.query<
+      { reports: { id: string; title: string; category: string }[]; report_types: string[] },
+      void
+    >({
+      query: () => '/crm/reports/catalog',
+    }),
+    runCrmReport: build.mutation<
+      Record<string, unknown>,
+      { report_id: string; filters?: Record<string, unknown> }
+    >({
+      query: (body) => ({ url: '/crm/reports/run', method: 'POST', body }),
+    }),
+    getCrmSettings: build.query<Record<string, unknown>, void>({
+      query: () => '/crm/settings',
+      providesTags: ['Settings'],
+    }),
+    updateCrmSettings: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/crm/settings', method: 'PATCH', body }),
+      invalidatesTags: ['Settings'],
     }),
 
     // Schedulers
-    listSchedulerJobs: build.query<Record<string, unknown>[], void>({
-      query: () => '/schedulers/jobs',
+    listSchedulerJobs: build.query<
+      Record<string, unknown>[],
+      { module?: string } | void
+    >({
+      query: (args) => ({
+        url: '/schedulers/jobs',
+        params: args && 'module' in args && args.module ? { module: args.module } : undefined,
+      }),
       providesTags: ['SchedulerJob'],
     }),
     createSchedulerJob: build.mutation<
       Record<string, unknown>,
-      { name: string; module: string; cron?: string }
+      { name?: string; module: string; cron?: string; job_id?: string; enabled?: boolean }
     >({
       query: (body) => ({ url: '/schedulers/jobs', method: 'POST', body }),
       invalidatesTags: ['SchedulerJob'],
@@ -921,65 +1341,282 @@ export const baseApi = createApi({
     }),
 
     // Projects
+    projectsHealth: build.query<Record<string, unknown>, void>({
+      query: () => '/projects/health',
+    }),
+    projectsOverview: build.query<Record<string, unknown>, void>({
+      query: () => '/projects/overview',
+      providesTags: ['Project', 'ProjectEnquiry'],
+    }),
     listProjects: build.query<Record<string, unknown>[], void>({
       query: () => '/projects',
       providesTags: ['Project'],
     }),
-    createProject: build.mutation<
-      Record<string, unknown>,
-      { name: string; customer_id: string }
-    >({
+    getProject: build.query<Record<string, unknown>, string>({
+      query: (id) => `/projects/${id}`,
+      providesTags: ['Project'],
+    }),
+    createProject: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/projects', method: 'POST', body }),
       invalidatesTags: ['Project'],
+    }),
+    updateProject: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/projects/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Project'],
+    }),
+    getProjectWorkspace: build.query<Record<string, unknown>, string>({
+      query: (id) => `/projects/${id}/workspace`,
+      providesTags: ['Project'],
     }),
     listProjectEnquiries: build.query<Record<string, unknown>[], void>({
       query: () => '/projects/enquiries',
       providesTags: ['ProjectEnquiry'],
     }),
-    createProjectEnquiry: build.mutation<
-      Record<string, unknown>,
-      { subject: string; project_id?: string }
-    >({
+    getProjectEnquiry: build.query<Record<string, unknown>, string>({
+      query: (id) => `/projects/enquiries/${id}`,
+      providesTags: ['ProjectEnquiry'],
+    }),
+    createProjectEnquiry: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/projects/enquiries', method: 'POST', body }),
       invalidatesTags: ['ProjectEnquiry'],
     }),
+    listProjectBoq: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/boq`,
+      providesTags: ['Project'],
+    }),
+    createProjectBoqItem: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/boq`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listAllProjectMeasurements: build.query<Record<string, unknown>[], void>({
+      query: () => '/projects/measurements',
+      providesTags: ['Project'],
+    }),
+    listProjectMeasurements: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/measurements`,
+      providesTags: ['Project'],
+    }),
+    createProjectMeasurement: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/measurements`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listAllProjectRaBills: build.query<Record<string, unknown>[], void>({
+      query: () => '/projects/ra-bills',
+      providesTags: ['Project'],
+    }),
+    listProjectRaBills: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/ra-bills`,
+      providesTags: ['Project'],
+    }),
+    createProjectRaBill: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/ra-bills`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listProjectTime: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/time`,
+      providesTags: ['Project'],
+    }),
+    listProjectDocuments: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/documents`,
+      providesTags: ['Project'],
+    }),
+    listProjectDpr: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/dpr`,
+      providesTags: ['Project'],
+    }),
+    createProjectDpr: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/dpr`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listProjectPortalTokens: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/portal`,
+      providesTags: ['Project'],
+    }),
+    createProjectPortalToken: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body?: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/portal`,
+        method: 'POST',
+        body: body || {},
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    getProjectSiteMobile: build.query<Record<string, unknown>, string>({
+      query: (id) => `/projects/${id}/site-mobile`,
+      providesTags: ['Project'],
+    }),
+    projectsReportsCatalog: build.query<{ report_types: string[] }, void>({
+      query: () => '/projects/reports/catalog',
+    }),
+    runProjectsReport: build.mutation<
+      Record<string, unknown>,
+      { report_type: string; filters?: Record<string, unknown> }
+    >({
+      query: (body) => ({ url: '/projects/reports/run', method: 'POST', body }),
+    }),
+    getProjectsSettings: build.query<Record<string, unknown>, void>({
+      query: () => '/projects/settings',
+      providesTags: ['Settings'],
+    }),
 
     // Production
-    listRecipes: build.query<Record<string, unknown>[], void>({
-      query: () => '/production/recipes',
+    productionHealth: build.query<Record<string, unknown>, void>({
+      query: () => '/production/health',
+      providesTags: ['Production'],
+    }),
+    productionOverview: build.query<Record<string, unknown>, void>({
+      query: () => '/production/overview',
+      providesTags: ['Production', 'Recipe', 'Batch'],
+    }),
+    listRecipes: build.query<Record<string, unknown>[], { active_only?: boolean } | void>({
+      query: (args) => ({ url: '/production/recipes', params: args || undefined }),
       providesTags: ['Recipe'],
     }),
-    createRecipe: build.mutation<
-      Record<string, unknown>,
-      { name: string; output_product_id: string }
-    >({
-      query: (body) => ({ url: '/production/recipes', method: 'POST', body }),
-      invalidatesTags: ['Recipe'],
+    getRecipe: build.query<Record<string, unknown>, string>({
+      query: (id) => `/production/recipes/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'Recipe', id }],
     }),
-    listBatches: build.query<Record<string, unknown>[], void>({
-      query: () => '/production/batches',
+    createRecipe: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/production/recipes', method: 'POST', body }),
+      invalidatesTags: ['Recipe', 'Production'],
+    }),
+    updateRecipe: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/production/recipes/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Recipe', 'Production'],
+    }),
+    deleteRecipe: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/production/recipes/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Recipe', 'Production'],
+    }),
+    listBatches: build.query<Record<string, unknown>[], { status?: string } | void>({
+      query: (args) => ({ url: '/production/batches', params: args || undefined }),
       providesTags: ['Batch'],
     }),
-    createBatch: build.mutation<
-      Record<string, unknown>,
-      { recipe_id: string; planned_qty: number }
-    >({
-      query: (body) => ({ url: '/production/batches', method: 'POST', body }),
-      invalidatesTags: ['Batch'],
+    getBatch: build.query<Record<string, unknown>, string>({
+      query: (id) => `/production/batches/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'Batch', id }],
     }),
-    completeBatch: build.mutation<Record<string, unknown>, string>({
-      query: (id) => ({ url: `/production/batches/${id}/complete`, method: 'POST' }),
-      invalidatesTags: ['Batch'],
+    createBatch: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/production/batches', method: 'POST', body }),
+      invalidatesTags: ['Batch', 'Production'],
+    }),
+    completeBatch: build.mutation<
+      Record<string, unknown>,
+      { id: string; body?: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({
+        url: `/production/batches/${id}/complete`,
+        method: 'POST',
+        body: body || {},
+      }),
+      invalidatesTags: ['Batch', 'Production'],
+    }),
+    postBatch: build.mutation<
+      Record<string, unknown>,
+      { id: string; body?: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({
+        url: `/production/batches/${id}/post`,
+        method: 'POST',
+        body: body || {},
+      }),
+      invalidatesTags: ['Batch', 'Production'],
+    }),
+    cancelBatch: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/production/batches/${id}/cancel`, method: 'POST' }),
+      invalidatesTags: ['Batch', 'Production'],
+    }),
+    productionDayBook: build.query<
+      Record<string, unknown>[],
+      { start_date?: string; end_date?: string } | void
+    >({
+      query: (args) => ({ url: '/production/day-book', params: args || undefined }),
+      providesTags: ['Production', 'Batch'],
+    }),
+    productionMargins: build.query<Record<string, unknown>[], void>({
+      query: () => '/production/margins',
+      providesTags: ['Production', 'Batch'],
+    }),
+    productionYield: build.query<Record<string, unknown>[], void>({
+      query: () => '/production/yield',
+      providesTags: ['Production', 'Batch'],
+    }),
+    productionReportsCatalog: build.query<
+      { reports: { id: string; title: string; category: string }[]; report_types: string[] },
+      void
+    >({
+      query: () => '/production/reports/catalog',
+      providesTags: ['Production'],
+    }),
+    runProductionReport: build.mutation<
+      Record<string, unknown>,
+      { report_id?: string; report_type?: string; filters?: Record<string, unknown> }
+    >({
+      query: (body) => ({ url: '/production/reports/run', method: 'POST', body }),
+    }),
+    getProductionSettings: build.query<Record<string, unknown>, void>({
+      query: () => '/production/settings',
+      providesTags: ['Settings', 'Production'],
+    }),
+    updateProductionSettings: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/production/settings', method: 'PATCH', body }),
+      invalidatesTags: ['Settings', 'Production'],
     }),
 
     // Migration
+    listMigrationProfiles: build.query<
+      Record<string, unknown>[],
+      { entity?: string } | void
+    >({
+      query: (args) => ({
+        url: '/migration/profiles',
+        params: args && 'entity' in args && args.entity ? { entity: args.entity } : undefined,
+      }),
+      providesTags: ['MigrationBatch'],
+    }),
     listMigrationBatches: build.query<Record<string, unknown>[], void>({
       query: () => '/migration/batches',
       providesTags: ['MigrationBatch'],
     }),
     createMigrationBatch: build.mutation<
       Record<string, unknown>,
-      { source: string; entity: string }
+      { source: string; entity: string; upload_id?: string; mapping?: Record<string, string> }
     >({
       query: (body) => ({ url: '/migration/batches', method: 'POST', body }),
       invalidatesTags: ['MigrationBatch'],
@@ -993,6 +1630,10 @@ export const baseApi = createApi({
     systemDiagnostics: build.query<Record<string, unknown>, void>({
       query: () => '/system/diagnostics',
     }),
+    listSystemSettings: build.query<Record<string, unknown>[], void>({
+      query: () => '/system/settings',
+      providesTags: ['SystemSetting'],
+    }),
     upsertSystemSetting: build.mutation<
       Record<string, unknown>,
       { key: string; value: string }
@@ -1004,20 +1645,99 @@ export const baseApi = createApi({
       }),
       invalidatesTags: ['SystemSetting'],
     }),
+    systemUpdates: build.query<Record<string, unknown>, void>({
+      query: () => '/system/updates',
+      providesTags: ['SystemSetting'],
+    }),
+    checkSystemUpdates: build.mutation<Record<string, unknown>, void>({
+      query: () => ({ url: '/system/updates/check', method: 'POST' }),
+      invalidatesTags: ['SystemSetting'],
+    }),
+    listSystemLogs: build.query<Record<string, unknown>[], void>({
+      query: () => '/system/logs',
+      providesTags: ['SystemSetting'],
+    }),
+    accessHealth: build.query<Record<string, unknown>, void>({
+      query: () => '/access/health',
+      providesTags: ['AccessUser'],
+    }),
     listAccessUsers: build.query<Record<string, unknown>[], void>({
       query: () => '/access/users',
       providesTags: ['AccessUser'],
     }),
+    getAccessUser: build.query<Record<string, unknown>, string>({
+      query: (id) => `/access/users/${id}`,
+      providesTags: ['AccessUser'],
+    }),
     createAccessUser: build.mutation<
       Record<string, unknown>,
-      { username: string; display_name?: string; role_ids?: string[] }
+      {
+        username: string;
+        display_name?: string;
+        password: string;
+        role_ids?: string[];
+        location_ids?: string[];
+      }
     >({
       query: (body) => ({ url: '/access/users', method: 'POST', body }),
-      invalidatesTags: ['AccessUser'],
+      invalidatesTags: ['AccessUser', 'AccessAudit'],
+    }),
+    updateAccessUser: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/access/users/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['AccessUser', 'AccessAudit'],
     }),
     listAccessRoles: build.query<Record<string, unknown>[], void>({
       query: () => '/access/roles',
       providesTags: ['AccessRole'],
+    }),
+    getAccessRole: build.query<Record<string, unknown>, string>({
+      query: (id) => `/access/roles/${id}`,
+      providesTags: ['AccessRole'],
+    }),
+    createAccessRole: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/access/roles', method: 'POST', body }),
+      invalidatesTags: ['AccessRole', 'AccessAudit'],
+    }),
+    updateAccessRole: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/access/roles/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['AccessRole', 'AccessAudit'],
+    }),
+    getAccessPermissions: build.query<Record<string, unknown>, void>({
+      query: () => '/access/permissions',
+      providesTags: ['AccessPermission'],
+    }),
+    listAccessPlans: build.query<Record<string, unknown>[], void>({
+      query: () => '/access/plans',
+      providesTags: ['AccessPlan'],
+    }),
+    createAccessPlan: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/access/plans', method: 'POST', body }),
+      invalidatesTags: ['AccessPlan', 'AccessAudit'],
+    }),
+    listAccessFeatureFlags: build.query<Record<string, unknown>[], void>({
+      query: () => '/access/feature-flags',
+      providesTags: ['AccessFlag'],
+    }),
+    setAccessFeatureFlag: build.mutation<
+      Record<string, unknown>,
+      { key: string; enabled: boolean }
+    >({
+      query: ({ key, enabled }) => ({
+        url: `/access/feature-flags/${key}`,
+        method: 'PUT',
+        body: { enabled },
+      }),
+      invalidatesTags: ['AccessFlag', 'AccessAudit'],
+    }),
+    listAccessAuditLogs: build.query<Record<string, unknown>[], void>({
+      query: () => '/access/audit-logs',
+      providesTags: ['AccessAudit'],
     }),
   }),
 });
@@ -1031,9 +1751,30 @@ export const {
   useRenewLicenseMutation,
   useGetFlagsQuery,
   useHomeDashboardQuery,
+  useHomeMtdQuery,
   useReportsCatalogQuery,
   useGetPrefsQuery,
   usePutPrefsMutation,
+  useSettingsHealthQuery,
+  useGetBusinessProfileQuery,
+  useUpdateBusinessProfileMutation,
+  useGetPrintSettingsQuery,
+  useUpdatePrintSettingsMutation,
+  useGetKeyboardShortcutsQuery,
+  useUpdateKeyboardShortcutsMutation,
+  useListSettingsActivitiesQuery,
+  useCreateSettingsActivityMutation,
+  useListSettingsStoreActivitiesQuery,
+  useCreateSettingsStoreActivityMutation,
+  useListSettingsProjectActivitiesQuery,
+  useCreateSettingsProjectActivityMutation,
+  useListMeasurementSpecsQuery,
+  useCreateMeasurementSpecMutation,
+  useListVendorServicesQuery,
+  useCreateVendorServiceMutation,
+  useListDiscountRulesQuery,
+  useCreateDiscountRuleMutation,
+  useGetProductionSettingsStubQuery,
   useListCustomersQuery,
   useCreateCustomerMutation,
   useGetCustomerQuery,
@@ -1175,20 +1916,75 @@ export const {
   useFinanceTrialBalanceQuery,
   useFinanceReportsCatalogQuery,
   useRunFinanceReportMutation,
+  useBoutiqueHealthQuery,
+  useBoutiqueOverviewQuery,
+  useListBoutiqueActivitiesQuery,
   useListBoutiqueOrdersQuery,
+  useGetBoutiqueOrderQuery,
   useCreateBoutiqueOrderMutation,
+  usePatchBoutiqueOrderMutation,
+  useConfirmBoutiqueOrderMutation,
+  useCancelBoutiqueOrderMutation,
+  useCompleteBoutiqueOrderMutation,
+  useAddBoutiqueOrderItemMutation,
+  useRemoveBoutiqueOrderItemMutation,
+  useCompleteBoutiqueActivityMutation,
+  useSkipBoutiqueActivityMutation,
+  useRecordBoutiqueAdvanceMutation,
+  useListBoutiqueOrderInvoicesQuery,
+  useCreateBoutiqueOrderInvoiceMutation,
+  useListBoutiqueOrderDeliveriesQuery,
+  useCreateBoutiqueOrderDeliveryMutation,
+  useListBoutiqueOrderExpensesQuery,
   useListBoutiqueItemsQuery,
+  useGetBoutiqueItemQuery,
   useCreateBoutiqueItemMutation,
+  useListBoutiqueMeasurementSpecsQuery,
+  useListBoutiqueMeasurementsQuery,
+  useGetBoutiqueMeasurementQuery,
+  useCreateBoutiqueMeasurementMutation,
+  useUpdateBoutiqueMeasurementMutation,
+  useDeleteBoutiqueMeasurementMutation,
+  useListBoutiqueTimeEntriesQuery,
+  useCreateBoutiqueTimeEntryMutation,
+  useUpdateBoutiqueTimeEntryMutation,
+  useDeleteBoutiqueTimeEntryMutation,
+  useBoutiqueCalendarQuery,
+  useBoutiqueReportsCatalogQuery,
+  useRunBoutiqueReportMutation,
+  useStoreHealthQuery,
+  useStoreOverviewQuery,
   useListStoreActivitiesQuery,
+  useGetStoreActivityQuery,
   useCreateStoreActivityMutation,
+  useUpdateStoreActivityMutation,
+  useDeactivateStoreActivityMutation,
   useListStoreTimeEntriesQuery,
+  useGetStoreTimeEntryQuery,
   useCreateStoreTimeEntryMutation,
+  useUpdateStoreTimeEntryMutation,
+  useCompleteStoreTimeEntryMutation,
+  useDeleteStoreTimeEntryMutation,
+  useCrmHealthQuery,
+  useCrmOverviewQuery,
   useListCrmLeadsQuery,
+  useGetCrmLeadQuery,
   useCreateCrmLeadMutation,
+  useUpdateCrmLeadMutation,
+  useDeleteCrmLeadMutation,
   useListCrmEnquiriesQuery,
+  useGetCrmEnquiryQuery,
   useCreateCrmEnquiryMutation,
+  useUpdateCrmEnquiryMutation,
   useListCrmActivitiesQuery,
+  useGetCrmActivityQuery,
   useCreateCrmActivityMutation,
+  useUpdateCrmActivityMutation,
+  useCrmCalendarQuery,
+  useCrmReportsCatalogQuery,
+  useRunCrmReportMutation,
+  useGetCrmSettingsQuery,
+  useUpdateCrmSettingsMutation,
   useListSchedulerJobsQuery,
   useCreateSchedulerJobMutation,
   useRunSchedulerJobMutation,
@@ -1196,17 +1992,49 @@ export const {
   useCreateProjectMutation,
   useListProjectEnquiriesQuery,
   useCreateProjectEnquiryMutation,
+  useProductionHealthQuery,
+  useProductionOverviewQuery,
   useListRecipesQuery,
+  useGetRecipeQuery,
   useCreateRecipeMutation,
+  useUpdateRecipeMutation,
+  useDeleteRecipeMutation,
   useListBatchesQuery,
+  useGetBatchQuery,
   useCreateBatchMutation,
   useCompleteBatchMutation,
+  usePostBatchMutation,
+  useCancelBatchMutation,
+  useProductionDayBookQuery,
+  useProductionMarginsQuery,
+  useProductionYieldQuery,
+  useProductionReportsCatalogQuery,
+  useRunProductionReportMutation,
+  useGetProductionSettingsQuery,
+  useUpdateProductionSettingsMutation,
+  useListMigrationProfilesQuery,
   useListMigrationBatchesQuery,
   useCreateMigrationBatchMutation,
   useRunMigrationBatchMutation,
   useSystemDiagnosticsQuery,
+  useListSystemSettingsQuery,
   useUpsertSystemSettingMutation,
+  useSystemUpdatesQuery,
+  useCheckSystemUpdatesMutation,
+  useListSystemLogsQuery,
+  useAccessHealthQuery,
   useListAccessUsersQuery,
+  useGetAccessUserQuery,
   useCreateAccessUserMutation,
+  useUpdateAccessUserMutation,
   useListAccessRolesQuery,
+  useGetAccessRoleQuery,
+  useCreateAccessRoleMutation,
+  useUpdateAccessRoleMutation,
+  useGetAccessPermissionsQuery,
+  useListAccessPlansQuery,
+  useCreateAccessPlanMutation,
+  useListAccessFeatureFlagsQuery,
+  useSetAccessFeatureFlagMutation,
+  useListAccessAuditLogsQuery,
 } = baseApi;
