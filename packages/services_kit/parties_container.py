@@ -1,9 +1,8 @@
-"""Non-Streamlit parties service container (Mongo or in-memory)."""
+"""Non-Streamlit parties service container (Mongo only)."""
 
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -14,7 +13,7 @@ _CONTAINER: Optional["PartiesContainer"] = None
 
 @dataclass
 class PartiesContainer:
-    backend: str  # "mongo" | "memory"
+    backend: str  # always "mongo"
     customers: Any
     vendors: Any
     delivery_partners: Any
@@ -37,61 +36,14 @@ def _db_name() -> str:
     return mongo_db_name()
 
 
-def _build_memory() -> PartiesContainer:
-    from packages.services_kit.memory_parties import (
-        MemoryAccountRepository,
-        MemoryCommissionAgentRepository,
-        MemoryCounterRepository,
-        MemoryCustomerRepository,
-        MemoryDeliveryPartnerRepository,
-        MemoryPartySegmentRepository,
-        MemoryVendorRepository,
-        MemoryVoucherRepository,
-        MemoryWorkerRepository,
-    )
-    from vaybooks.bms.application.finance.accounting.service import AccountingAppService
-    from vaybooks.bms.application.parties.commission_agents.service import (
-        CommissionAgentAppService,
-    )
-    from vaybooks.bms.application.parties.customers.service import CustomerAppService
-    from vaybooks.bms.application.parties.delivery_partners.service import (
-        DeliveryPartnerAppService,
-    )
-    from vaybooks.bms.application.parties.segments.service import PartySegmentAppService
-    from vaybooks.bms.application.parties.vendors.service import VendorAppService
-    from vaybooks.bms.application.parties.workers.service import WorkerAppService
-
-    account_repo = MemoryAccountRepository()
-    voucher_repo = MemoryVoucherRepository()
-    counter_repo = MemoryCounterRepository()
-    segment_repo = MemoryPartySegmentRepository()
-    segments = PartySegmentAppService(segment_repo)
-    agents = CommissionAgentAppService(
-        MemoryCommissionAgentRepository(), account_repo, segment_service=segments
-    )
-    customers = CustomerAppService(
-        MemoryCustomerRepository(),
-        account_repo,
-        segment_service=segments,
-        commission_agent_service=agents,
-    )
-    vendors = VendorAppService(
-        MemoryVendorRepository(), account_repo, segment_service=segments
-    )
-    partners = DeliveryPartnerAppService(MemoryDeliveryPartnerRepository(), account_repo)
-    workers = WorkerAppService(MemoryWorkerRepository(), account_repo, user_service=None)
-    accounting = AccountingAppService(account_repo, voucher_repo, counter_repo)
-    return PartiesContainer(
-        backend="memory",
-        customers=customers,
-        vendors=vendors,
-        delivery_partners=partners,
-        commission_agents=agents,
-        workers=workers,
-        segments=segments,
-        accounting=accounting,
-        account_repo=account_repo,
-    )
+def _require_uri() -> str:
+    uri = _mongo_uri()
+    if not uri:
+        raise RuntimeError(
+            "MONGODB_URI is required (set env or .streamlit/secrets.toml); "
+            "memory backend is disabled"
+        )
+    return uri
 
 
 def _build_mongo(uri: str) -> PartiesContainer:
@@ -178,19 +130,10 @@ def _build_mongo(uri: str) -> PartiesContainer:
 
 
 def build_parties_container() -> PartiesContainer:
-    if (os.environ.get("PARTIES_BACKEND") or "").strip().lower() == "memory":
-        logger.info("Parties container forced to in-memory backend")
-        return _build_memory()
-    uri = _mongo_uri()
-    if uri:
-        try:
-            container = _build_mongo(uri)
-            logger.info("Parties container using Mongo backend db=%s", _db_name())
-            return container
-        except Exception as exc:
-            logger.warning("Mongo parties backend unavailable (%s); using memory", exc)
-    logger.info("Parties container using in-memory backend")
-    return _build_memory()
+    uri = _require_uri()
+    container = _build_mongo(uri)
+    logger.info("Parties container using Mongo backend db=%s", _db_name())
+    return container
 
 
 def get_parties_container() -> PartiesContainer:

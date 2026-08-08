@@ -1,105 +1,571 @@
-"""Purchases API — POs and bills with notify to inventory/finance."""
+"""Purchases API — POs, GRNs, bills, returns, reports (Mongo via PurchaseAppService)."""
 
 from __future__ import annotations
 
-from typing import Any
+import csv
+import io
+import re
+from datetime import date
+from typing import Any, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from packages.services_kit import MemoryStore, publish
+from packages.services_kit.purchases_container import get_purchases_container
 from services.finance.router import is_consumer_healthy as finance_healthy
 from services.inventory.router import is_consumer_healthy as inventory_healthy
+from services.parties.serialize import entity_dict
 from services.sales.degraded import is_degraded_pending
+from vaybooks.bms.domain.shared.enums import PurchaseOrderStatus
+from vaybooks.bms.domain.shared.exceptions import ValidationError
 
 router = APIRouter(prefix="/api/purchases", tags=["purchases"])
-_ORDERS = MemoryStore()
-_BILLS = MemoryStore()
+
+REPORT_TYPES = [
+    "Purchase Orders Pipeline",
+    "GRN Pending",
+    "Purchases by Vendor",
+    "Purchase Returns Summary",
+    "PO Status Breakdown",
+]
 
 
-class PurchaseOrderCreate(BaseModel):
+class PoLineWrite(BaseModel):
+    product_id: str = Field(min_length=1)
+    qty_ordered: float = Field(gt=0)
+    rate: float = 0.0
+    expense_account_id: str = ""
+    product_name: str = ""
+
+
+class PurchaseOrderWrite(BaseModel):
     vendor_id: str = Field(min_length=1)
-    total: float = 0.0
-    tenant_id: str = "default"
+    order_date: Optional[str] = None
+    expected_date: Optional[str] = None
+    notes: str = ""
+    project_id: str = ""
+    location_id: str = ""
+    lines: List[PoLineWrite] = Field(min_length=1)
 
 
-class PurchaseBillCreate(BaseModel):
+class GrnLineWrite(BaseModel):
+    product_id: str = Field(min_length=1)
+    qty_received: float = Field(gt=0)
+    rate: float = 0.0
+    landed_cost_extra: float = 0.0
+    product_name: str = ""
+    purchase_order_line_id: str = ""
+    batch_number: str = ""
+    serial_numbers: List[str] = Field(default_factory=list)
+
+
+class GoodsReceiptWrite(BaseModel):
     vendor_id: str = Field(min_length=1)
-    purchase_order_id: str | None = None
-    total: float = 0.0
-    tenant_id: str = "default"
+    receipt_date: Optional[str] = None
+    purchase_order_id: Optional[str] = None
+    location_id: str = Field(min_length=1)
+    freight: float = 0.0
+    duty: float = 0.0
+    other: float = 0.0
+    notes: str = ""
+    confirm: bool = True
+    allow_over_receive: bool = False
+    lines: List[GrnLineWrite] = Field(min_length=1)
+
+
+class BillLineWrite(BaseModel):
+    product_id: str = ""
+    service_id: str = ""
+    qty: float = Field(gt=0)
+    rate: float = 0.0
+    expense_account_id: str = ""
+    description: str = ""
+    taxable_amount: Optional[float] = None
+    amount: Optional[float] = None
+
+
+class PurchaseBillWrite(BaseModel):
+    vendor_id: str = Field(min_length=1)
+    vendor_bill_number: str = Field(min_length=1)
+    voucher_date: Optional[str] = None
+    amount_paid: float = 0.0
+    paying_account_id: Optional[str] = None
+    reference_po_id: Optional[str] = None
+    reference_grn_id: Optional[str] = None
+    apply_stock: bool = False
+    location_id: str = ""
+    location_name: str = ""
+    lines: List[BillLineWrite] = Field(min_length=1)
+
+
+class ReturnLineWrite(BaseModel):
+    product_id: str = Field(min_length=1)
+    qty: float = Field(gt=0)
+    rate: float = 0.0
+    product_name: str = ""
+    expense_account_id: str = ""
+
+
+class PurchaseReturnWrite(BaseModel):
+    vendor_id: str = Field(min_length=1)
+    return_date: Optional[str] = None
+    source_bill_id: Optional[str] = None
+    source_grn_id: Optional[str] = None
+    amount_refunded: float = 0.0
+    refund_account_id: Optional[str] = None
+    notes: str = ""
+    location_id: str = ""
+    lines: List[ReturnLineWrite] = Field(min_length=1)
+
+
+class ReportRunBody(BaseModel):
+    report_type: str
+    filters: dict[str, Any] = Field(default_factory=dict)
+
+
+def _svc():
+    return get_purchases_container().purchases
+
+
+def _reports():
+    return get_purchases_container().reports
+
+
+def _parse_date(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
+    text = str(value).strip()[:10]
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {value}") from exc
+
+
+def _http_err(exc: Exception) -> HTTPException:
+    if isinstance(exc, ValidationError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    return HTTPException(status_code=500, detail=str(exc))
+
+
+def _display_description(value: Any) -> str:
+    text = str(value or "")
+    text = re.sub(r"<!--\s*[A-Z0-9_]+\s*:.*?-->", "", text, flags=re.DOTALL)
+    text = re.sub(r"(?im)^\s*LINES_JSON:.*$", "", text)
+    kept: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if (stripped.startswith("{") and stripped.endswith("}")) or (
+            stripped.startswith("[") and stripped.endswith("]")
+        ):
+            continue
+        if "{" in stripped:
+            before, _, after = stripped.partition("{")
+            if after.rstrip().endswith("}") or after.lstrip().startswith('"'):
+                stripped = before.strip()
+                if not stripped:
+                    continue
+        kept.append(stripped)
+    return " ".join(kept).strip()
+
+
+def _po_dict(po: Any, *, include_lines: bool = True) -> dict[str, Any]:
+    data = entity_dict(po)
+    status = data.get("status")
+    data["status"] = status.value if hasattr(status, "value") else str(status or "")
+    data["total_amount"] = float(getattr(po, "total_amount", 0) or 0)
+    if not include_lines:
+        data.pop("lines", None)
+    return data
+
+
+def _grn_dict(grn: Any, *, include_lines: bool = True) -> dict[str, Any]:
+    data = entity_dict(grn)
+    status = data.get("status")
+    data["status"] = status.value if hasattr(status, "value") else str(status or "")
+    data["total_amount"] = float(getattr(grn, "total_amount", 0) or 0)
+    if not include_lines:
+        data.pop("lines", None)
+    return data
+
+
+def _return_dict(ret: Any, *, include_lines: bool = True) -> dict[str, Any]:
+    data = entity_dict(ret)
+    data["total_amount"] = float(getattr(ret, "total_amount", 0) or 0)
+    if not include_lines:
+        data.pop("lines", None)
+    return data
+
+
+def _bill_dict(row: dict[str, Any], *, include_lines: bool = False) -> dict[str, Any]:
+    data = dict(row)
+    data["description"] = _display_description(data.get("description") or data.get("vendor_bill_number"))
+    caption_bits = [
+        str(data.get("voucher_number") or data.get("vendor_bill_number") or ""),
+        str(data.get("vendor_name") or data.get("party_name") or ""),
+        f"₹{float(data.get('total') or 0):,.2f}",
+    ]
+    data["caption"] = " · ".join(b for b in caption_bits if b).strip(" ·")
+    if not include_lines:
+        data.pop("lines", None)
+    # Avoid dumping embedded JSON into list UIs
+    if "vendor_bill_number" in data:
+        data["vendor_bill_number"] = _display_description(data.get("vendor_bill_number"))
+    return data
 
 
 @router.get("/health")
 def health() -> dict[str, object]:
+    container = get_purchases_container()
     return {
         "module": "purchases",
         "status": "ok",
+        "backend": container.backend,
         "degraded_pending": is_degraded_pending(),
         "inventory_consumer": inventory_healthy(),
         "finance_consumer": finance_healthy(),
     }
 
 
+@router.get("/overview")
+def overview() -> dict[str, Any]:
+    try:
+        summary = _reports().dashboard_summary()
+        pipeline = _reports().purchase_orders_pipeline()[:8]
+        pending = _reports().grn_pending()[:8]
+        return {
+            "kpis": summary,
+            "open_orders": [
+                {
+                    **row,
+                    "order_date": row["order_date"].isoformat()
+                    if hasattr(row.get("order_date"), "isoformat")
+                    else row.get("order_date"),
+                    "expected_date": row["expected_date"].isoformat()
+                    if hasattr(row.get("expected_date"), "isoformat")
+                    else row.get("expected_date"),
+                }
+                for row in pipeline
+            ],
+            "pending_grn": [
+                {
+                    **row,
+                    "order_date": row["order_date"].isoformat()
+                    if hasattr(row.get("order_date"), "isoformat")
+                    else row.get("order_date"),
+                }
+                for row in pending
+            ],
+            "quick_actions": [
+                {"to": "/purchases/orders", "label": "Purchase orders"},
+                {"to": "/purchases/goods-receipt", "label": "Goods receipt"},
+                {"to": "/purchases/bills", "label": "Bills"},
+                {"to": "/purchases/returns", "label": "Returns"},
+                {"to": "/purchases/reports", "label": "Reports"},
+            ],
+        }
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
 @router.get("/orders")
-def list_orders(*, include_deleted: bool = False) -> list[dict[str, Any]]:
-    return _ORDERS.list(include_deleted=include_deleted)
+def list_orders() -> list[dict[str, Any]]:
+    try:
+        return [_po_dict(po, include_lines=False) for po in _svc().list_purchase_orders()]
+    except Exception as exc:
+        raise _http_err(exc) from exc
 
 
 @router.post("/orders", status_code=201)
-def create_order(body: PurchaseOrderCreate) -> dict[str, Any]:
-    row = _ORDERS.create(body.model_dump())
-    publish(
-        "PurchaseOrderCreated",
-        {"purchase_order_id": row["id"], "vendor_id": body.vendor_id, "total": body.total},
-    )
-    return row
+def create_order(body: PurchaseOrderWrite) -> dict[str, Any]:
+    try:
+        po = _svc().create_purchase_order(
+            vendor_id=body.vendor_id,
+            order_date=_parse_date(body.order_date) or date.today(),
+            lines=[line.model_dump() for line in body.lines],
+            expected_date=_parse_date(body.expected_date),
+            notes=body.notes,
+            project_id=body.project_id,
+            location_id=body.location_id,
+        )
+        return _po_dict(po)
+    except Exception as exc:
+        raise _http_err(exc) from exc
 
 
 @router.get("/orders/{order_id}")
 def get_order(order_id: str) -> dict[str, Any]:
-    return _ORDERS.get(order_id)
+    po = _svc().get_purchase_order(order_id)
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    return _po_dict(po)
 
 
-@router.delete("/orders/{order_id}")
-def delete_order(order_id: str) -> dict[str, Any]:
-    return _ORDERS.soft_delete(order_id)
+@router.put("/orders/{order_id}")
+def update_order(order_id: str, body: PurchaseOrderWrite) -> dict[str, Any]:
+    try:
+        po = _svc().update_purchase_order(
+            order_id,
+            vendor_id=body.vendor_id,
+            order_date=_parse_date(body.order_date) or date.today(),
+            lines=[line.model_dump() for line in body.lines],
+            expected_date=_parse_date(body.expected_date),
+            notes=body.notes,
+        )
+        return _po_dict(po)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/orders/{order_id}/send")
+def send_order(order_id: str) -> dict[str, Any]:
+    try:
+        po = _svc().get_purchase_order(order_id)
+        if not po:
+            raise HTTPException(status_code=404, detail="Purchase order not found")
+        if po.status == PurchaseOrderStatus.DRAFT:
+            po = _svc().update_purchase_order(
+                order_id,
+                vendor_id=po.vendor_id,
+                order_date=po.order_date,
+                lines=[
+                    {
+                        "product_id": line.product_id,
+                        "product_name": line.product_name,
+                        "qty_ordered": line.qty_ordered,
+                        "rate": line.rate,
+                        "expense_account_id": line.expense_account_id,
+                    }
+                    for line in po.lines
+                ],
+                expected_date=po.expected_date,
+                notes=po.notes,
+                status=PurchaseOrderStatus.SENT,
+            )
+        return _po_dict(po)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/orders/{order_id}/cancel")
+def cancel_order(order_id: str) -> dict[str, Any]:
+    try:
+        return _po_dict(_svc().cancel_purchase_order(order_id))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/orders/{order_id}/close")
+def close_order(order_id: str) -> dict[str, Any]:
+    try:
+        return _po_dict(_svc().close_purchase_order(order_id))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/goods-receipts")
+def list_goods_receipts() -> list[dict[str, Any]]:
+    try:
+        return [_grn_dict(g, include_lines=False) for g in _svc().list_goods_receipts()]
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/goods-receipts", status_code=201)
+def create_goods_receipt(body: GoodsReceiptWrite) -> dict[str, Any]:
+    try:
+        grn = _svc().create_goods_receipt(
+            vendor_id=body.vendor_id,
+            receipt_date=_parse_date(body.receipt_date) or date.today(),
+            lines=[line.model_dump() for line in body.lines],
+            purchase_order_id=body.purchase_order_id,
+            location_id=body.location_id,
+            freight=body.freight,
+            duty=body.duty,
+            other=body.other,
+            notes=body.notes,
+            confirm=body.confirm,
+            allow_over_receive=body.allow_over_receive,
+        )
+        return _grn_dict(grn)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/goods-receipts/{grn_id}")
+def get_goods_receipt(grn_id: str) -> dict[str, Any]:
+    grn = _svc().get_goods_receipt(grn_id)
+    if not grn:
+        raise HTTPException(status_code=404, detail="Goods receipt not found")
+    return _grn_dict(grn)
+
+
+@router.post("/goods-receipts/{grn_id}/confirm")
+def confirm_goods_receipt(grn_id: str) -> dict[str, Any]:
+    try:
+        return _grn_dict(_svc().confirm_goods_receipt(grn_id))
+    except Exception as exc:
+        raise _http_err(exc) from exc
 
 
 @router.get("/bills")
-def list_bills(*, include_deleted: bool = False) -> list[dict[str, Any]]:
-    return _BILLS.list(include_deleted=include_deleted)
+def list_bills() -> list[dict[str, Any]]:
+    try:
+        return [_bill_dict(row) for row in _svc().list_purchase_bills()]
+    except Exception as exc:
+        raise _http_err(exc) from exc
 
 
 @router.post("/bills", status_code=201)
-def create_bill(body: PurchaseBillCreate) -> dict[str, Any]:
-    degraded = is_degraded_pending()
-    row = _BILLS.create(
-        {
-            **body.model_dump(),
-            "stock_status": "degraded_pending" if degraded else "reserve_requested",
-            "posting_status": "degraded_pending" if degraded else "posting_requested",
-            "degraded_pending": degraded,
-        }
-    )
-    publish(
-        "PurchaseBillPosted",
-        {
-            "bill_id": row["id"],
-            "vendor_id": body.vendor_id,
-            "total": body.total,
-            "degraded_pending": degraded,
-        },
-    )
-    if not degraded:
-        publish("StockReserveRequested", {"key": row["id"], "bill_id": row["id"]})
-        publish(
-            "FinancePostingRequested",
-            {"key": row["id"], "bill_id": row["id"], "amount": body.total},
+def create_bill(body: PurchaseBillWrite) -> dict[str, Any]:
+    try:
+        raw_lines: list[dict[str, Any]] = []
+        for line in body.lines:
+            raw = line.model_dump()
+            item_id = str(raw.get("product_id") or raw.get("service_id") or "").strip()
+            if not item_id:
+                raise HTTPException(status_code=400, detail="Each bill line needs product_id or service_id")
+            raw["item_id"] = item_id
+            raw.setdefault("item_type", "Product" if raw.get("product_id") else "Service")
+            raw_lines.append(raw)
+        voucher = _svc().create_purchase_bill_from_lines(
+            vendor_id=body.vendor_id,
+            raw_lines=raw_lines,
+            vendor_bill_number=body.vendor_bill_number,
+            amount_paid=body.amount_paid,
+            paying_account_id=body.paying_account_id,
+            voucher_date=_parse_date(body.voucher_date),
+            reference_po_id=body.reference_po_id,
+            reference_grn_id=body.reference_grn_id,
+            apply_stock=body.apply_stock,
+            location_id=body.location_id,
+            location_name=body.location_name,
         )
-    return row
+        row = _svc().get_purchase_bill(voucher.id) or {"id": voucher.id}
+        return _bill_dict(row, include_lines=True)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
 
 
 @router.get("/bills/{bill_id}")
 def get_bill(bill_id: str) -> dict[str, Any]:
-    return _BILLS.get(bill_id)
+    row = _svc().get_purchase_bill(bill_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Purchase bill not found")
+    return _bill_dict(row, include_lines=True)
+
+
+@router.get("/returns")
+def list_returns() -> list[dict[str, Any]]:
+    try:
+        return [_return_dict(r, include_lines=False) for r in _svc().list_purchase_returns()]
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/returns", status_code=201)
+def create_return(body: PurchaseReturnWrite) -> dict[str, Any]:
+    try:
+        ret = _svc().create_purchase_return(
+            vendor_id=body.vendor_id,
+            return_date=_parse_date(body.return_date) or date.today(),
+            lines=[line.model_dump() for line in body.lines],
+            source_bill_id=body.source_bill_id,
+            source_grn_id=body.source_grn_id,
+            amount_refunded=body.amount_refunded,
+            refund_account_id=body.refund_account_id,
+            notes=body.notes,
+            location_id=body.location_id,
+        )
+        return _return_dict(ret)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/returns/{return_id}")
+def get_return(return_id: str) -> dict[str, Any]:
+    ret = _svc().get_purchase_return(return_id)
+    if not ret:
+        raise HTTPException(status_code=404, detail="Purchase return not found")
+    return _return_dict(ret)
+
+
+@router.get("/reports")
+def reports_catalog() -> dict[str, Any]:
+    return {"report_types": REPORT_TYPES}
+
+
+def _run_report_rows(report_type: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
+    reports = _reports()
+    rtype = (report_type or "").strip()
+    start = _parse_date(str(filters.get("start") or "") or None)
+    end = _parse_date(str(filters.get("end") or "") or None)
+    if rtype == "Purchase Orders Pipeline":
+        rows = reports.purchase_orders_pipeline()
+    elif rtype == "GRN Pending":
+        rows = reports.grn_pending()
+    elif rtype == "Purchases by Vendor":
+        rows = reports.purchases_by_vendor(start, end)
+    elif rtype == "Purchase Returns Summary":
+        rows = reports.purchase_returns_summary(start, end)
+    elif rtype == "PO Status Breakdown":
+        rows = reports.po_status_breakdown()
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown report type: {rtype}")
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row) if isinstance(row, dict) else entity_dict(row)
+        for key, value in list(item.items()):
+            if hasattr(value, "isoformat"):
+                item[key] = value.isoformat()
+            elif hasattr(value, "value"):
+                item[key] = value.value
+        out.append(item)
+    return out
+
+
+@router.post("/reports/run")
+def run_report(body: ReportRunBody) -> dict[str, Any]:
+    try:
+        if body.report_type not in REPORT_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unknown report type: {body.report_type}")
+        rows = _run_report_rows(body.report_type, body.filters or {})
+        return {"report_type": body.report_type, "rows": rows}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/reports/export")
+def export_report(body: ReportRunBody) -> StreamingResponse:
+    try:
+        if body.report_type not in REPORT_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unknown report type: {body.report_type}")
+        rows = _run_report_rows(body.report_type, body.filters or {})
+        buf = io.StringIO()
+        if rows:
+            writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+        else:
+            buf.write("message\nNo rows\n")
+        buf.seek(0)
+        filename = re.sub(r"[^a-zA-Z0-9]+", "_", body.report_type).strip("_").lower() or "report"
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}.csv"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc

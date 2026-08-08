@@ -27,13 +27,16 @@ async def _lifespan(app: FastAPI):
     from packages.services_kit.finance_container import get_finance_container
     from packages.services_kit.inventory_container import get_inventory_container
     from packages.services_kit.parties_container import get_parties_container
+    from packages.services_kit.purchases_container import get_purchases_container
 
     parties = get_parties_container()
     inventory = get_inventory_container()
     finance = get_finance_container()
+    purchases = get_purchases_container()
     app.state.parties = parties
     app.state.inventory = inventory
     app.state.finance = finance
+    app.state.purchases = purchases
     yield
 
 

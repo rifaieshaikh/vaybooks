@@ -11,7 +11,6 @@ import {
   MigrationPage,
   ProductionPage,
   ProjectsPage,
-  PurchasesPage,
   ReportsPage,
   SalesPage,
   SchedulersPage,
@@ -60,6 +59,19 @@ import {
   TrialBalancePage,
   VouchersListPage,
 } from '../../mfe-finance/src';
+import {
+  GoodsReceiptDetailPage,
+  GoodsReceiptListPage,
+  PurchaseBillDetailPage,
+  PurchaseBillsListPage,
+  PurchaseOrderDetailPage,
+  PurchaseOrdersListPage,
+  PurchaseReturnDetailPage,
+  PurchaseReturnsListPage,
+  PurchasesOverviewPage,
+  PurchasesReportsPage,
+  PurchasesScheduledReportsPage,
+} from '../../mfe-purchases/src';
 
 /** Unmigrated Streamlit child routes land on the module stub until that wave ships. */
 function stubRoutes(prefix: string, element: JSX.Element) {
@@ -108,7 +120,18 @@ export default function App() {
         {stubRoutes('boutique', <BoutiquePage />)}
         {stubRoutes('projects', <ProjectsPage />)}
         {stubRoutes('sales', <SalesPage />)}
-        {stubRoutes('purchases', <PurchasesPage />)}
+
+        <Route path="purchases" element={<PurchasesOverviewPage />} />
+        <Route path="purchases/orders" element={<PurchaseOrdersListPage />} />
+        <Route path="purchases/orders/:id" element={<PurchaseOrderDetailPage />} />
+        <Route path="purchases/goods-receipt" element={<GoodsReceiptListPage />} />
+        <Route path="purchases/goods-receipt/:id" element={<GoodsReceiptDetailPage />} />
+        <Route path="purchases/bills" element={<PurchaseBillsListPage />} />
+        <Route path="purchases/bills/:id" element={<PurchaseBillDetailPage />} />
+        <Route path="purchases/returns" element={<PurchaseReturnsListPage />} />
+        <Route path="purchases/returns/:id" element={<PurchaseReturnDetailPage />} />
+        <Route path="purchases/reports" element={<PurchasesReportsPage />} />
+        <Route path="purchases/scheduled-reports" element={<PurchasesScheduledReportsPage />} />
 
         <Route path="inventory" element={<InventoryOverviewPage />} />
         <Route path="inventory/categories" element={<CategoriesListPage />} />

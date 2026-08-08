@@ -1,9 +1,8 @@
-"""Non-Streamlit finance service container (Mongo or in-memory)."""
+"""Non-Streamlit finance service container (Mongo only)."""
 
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -14,7 +13,7 @@ _CONTAINER: Optional["FinanceContainer"] = None
 
 @dataclass
 class FinanceContainer:
-    backend: str  # "mongo" | "memory"
+    backend: str  # always "mongo"
     accounting: Any  # AccountingAppService
     account_repo: Any
     voucher_repo: Any
@@ -32,24 +31,14 @@ def _db_name() -> str:
     return mongo_db_name()
 
 
-def _build_memory() -> FinanceContainer:
-    from packages.services_kit.memory_finance import (
-        MemoryAccountRepository,
-        MemoryCounterRepository,
-        MemoryVoucherRepository,
-    )
-    from vaybooks.bms.application.finance.accounting.service import AccountingAppService
-
-    account_repo = MemoryAccountRepository()
-    voucher_repo = MemoryVoucherRepository()
-    counter_repo = MemoryCounterRepository()
-    accounting = AccountingAppService(account_repo, voucher_repo, counter_repo)
-    return FinanceContainer(
-        backend="memory",
-        accounting=accounting,
-        account_repo=account_repo,
-        voucher_repo=voucher_repo,
-    )
+def _require_uri() -> str:
+    uri = _mongo_uri()
+    if not uri:
+        raise RuntimeError(
+            "MONGODB_URI is required (set env or .streamlit/secrets.toml); "
+            "memory backend is disabled"
+        )
+    return uri
 
 
 def _build_mongo(uri: str) -> FinanceContainer:
@@ -81,19 +70,10 @@ def _build_mongo(uri: str) -> FinanceContainer:
 
 
 def build_finance_container() -> FinanceContainer:
-    if (os.environ.get("FINANCE_BACKEND") or "").strip().lower() == "memory":
-        logger.info("Finance container forced to in-memory backend")
-        return _build_memory()
-    uri = _mongo_uri()
-    if uri:
-        try:
-            container = _build_mongo(uri)
-            logger.info("Finance container using Mongo backend db=%s", _db_name())
-            return container
-        except Exception as exc:
-            logger.warning("Mongo finance backend unavailable (%s); using memory", exc)
-    logger.info("Finance container using in-memory backend")
-    return _build_memory()
+    uri = _require_uri()
+    container = _build_mongo(uri)
+    logger.info("Finance container using Mongo backend db=%s", _db_name())
+    return container
 
 
 def get_finance_container() -> FinanceContainer:

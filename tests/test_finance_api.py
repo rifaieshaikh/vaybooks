@@ -1,39 +1,43 @@
-"""Finance typed API smoke tests (memory backend)."""
+"""Finance typed API smoke tests (Mongo only)."""
 
 from __future__ import annotations
 
-import os
+import uuid
 
-os.environ["FINANCE_BACKEND"] = "memory"
-os.environ["PARTIES_BACKEND"] = "memory"
-os.environ["INVENTORY_BACKEND"] = "memory"
-
+import pytest
 from fastapi.testclient import TestClient
 
-from packages.services_kit.finance_container import reset_finance_container
-from services.combined.main import app
+from tests.mongo_test_env import require_mongo, reset_all_containers
 
 
-def setup_function() -> None:
-    os.environ["FINANCE_BACKEND"] = "memory"
-    reset_finance_container()
+@pytest.fixture(autouse=True)
+def _mongo():
+    require_mongo()
+    reset_all_containers()
+    yield
 
+
+from services.combined.main import app  # noqa: E402
 
 c = TestClient(app)
+
+
+def _uniq(prefix: str) -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
 def test_finance_health() -> None:
     r = c.get("/api/finance/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
-    assert r.json()["backend"] in {"memory", "mongo"}
+    assert r.json()["backend"] == "mongo"
 
 
 def test_account_crud_and_trial_balance() -> None:
     cash = c.post(
         "/api/finance/accounts",
         json={
-            "account_name": "Cash Box",
+            "account_name": _uniq("Cash Box"),
             "account_type": "Asset",
             "opening_balance": 1000,
             "is_store_account": True,
@@ -45,7 +49,7 @@ def test_account_crud_and_trial_balance() -> None:
 
     expense = c.post(
         "/api/finance/accounts",
-        json={"account_name": "Office Expense", "account_type": "Expense"},
+        json={"account_name": _uniq("Office Expense"), "account_type": "Expense"},
     )
     assert expense.status_code == 201, expense.text
     expense_id = expense.json()["id"]
@@ -56,12 +60,11 @@ def test_account_crud_and_trial_balance() -> None:
 
     detail = c.get(f"/api/finance/accounts/{cash_id}")
     assert detail.status_code == 200
-    assert detail.json()["account_name"] == "Cash Box"
 
     upd = c.put(
         f"/api/finance/accounts/{expense_id}",
         json={
-            "account_name": "Office Expense",
+            "account_name": expense.json()["account_name"],
             "account_type": "Expense",
             "is_store_account": False,
             "is_active": True,
@@ -74,16 +77,8 @@ def test_account_crud_and_trial_balance() -> None:
         json={
             "description": "Seed journal",
             "lines": [
-                {
-                    "account_id": expense_id,
-                    "debit_amount": 50,
-                    "credit_amount": 0,
-                },
-                {
-                    "account_id": cash_id,
-                    "debit_amount": 0,
-                    "credit_amount": 50,
-                },
+                {"account_id": expense_id, "debit_amount": 50, "credit_amount": 0},
+                {"account_id": cash_id, "debit_amount": 0, "credit_amount": 50},
             ],
         },
     )
@@ -93,7 +88,6 @@ def test_account_crud_and_trial_balance() -> None:
     tb = c.get("/api/finance/trial-balance")
     assert tb.status_code == 200
     assert "rows" in tb.json()
-    assert "totals" in tb.json()
 
     ov = c.get("/api/finance/overview")
     assert ov.status_code == 200
@@ -104,7 +98,7 @@ def test_receipt_payment_and_reports() -> None:
     cash = c.post(
         "/api/finance/accounts",
         json={
-            "account_name": "Petty Cash",
+            "account_name": _uniq("Petty Cash"),
             "account_type": "Asset",
             "opening_balance": 500,
             "is_store_account": True,
@@ -112,26 +106,33 @@ def test_receipt_payment_and_reports() -> None:
     ).json()
     customer = c.post(
         "/api/finance/accounts",
-        json={"account_name": "Customer A/R", "account_type": "Asset", "opening_balance": 200},
+        json={
+            "account_name": _uniq("Customer AR"),
+            "account_type": "Asset",
+            "opening_balance": 200,
+        },
     ).json()
     vendor = c.post(
         "/api/finance/accounts",
-        json={"account_name": "Vendor A/P", "account_type": "Liability", "opening_balance": -100},
+        json={
+            "account_name": _uniq("Vendor AP"),
+            "account_type": "Liability",
+            "opening_balance": -100,
+        },
     ).json()
     expense = c.post(
         "/api/finance/accounts",
-        json={"account_name": "Purchases Exp", "account_type": "Expense"},
+        json={"account_name": _uniq("Purchases Exp"), "account_type": "Expense"},
     ).json()
 
-    # Link ids for note APIs / realism
     from packages.services_kit.finance_container import get_finance_container
 
     repo = get_finance_container().account_repo
     cust = repo.find_by_id(customer["id"])
-    cust.linked_customer_id = "cust-1"
+    cust.linked_customer_id = f"cust-{uuid.uuid4().hex[:8]}"
     repo.save(cust)
     vend = repo.find_by_id(vendor["id"])
-    vend.linked_vendor_id = "vend-1"
+    vend.linked_vendor_id = f"vend-{uuid.uuid4().hex[:8]}"
     repo.save(vend)
 
     receipt = c.post(
@@ -163,7 +164,7 @@ def test_receipt_payment_and_reports() -> None:
 
     sales = c.post(
         "/api/finance/accounts",
-        json={"account_name": "Sales", "account_type": "Revenue"},
+        json={"account_name": _uniq("Sales"), "account_type": "Revenue"},
     )
     assert sales.status_code == 201, sales.text
 

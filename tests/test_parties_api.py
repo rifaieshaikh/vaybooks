@@ -1,58 +1,66 @@
-"""Parties typed API smoke tests (memory backend when Mongo unset)."""
+"""Parties typed API smoke tests (Mongo only)."""
 
 from __future__ import annotations
 
-import os
+import uuid
 
-os.environ["PARTIES_BACKEND"] = "memory"
-
+import pytest
 from fastapi.testclient import TestClient
 
-from packages.services_kit.parties_container import reset_parties_container
-from services.combined.main import app
+from tests.mongo_test_env import require_mongo, reset_all_containers
 
 
-def setup_function() -> None:
-    os.environ["PARTIES_BACKEND"] = "memory"
-    reset_parties_container()
+@pytest.fixture(autouse=True)
+def _mongo():
+    require_mongo()
+    reset_all_containers()
+    yield
 
+
+from services.combined.main import app  # noqa: E402
 
 c = TestClient(app)
+
+
+def _uniq(prefix: str) -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
 def test_parties_health() -> None:
     r = c.get("/api/parties/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
-    assert r.json()["backend"] in {"memory", "mongo"}
+    assert r.json()["backend"] == "mongo"
 
 
 def test_customer_crud_and_blacklist() -> None:
+    name = _uniq("Acme")
+    phone = f"9{uuid.uuid4().int % 10**9:09d}"
     created = c.post(
         "/api/parties/customers",
-        json={"customer_name": "Acme", "phone_number": "9000000001"},
+        json={"customer_name": name, "phone_number": phone},
     )
     assert created.status_code == 201, created.text
     cid = created.json()["id"]
 
-    listed = c.get("/api/parties/customers", params={"q": "Acme"})
+    listed = c.get("/api/parties/customers", params={"q": name})
     assert listed.status_code == 200
     assert any(row["id"] == cid for row in listed.json())
 
     got = c.get(f"/api/parties/customers/{cid}")
     assert got.status_code == 200
-    assert got.json()["customer_name"] == "Acme"
+    assert got.json()["customer_name"] == name
 
     updated = c.put(
         f"/api/parties/customers/{cid}",
         json={
-            "customer_name": "Acme Updated",
-            "phone_number": "9000000001",
+            "customer_name": f"{name} Updated",
+            "phone_number": phone,
             "city": "Pune",
         },
     )
     assert updated.status_code == 200, updated.text
-    assert updated.json()["customer_name"] == "Acme Updated"
+    assert updated.json()["customer_name"] == f"{name} Updated"
 
     bl = c.post(
         f"/api/parties/customers/{cid}/blacklist",
@@ -69,14 +77,14 @@ def test_customer_crud_and_blacklist() -> None:
 def test_vendor_and_segment_flow() -> None:
     seg = c.post(
         "/api/parties/segments",
-        json={"name": "VIP", "applies_to": ["customer", "vendor"]},
+        json={"name": _uniq("VIP"), "applies_to": ["customer", "vendor"]},
     )
     assert seg.status_code == 201, seg.text
     sid = seg.json()["id"]
 
     vendor = c.post(
         "/api/parties/vendors",
-        json={"vendor_name": "SupplyCo", "phone_number": "9000000002"},
+        json={"vendor_name": _uniq("SupplyCo"), "phone_number": f"9{uuid.uuid4().int % 10**9:09d}"},
     )
     assert vendor.status_code == 201, vendor.text
 
@@ -90,25 +98,32 @@ def test_vendor_and_segment_flow() -> None:
 def test_workers_partners_agents() -> None:
     worker = c.post(
         "/api/parties/workers",
-        json={"worker_name": "Ravi", "default_hourly_rate": 120, "activity_refs": []},
+        json={"worker_name": _uniq("Ravi"), "default_hourly_rate": 120, "activity_refs": []},
     )
     assert worker.status_code == 201, worker.text
 
     partner = c.post(
         "/api/parties/delivery-partners",
-        json={"partner_name": "FastShip", "phone_number": "9000000003"},
+        json={"partner_name": _uniq("FastShip"), "phone_number": f"9{uuid.uuid4().int % 10**9:09d}"},
     )
     assert partner.status_code == 201, partner.text
 
     agent = c.post(
         "/api/parties/commission-agents",
-        json={"agent_name": "Agent One", "phone_number": "9000000004"},
+        json={"agent_name": _uniq("Agent"), "phone_number": f"9{uuid.uuid4().int % 10**9:09d}"},
     )
     assert agent.status_code == 201, agent.text
 
 
 def test_legacy_parties_shim() -> None:
-    r = c.post("/api/parties", json={"name": "LegacyCust", "kind": "customer"})
+    r = c.post(
+        "/api/parties",
+        json={
+            "name": _uniq("LegacyCust"),
+            "kind": "customer",
+            "phone_number": f"9{uuid.uuid4().int % 10**9:09d}",
+        },
+    )
     assert r.status_code == 201, r.text
     assert r.json()["kind"] == "customer"
     assert r.json()["id"]

@@ -39,6 +39,9 @@ export const baseApi = createApi({
     'SalesInvoice',
     'PurchaseOrder',
     'PurchaseBill',
+    'PurchaseGoodsReceipt',
+    'PurchaseReturn',
+    'Purchases',
     'BoutiqueOrder',
     'BoutiqueItem',
     'StoreActivity',
@@ -330,27 +333,94 @@ export const baseApi = createApi({
     }),
 
     // Purchases
+    purchasesHealth: build.query<Record<string, unknown>, void>({
+      query: () => '/purchases/health',
+      providesTags: ['Purchases'],
+    }),
+    purchasesOverview: build.query<Record<string, unknown>, void>({
+      query: () => '/purchases/overview',
+      providesTags: ['Purchases', 'PurchaseOrder', 'PurchaseBill', 'PurchaseGoodsReceipt', 'PurchaseReturn'],
+    }),
     listPurchaseOrders: build.query<Record<string, unknown>[], void>({
       query: () => '/purchases/orders',
       providesTags: ['PurchaseOrder'],
     }),
-    createPurchaseOrder: build.mutation<
-      Record<string, unknown>,
-      { vendor_id: string; total: number }
-    >({
+    getPurchaseOrder: build.query<Record<string, unknown>, string>({
+      query: (id) => `/purchases/orders/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'PurchaseOrder', id }],
+    }),
+    createPurchaseOrder: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/purchases/orders', method: 'POST', body }),
-      invalidatesTags: ['PurchaseOrder'],
+      invalidatesTags: ['PurchaseOrder', 'Purchases'],
+    }),
+    updatePurchaseOrder: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/purchases/orders/${id}`, method: 'PUT', body }),
+      invalidatesTags: ['PurchaseOrder', 'Purchases'],
+    }),
+    sendPurchaseOrder: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/purchases/orders/${id}/send`, method: 'POST' }),
+      invalidatesTags: ['PurchaseOrder', 'Purchases'],
+    }),
+    cancelPurchaseOrder: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/purchases/orders/${id}/cancel`, method: 'POST' }),
+      invalidatesTags: ['PurchaseOrder', 'Purchases'],
+    }),
+    closePurchaseOrder: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/purchases/orders/${id}/close`, method: 'POST' }),
+      invalidatesTags: ['PurchaseOrder', 'Purchases'],
+    }),
+    listGoodsReceipts: build.query<Record<string, unknown>[], void>({
+      query: () => '/purchases/goods-receipts',
+      providesTags: ['PurchaseGoodsReceipt'],
+    }),
+    getGoodsReceipt: build.query<Record<string, unknown>, string>({
+      query: (id) => `/purchases/goods-receipts/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'PurchaseGoodsReceipt', id }],
+    }),
+    createGoodsReceipt: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/purchases/goods-receipts', method: 'POST', body }),
+      invalidatesTags: ['PurchaseGoodsReceipt', 'PurchaseOrder', 'Purchases', 'Inventory'],
+    }),
+    confirmGoodsReceipt: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/purchases/goods-receipts/${id}/confirm`, method: 'POST' }),
+      invalidatesTags: ['PurchaseGoodsReceipt', 'PurchaseOrder', 'Purchases', 'Inventory'],
     }),
     listPurchaseBills: build.query<Record<string, unknown>[], void>({
       query: () => '/purchases/bills',
       providesTags: ['PurchaseBill'],
     }),
-    createPurchaseBill: build.mutation<
-      Record<string, unknown>,
-      { vendor_id: string; total: number }
-    >({
+    getPurchaseBill: build.query<Record<string, unknown>, string>({
+      query: (id) => `/purchases/bills/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'PurchaseBill', id }],
+    }),
+    createPurchaseBill: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/purchases/bills', method: 'POST', body }),
-      invalidatesTags: ['PurchaseBill'],
+      invalidatesTags: ['PurchaseBill', 'Purchases', 'Finance'],
+    }),
+    listPurchaseReturns: build.query<Record<string, unknown>[], void>({
+      query: () => '/purchases/returns',
+      providesTags: ['PurchaseReturn'],
+    }),
+    getPurchaseReturn: build.query<Record<string, unknown>, string>({
+      query: (id) => `/purchases/returns/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'PurchaseReturn', id }],
+    }),
+    createPurchaseReturn: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/purchases/returns', method: 'POST', body }),
+      invalidatesTags: ['PurchaseReturn', 'Purchases', 'Inventory', 'Finance'],
+    }),
+    purchasesReportsCatalog: build.query<{ report_types: string[] }, void>({
+      query: () => '/purchases/reports',
+      providesTags: ['Purchases'],
+    }),
+    runPurchasesReport: build.mutation<
+      { report_type: string; rows: Record<string, unknown>[] },
+      { report_type: string; filters?: Record<string, unknown> }
+    >({
+      query: (body) => ({ url: '/purchases/reports/run', method: 'POST', body }),
     }),
 
     // Inventory
@@ -841,10 +911,27 @@ export const {
   useCreatePartyMutation,
   useListSalesInvoicesQuery,
   useCreateSalesInvoiceMutation,
+  usePurchasesHealthQuery,
+  usePurchasesOverviewQuery,
   useListPurchaseOrdersQuery,
+  useGetPurchaseOrderQuery,
   useCreatePurchaseOrderMutation,
+  useUpdatePurchaseOrderMutation,
+  useSendPurchaseOrderMutation,
+  useCancelPurchaseOrderMutation,
+  useClosePurchaseOrderMutation,
+  useListGoodsReceiptsQuery,
+  useGetGoodsReceiptQuery,
+  useCreateGoodsReceiptMutation,
+  useConfirmGoodsReceiptMutation,
   useListPurchaseBillsQuery,
+  useGetPurchaseBillQuery,
   useCreatePurchaseBillMutation,
+  useListPurchaseReturnsQuery,
+  useGetPurchaseReturnQuery,
+  useCreatePurchaseReturnMutation,
+  usePurchasesReportsCatalogQuery,
+  useRunPurchasesReportMutation,
   useInventoryHealthQuery,
   useCreateStockReserveMutation,
   useInventoryOverviewQuery,

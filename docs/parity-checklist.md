@@ -48,8 +48,8 @@ Track migration parity for each Streamlit `url_path` route.
 | 40 | `export-backup` | `finance.export.view` | ✅ | Finance wave |
 | 41 | `feature-flags-settings` | `settings.feature_flags.view` | ☐ | |
 | 42 | `finance-overview` | `finance.overview.view` | ✅ | Finance wave |
-| 43 | `goods-receipt` | `purchases.grn.view` | ☐ | |
-| 44 | `grn-detail` | `purchases.grn.view` | ☐ | |
+| 43 | `goods-receipt` | `purchases.grn.view` | ✅ | Purchases wave |
+| 44 | `grn-detail` | `purchases.grn.view` | ✅ | Purchases wave |
 | 45 | `inventory-categories` | `inventory.categories.view` | ✅ | Inventory wave |
 | 46 | `inventory-customer-prices` | `inventory.customer_prices.view` | ✅ | Inventory wave |
 | 47 | `inventory-movements` | `inventory.movements.view` | ✅ | Inventory wave |
@@ -101,15 +101,15 @@ Track migration parity for each Streamlit `url_path` route.
 | 93 | `projects-reports` | `projects.reports.view` | ☐ | |
 | 94 | `projects-scheduled-reports` | `schedulers.view` | ☐ | |
 | 95 | `projects-settings` | `projects.settings.view` | ☐ | |
-| 96 | `purchase-detail` | `purchases.bills.view` | ☐ | |
-| 97 | `purchase-order-detail` | `purchases.orders.view` | ☐ | |
-| 98 | `purchase-orders` | `purchases.orders.view` | ☐ | |
-| 99 | `purchase-return-detail` | `purchases.returns.view` | ☐ | |
-| 100 | `purchase-returns` | `purchases.returns.view` | ☐ | |
-| 101 | `purchases` | `purchases.bills.view` | ☐ | |
-| 102 | `purchases-overview` | `purchases.overview.view` | ☐ | |
-| 103 | `purchases-reports` | `purchases.reports.view` | ☐ | |
-| 104 | `purchases-scheduled-reports` | `schedulers.view` | ☐ | |
+| 96 | `purchase-detail` | `purchases.bills.view` | ✅ | Purchases wave |
+| 97 | `purchase-order-detail` | `purchases.orders.view` | ✅ | Purchases wave |
+| 98 | `purchase-orders` | `purchases.orders.view` | ✅ | Purchases wave |
+| 99 | `purchase-return-detail` | `purchases.returns.view` | ✅ | Purchases wave |
+| 100 | `purchase-returns` | `purchases.returns.view` | ✅ | Purchases wave |
+| 101 | `purchases` | `purchases.bills.view` | ✅ | Purchases wave |
+| 102 | `purchases-overview` | `purchases.overview.view` | ✅ | Purchases wave |
+| 103 | `purchases-reports` | `purchases.reports.view` | ✅ | Purchases wave |
+| 104 | `purchases-scheduled-reports` | `schedulers.view` | ✅ | Link stub to schedulers |
 | 105 | `quotation-detail` | `sales.quotations.view` | ☐ | |
 | 106 | `quotations` | `sales.quotations.view` | ☐ | |
 | 107 | `receipts` | `finance.receipts.view` | ✅ | Finance wave |
@@ -129,7 +129,7 @@ Track migration parity for each Streamlit `url_path` route.
 | 121 | `schedulers-inventory` | `schedulers.view` | ☐ | |
 | 122 | `schedulers-production` | `schedulers.view` | ☐ | |
 | 123 | `schedulers-projects` | `schedulers.view` | ☐ | |
-| 124 | `schedulers-purchases` | `schedulers.view` | ☐ | |
+| 124 | `schedulers-purchases` | `schedulers.view` | ✅ | Link stub from purchases |
 | 125 | `schedulers-sales` | `schedulers.view` | ☐ | |
 | 126 | `services` | `settings.services.view` | ☐ | |
 | 127 | `settings-locations` | `inventory.warehouses.view` | ☐ | |

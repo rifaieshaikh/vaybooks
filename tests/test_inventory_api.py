@@ -1,43 +1,49 @@
-"""Inventory typed API smoke tests (memory backend)."""
+"""Inventory typed API smoke tests (Mongo only)."""
 
 from __future__ import annotations
 
-import os
+import uuid
 
-os.environ["INVENTORY_BACKEND"] = "memory"
-os.environ["PARTIES_BACKEND"] = "memory"
-
+import pytest
 from fastapi.testclient import TestClient
 
-from packages.services_kit.inventory_container import reset_inventory_container
-from services.combined.main import app
+from tests.mongo_test_env import require_mongo, reset_all_containers
 
 
-def setup_function() -> None:
-    os.environ["INVENTORY_BACKEND"] = "memory"
-    reset_inventory_container()
+@pytest.fixture(autouse=True)
+def _mongo():
+    require_mongo()
+    reset_all_containers()
+    yield
 
+
+from services.combined.main import app  # noqa: E402
 
 c = TestClient(app)
+
+
+def _uniq(prefix: str) -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
 def test_inventory_health() -> None:
     r = c.get("/api/inventory/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
-    assert r.json()["backend"] in {"memory", "mongo"}
+    assert r.json()["backend"] == "mongo"
 
 
 def test_category_product_stock_flow() -> None:
-    cat = c.post("/api/inventory/categories", json={"name": "Fabrics"})
+    cat = c.post("/api/inventory/categories", json={"name": _uniq("Fabrics")})
     assert cat.status_code == 201, cat.text
     cid = cat.json()["id"]
+    sku = _uniq("SKU")
 
     prod = c.post(
         "/api/inventory/products",
         json={
-            "sku": "SKU-TEST-1",
-            "name": "Cotton Roll",
+            "sku": sku,
+            "name": _uniq("Cotton"),
             "category_ids": [cid],
             "opening_qty": 12,
             "unit_code": "pcs",
@@ -71,19 +77,20 @@ def test_category_product_stock_flow() -> None:
 def test_transfer_and_reports() -> None:
     loc2 = c.post(
         "/api/inventory/locations",
-        json={"name": "Store A", "code": "store-a"},
+        json={"name": _uniq("Store"), "code": _uniq("st")},
     )
     assert loc2.status_code == 201, loc2.text
     to_id = loc2.json()["id"]
-    from_id = c.get("/api/inventory/locations").json()[0]["id"]
+    locs = c.get("/api/inventory/locations").json()
+    from_id = next(row["id"] for row in locs if row["id"] != to_id)
 
-    cat = c.post("/api/inventory/categories", json={"name": "Misc"})
+    cat = c.post("/api/inventory/categories", json={"name": _uniq("Misc")})
     cid = cat.json()["id"]
     prod = c.post(
         "/api/inventory/products",
         json={
-            "sku": "SKU-XFER-1",
-            "name": "Thread",
+            "sku": _uniq("XFER"),
+            "name": _uniq("Thread"),
             "category_ids": [cid],
             "opening_qty": 20,
             "unit_code": "pcs",
