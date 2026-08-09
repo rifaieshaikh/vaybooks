@@ -1,8 +1,10 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { clearSession, setLicenseStatus, useAppDispatch, useAppSelector, useLogoutMutation } from '@vaybooks/store';
+import { clearSession, setLicenseStatus, useAppDispatch, useAppSelector, useLogoutMutation, baseApi } from '@vaybooks/store';
 import { SIDEBAR_GROUPS, TOPBAR_MENUS, type NavItem } from '../navConfig';
+import { WorkingLocationMenu } from './WorkingLocationMenu';
+import { NotificationsMenu } from './NotificationsMenu';
 import './shellChrome.css';
 
 const linkStyle = ({ isActive }: { isActive: boolean }): CSSProperties => ({
@@ -113,6 +115,7 @@ function AccountMenu({ displayName }: { displayName: string | null }) {
                 /* ignore */
               }
               dispatch(clearSession());
+              dispatch(baseApi.util.resetApiState());
               dispatch(setLicenseStatus('unknown'));
             }}
           >
@@ -182,12 +185,8 @@ export function AppLayout({ children }: { children?: ReactNode }) {
             <MenuPopover label="+ New" title={TOPBAR_MENUS.business.title} items={TOPBAR_MENUS.business.items} />
             <MenuPopover label="Export" title={TOPBAR_MENUS.migration.title} items={TOPBAR_MENUS.migration.items} />
             <div className="vb-topbar-divider" aria-hidden="true" />
-            <button type="button" className="vb-icon-btn" title="Working location" disabled>
-              Loc
-            </button>
-            <button type="button" className="vb-icon-btn" title="Notifications" disabled>
-              Bell
-            </button>
+            <WorkingLocationMenu />
+            <NotificationsMenu />
             <MenuPopover
               label="Sched"
               title={TOPBAR_MENUS.schedulers.title}

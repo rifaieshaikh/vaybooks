@@ -12,6 +12,7 @@ from services.gateway.app import create_gateway_app
 from services.home.router import router as home_router
 from services.inventory.router import router as inventory_router
 from services.migration.router import router as migration_router
+from services.notifications.router import router as notifications_router
 from services.parties.router import router as parties_router
 from services.production.router import router as production_router
 from services.projects.router import router as projects_router
@@ -41,6 +42,7 @@ MODULE_ROUTERS = [
     settings_router,
     schedulers_router,
     access_router,
+    notifications_router,
 ]
 
 

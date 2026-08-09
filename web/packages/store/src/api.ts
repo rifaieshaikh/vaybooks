@@ -23,7 +23,18 @@ const baseQueryWithAuth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQuery
   args,
   api,
   extra,
-) => rawBaseQuery(args, api, extra);
+) => {
+  const result = await rawBaseQuery(args, api, extra);
+  if (result.error && result.error.status === 401) {
+    const url = typeof args === 'string' ? args : args.url;
+    if (!String(url).includes('/auth/login')) {
+      const { clearSession } = await import('./sessionSlice');
+      api.dispatch(clearSession());
+      api.dispatch(baseApi.util.resetApiState());
+    }
+  }
+  return result;
+};
 
 export const baseApi = createApi({
   reducerPath: 'api',
@@ -88,11 +99,25 @@ export const baseApi = createApi({
     'DiscountRule',
     'Inventory',
     'Finance',
+    'SessionLocation',
+    'Notifications',
   ],
   endpoints: (build) => ({
     // Auth / license / flags
     login: build.mutation<
-      { access_token: string; token_type: string; user: { username: string; display_name?: string } },
+      {
+        access_token: string;
+        token_type: string;
+        user: {
+          id?: string;
+          username: string;
+          display_name?: string;
+          working_location_id?: string;
+          location_ids?: string[];
+          role_ids?: string[];
+          permissions?: string[];
+        };
+      },
       { username: string; password: string }
     >({
       query: (body) => ({ url: '/auth/login', method: 'POST', body }),
@@ -102,6 +127,39 @@ export const baseApi = createApi({
     }),
     me: build.query<{ user: Record<string, unknown> }, void>({
       query: () => '/auth/me',
+    }),
+    getWorkingLocation: build.query<
+      {
+        working_location_id: string;
+        allow_all: boolean;
+        accessible: { id: string; code: string; name: string }[];
+      },
+      void
+    >({
+      query: () => '/auth/working-location',
+      providesTags: ['SessionLocation'],
+    }),
+    setWorkingLocation: build.mutation<
+      {
+        working_location_id: string;
+        allow_all: boolean;
+        accessible: { id: string; code: string; name: string }[];
+      },
+      { working_location_id: string }
+    >({
+      query: (body) => ({ url: '/auth/working-location', method: 'PUT', body }),
+      invalidatesTags: ['SessionLocation'],
+    }),
+    listNotifications: build.query<Record<string, unknown>[], { limit?: number } | void>({
+      query: (args) => ({
+        url: '/notifications',
+        params: args && 'limit' in args ? { limit: args.limit } : undefined,
+      }),
+      providesTags: ['Notifications'],
+    }),
+    markNotificationRead: build.mutation<void, string>({
+      query: (id) => ({ url: `/notifications/${id}/read`, method: 'POST' }),
+      invalidatesTags: ['Notifications'],
     }),
     verifyLicense: build.mutation<
       { status: string; cooling_ends_at?: string; expiry?: string },
@@ -830,6 +888,17 @@ export const baseApi = createApi({
     createInventoryLocation: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/inventory/locations', method: 'POST', body }),
       invalidatesTags: ['Inventory'],
+    }),
+    updateInventoryLocation: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/inventory/locations/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Inventory', 'SessionLocation'],
+    }),
+    deleteInventoryLocation: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/inventory/locations/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Inventory', 'SessionLocation'],
     }),
     listInventoryUnits: build.query<Record<string, unknown>[], { active_only?: boolean } | void>({
       query: (args) => ({ url: '/inventory/units', params: args || undefined }),
@@ -2114,6 +2183,10 @@ export const {
   useLoginMutation,
   useLogoutMutation,
   useMeQuery,
+  useGetWorkingLocationQuery,
+  useSetWorkingLocationMutation,
+  useListNotificationsQuery,
+  useMarkNotificationReadMutation,
   useVerifyLicenseMutation,
   useLicenseStatusQuery,
   useRenewLicenseMutation,
@@ -2261,6 +2334,8 @@ export const {
   useCancelInventoryTransferMutation,
   useListInventoryLocationsQuery,
   useCreateInventoryLocationMutation,
+  useUpdateInventoryLocationMutation,
+  useDeleteInventoryLocationMutation,
   useListInventoryUnitsQuery,
   useListCustomerPricesQuery,
   useCreateCustomerPriceMutation,

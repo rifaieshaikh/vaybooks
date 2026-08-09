@@ -403,6 +403,37 @@ def create_location(body: LocationWrite) -> dict[str, Any]:
     return entity_dict(loc)
 
 
+@router.patch("/locations/{location_id}")
+def patch_location(location_id: str, body: LocationWrite) -> dict[str, Any]:
+    from vaybooks.bms.domain.shared.enums import LocationType
+
+    try:
+        loc_type = LocationType(body.location_type)
+    except ValueError:
+        loc_type = LocationType.WAREHOUSE
+    try:
+        loc = _svc().update_location(
+            location_id,
+            body.code,
+            body.name,
+            address=body.address,
+            is_active=body.is_active,
+            location_type=loc_type,
+        )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return entity_dict(loc)
+
+
+@router.delete("/locations/{location_id}")
+def delete_location(location_id: str) -> dict[str, str]:
+    try:
+        _svc().delete_location(location_id)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return {"status": "deleted", "id": location_id}
+
+
 @router.get("/products/{product_id}")
 def get_product(product_id: str) -> dict[str, Any]:
     product = _svc().get_product(product_id)

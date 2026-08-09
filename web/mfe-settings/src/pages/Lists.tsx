@@ -2,11 +2,13 @@ import { useMemo, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import {
   useCreateDiscountRuleMutation,
+  useCreateInventoryLocationMutation,
   useCreateMeasurementSpecMutation,
   useCreateSettingsActivityMutation,
   useCreateSettingsProjectActivityMutation,
   useCreateSettingsStoreActivityMutation,
   useCreateVendorServiceMutation,
+  useDeleteInventoryLocationMutation,
   useGetCrmSettingsQuery,
   useGetKeyboardShortcutsQuery,
   useGetPrintSettingsQuery,
@@ -20,6 +22,7 @@ import {
   useListVendorServicesQuery,
   useUpdateCrmSettingsMutation,
   useUpdateDiscountRuleMutation,
+  useUpdateInventoryLocationMutation,
   useUpdateKeyboardShortcutsMutation,
   useUpdateMeasurementSpecMutation,
   useUpdatePrintSettingsMutation,
@@ -559,14 +562,67 @@ export function DiscountsSettingsPage() {
 
 export function SettingsLocationsPage() {
   const { data = [], isLoading, error, refetch } = useListInventoryLocationsQuery();
+  const [createLoc, createState] = useCreateInventoryLocationMutation();
+  const [updateLoc] = useUpdateInventoryLocationMutation();
+  const [deleteLoc] = useDeleteInventoryLocationMutation();
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [address, setAddress] = useState('');
+  const [locationType, setLocationType] = useState('Warehouse');
+  const [editId, setEditId] = useState('');
+  const [msg, setMsg] = useState('');
   const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
     () => [
       { key: 'name', header: 'Name' },
       { key: 'code', header: 'Code' },
+      { key: 'location_type', header: 'Type' },
       { key: 'is_active', header: 'Active' },
     ],
     [],
   );
+
+  async function onCreate() {
+    setMsg('');
+    try {
+      await createLoc({
+        name,
+        code,
+        address,
+        location_type: locationType,
+        is_active: true,
+      }).unwrap();
+      setName('');
+      setCode('');
+      setAddress('');
+      setMsg('Created');
+      refetch();
+    } catch (e) {
+      setMsg(extractError(e));
+    }
+  }
+
+  async function onSaveEdit() {
+    if (!editId) return;
+    setMsg('');
+    try {
+      await updateLoc({
+        id: editId,
+        body: {
+          name,
+          code,
+          address,
+          location_type: locationType,
+          is_active: true,
+        },
+      }).unwrap();
+      setEditId('');
+      setMsg('Updated');
+      refetch();
+    } catch (e) {
+      setMsg(extractError(e));
+    }
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -575,12 +631,75 @@ export function SettingsLocationsPage() {
           Refresh
         </Button>
       </div>
-      <p>
-        Managed via inventory. <Link to="/inventory">Open inventory</Link>
-      </p>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16, alignItems: 'end' }}>
+        <FormRow label="Name">
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+        </FormRow>
+        <FormRow label="Code">
+          <input value={code} onChange={(e) => setCode(e.target.value)} />
+        </FormRow>
+        <FormRow label="Address">
+          <input value={address} onChange={(e) => setAddress(e.target.value)} />
+        </FormRow>
+        <FormRow label="Type">
+          <select value={locationType} onChange={(e) => setLocationType(e.target.value)}>
+            {['Warehouse', 'Store', 'Site', 'Other'].map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </FormRow>
+        {editId ? (
+          <>
+            <Button type="button" onClick={onSaveEdit} disabled={!name || !code}>
+              Save edit
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setEditId('')}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <Button type="button" onClick={onCreate} disabled={!name || !code || createState.isLoading}>
+            Create
+          </Button>
+        )}
+      </div>
+      {msg ? <p>{msg}</p> : null}
       {isLoading && <p>Loading…</p>}
       {error ? <ErrorText>Failed to load locations.</ErrorText> : null}
-      <DataTable columns={columns} data={data as Record<string, unknown>[]} rowKey={(row) => String(row.id)} />
+      <DataTable
+        columns={columns}
+        data={data as Record<string, unknown>[]}
+        rowKey={(row) => String(row.id)}
+        onRowClick={(row) => {
+          setEditId(String(row.id));
+          setName(String(row.name || ''));
+          setCode(String(row.code || ''));
+          setAddress(String(row.address || ''));
+          setLocationType(String(row.location_type || 'Warehouse'));
+        }}
+      />
+      <p style={{ color: '#667', fontSize: 13 }}>Click a row to edit. Use Delete on the selected row below.</p>
+      {editId ? (
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={async () => {
+            if (!window.confirm('Delete this location?')) return;
+            try {
+              await deleteLoc(editId).unwrap();
+              setEditId('');
+              setMsg('Deleted');
+              refetch();
+            } catch (e) {
+              setMsg(extractError(e));
+            }
+          }}
+        >
+          Delete selected
+        </Button>
+      ) : null}
     </div>
   );
 }

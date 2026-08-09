@@ -18,6 +18,8 @@ Route column ✅ = nav/API surface. Depth notes below mark workflow parity shipp
 | Production / Store | ✅ | ✅ | Batch stage/costs; store activity & time lifecycle |
 | Settings / Access / Home / System | ✅ | ✅ | Keyboard editor, permissions matrix, KPI drilldowns, updates/logs |
 | Cross-cutting | ✅ | ✅ | Sales/PO/boutique invoice PDFs; shell keyboard shortcut wiring |
+| Auth / shell header | ✅ | ✅ | Mongo login/logout + sessionStorage; Loc working-location menu; Bell notifications inbox |
+| Access Users / Settings Locations | ✅ | ✅ | User `location_ids` multiselect; inventory location PATCH/DELETE + Settings CRUD |
 
 | # | url_path | permission | migrated | notes |
 |---:|---|---|---|---|
@@ -77,7 +79,7 @@ Route column ✅ = nav/API surface. Depth notes below mark workflow parity shipp
 | 54 | `inventory-stock-ledger` | `inventory.stock_ledger.view` | ✅ | Inventory wave |
 | 55 | `inventory-transfer-detail` | `inventory.transfers.view` | ✅ | Inventory wave |
 | 56 | `inventory-transfers` | `inventory.transfers.view` | ✅ | Inventory wave |
-| 57 | `inventory-warehouses` | `inventory.warehouses.view` | ✅ | Via `/locations` read API |
+| 57 | `inventory-warehouses` | `inventory.warehouses.view` | ✅ | Via `/locations` CRUD API · depth ✅ |
 | 58 | `item-detail` | `boutique.items.view` | ✅ | Boutique wave |
 | 59 | `journal` | `finance.journal.view` | ✅ | Finance wave |
 | 60 | `keyboard-shortcuts` | `settings.keyboard.view` | ✅ | depth ✅ editor + shell wiring |
@@ -147,7 +149,7 @@ Route column ✅ = nav/API surface. Depth notes below mark workflow parity shipp
 | 124 | `schedulers-purchases` | `schedulers.view` | ✅ | Link stub from purchases |
 | 125 | `schedulers-sales` | `schedulers.view` | ✅ | Link stub from sales |
 | 126 | `services` | `settings.services.view` | ✅ | |
-| 127 | `settings-locations` | `inventory.warehouses.view` | ✅ | |
+| 127 | `settings-locations` | `inventory.warehouses.view` | ✅ | depth ✅ create/edit/delete |
 | 128 | `store-activities` | `settings.store_activities.view` | ✅ | Settings wave (+ store API) |
 | 129 | `store-time` | `parties.store_tasks.view` | ✅ | Store wave |
 | 130 | `system-logs` | `system.logs.view` | ✅ | System wave |
@@ -155,7 +157,7 @@ Route column ✅ = nav/API surface. Depth notes below mark workflow parity shipp
 | 132 | `system-updates` | `system.updates.view` | ✅ | System wave |
 | 133 | `time` | `boutique.tasks.view` | ✅ | Boutique wave |
 | 134 | `trial-balance` | `finance.trial_balance.view` | ✅ | Finance wave |
-| 135 | `users-settings` | `settings.users.view` | ✅ | |
+| 135 | `users-settings` | `settings.users.view` | ✅ | depth ✅ location multiselect |
 | 136 | `vendor-detail` | `parties.vendors.view` | ✅ | Parties wave |
 | 137 | `vendors` | `parties.vendors.view` | ✅ | Parties wave |
 | 138 | `vouchers` | `finance.vouchers.view` | ✅ | Finance wave |

@@ -11,7 +11,23 @@ def test_smoke() -> None:
     c = TestClient(app)
     assert c.get("/health").status_code == 200
 
-    r = c.post("/api/auth/login", json={"username": "a", "password": "b"})
+    # Empty catalog seeds admin/admin; otherwise use those credentials.
+    r = c.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    if r.status_code != 200:
+        from uuid import uuid4 as _uuid4
+
+        uname = f"smoke-{_uuid4().hex[:8]}"
+        created = c.post(
+            "/api/access/users",
+            json={
+                "username": uname,
+                "display_name": "Smoke",
+                "password": "test-pass",
+                "role_ids": [],
+            },
+        )
+        assert created.status_code == 201, created.text
+        r = c.post("/api/auth/login", json={"username": uname, "password": "test-pass"})
     assert r.status_code == 200, r.text
     assert "access_token" in r.json()
 

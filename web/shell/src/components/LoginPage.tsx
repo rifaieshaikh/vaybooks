@@ -21,6 +21,17 @@ function asLicenseStatus(value: string): LicenseStatus {
   return 'unknown';
 }
 
+function extractLoginError(err: unknown): string {
+  if (err && typeof err === 'object' && 'data' in err) {
+    const data = (err as { data?: { detail?: unknown } }).data;
+    if (typeof data?.detail === 'string') return data.detail;
+    if (Array.isArray(data?.detail)) {
+      return data.detail.map((row) => (typeof row === 'object' && row && 'msg' in row ? String((row as { msg: string }).msg) : String(row))).join('; ');
+    }
+  }
+  return 'Login failed. Check credentials / API.';
+}
+
 export function LoginPage() {
   const dispatch = useAppDispatch();
   const [username, setUsername] = useState('admin');
@@ -35,15 +46,16 @@ export function LoginPage() {
       const res = await login({ username, password }).unwrap();
       dispatch(
         setSession({
-          userId: res.user.username,
+          userId: String(res.user.id || res.user.username),
           displayName: res.user.display_name || res.user.username,
           accessToken: res.access_token,
+          workingLocationId: res.user.working_location_id || null,
         }),
       );
       const lic = await verifyLicense().unwrap();
       dispatch(setLicenseStatus(asLicenseStatus(lic.status)));
     } catch (err) {
-      setError('Login failed. Check credentials / API.');
+      setError(extractLoginError(err));
       console.error(err);
     }
   }
@@ -77,7 +89,9 @@ export function LoginPage() {
           </Button>
           {error && <ErrorText>{error}</ErrorText>}
         </SimpleForm>
-        <p style={{ fontSize: 12, color: '#666' }}>Any non-empty username/password works against the stub Auth API.</p>
+        <p style={{ fontSize: 12, color: '#666' }}>
+          Use an Access user account. First boot seeds <code>admin</code> / <code>admin</code> when no users exist.
+        </p>
       </div>
     </div>
   );

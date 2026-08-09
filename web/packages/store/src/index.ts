@@ -6,6 +6,10 @@ export {
   useLoginMutation,
   useLogoutMutation,
   useMeQuery,
+  useGetWorkingLocationQuery,
+  useSetWorkingLocationMutation,
+  useListNotificationsQuery,
+  useMarkNotificationReadMutation,
   useVerifyLicenseMutation,
   useLicenseStatusQuery,
   useRenewLicenseMutation,
@@ -153,6 +157,8 @@ export {
   useCancelInventoryTransferMutation,
   useListInventoryLocationsQuery,
   useCreateInventoryLocationMutation,
+  useUpdateInventoryLocationMutation,
+  useDeleteInventoryLocationMutation,
   useListInventoryUnitsQuery,
   useListCustomerPricesQuery,
   useCreateCustomerPriceMutation,
@@ -368,7 +374,7 @@ export {
   useSetAccessFeatureFlagMutation,
   useListAccessAuditLogsQuery,
 } from './api';
-export { setSession, clearSession } from './sessionSlice';
+export { setSession, setWorkingLocationId, clearSession } from './sessionSlice';
 export type { SessionState } from './sessionSlice';
 export { setLicenseStatus } from './licenseSlice';
 export type { LicenseState, LicenseStatus } from './licenseSlice';

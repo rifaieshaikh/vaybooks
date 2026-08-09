@@ -128,3 +128,34 @@ def test_transfer_and_reports() -> None:
     overview = c.get("/api/inventory/overview")
     assert overview.status_code == 200
     assert "kpis" in overview.json()
+
+
+def test_location_create_patch_delete() -> None:
+    code = _uniq("loc")
+    created = c.post(
+        "/api/inventory/locations",
+        json={"name": _uniq("Loc"), "code": code, "address": "A1", "location_type": "Warehouse"},
+    )
+    assert created.status_code == 201, created.text
+    loc_id = created.json()["id"]
+
+    patched = c.patch(
+        f"/api/inventory/locations/{loc_id}",
+        json={
+            "name": "Renamed Loc",
+            "code": code,
+            "address": "A2",
+            "location_type": "Store",
+            "is_active": True,
+        },
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["name"] == "Renamed Loc"
+
+    deleted = c.delete(f"/api/inventory/locations/{loc_id}")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["status"] == "deleted"
+
+    listed = c.get("/api/inventory/locations")
+    assert listed.status_code == 200
+    assert all(row.get("id") != loc_id for row in listed.json())

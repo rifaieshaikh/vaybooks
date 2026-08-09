@@ -1,8 +1,11 @@
 import { FormEvent, useState } from 'react';
 import {
+  baseApi,
+  clearSession,
   setLicenseStatus,
   useAppDispatch,
   useAppSelector,
+  useLogoutMutation,
   useRenewLicenseMutation,
   type LicenseStatus,
 } from '@vaybooks/store';
@@ -25,10 +28,22 @@ export function LicenseBlockedPage() {
   const status = useAppSelector((s) => s.license.status);
   const [key, setKey] = useState('');
   const [renew, state] = useRenewLicenseMutation();
+  const [logout] = useLogoutMutation();
 
   async function onSubmit(_e: FormEvent) {
     const res = await renew({ license_key: key }).unwrap();
     dispatch(setLicenseStatus(asLicenseStatus(res.status)));
+  }
+
+  async function onSignOut() {
+    try {
+      await logout().unwrap();
+    } catch {
+      /* ignore */
+    }
+    dispatch(clearSession());
+    dispatch(baseApi.util.resetApiState());
+    dispatch(setLicenseStatus('unknown'));
   }
 
   return (
@@ -45,6 +60,11 @@ export function LicenseBlockedPage() {
           Renew license
         </Button>
       </SimpleForm>
+      <div style={{ marginTop: 16 }}>
+        <Button type="button" variant="ghost" onClick={onSignOut}>
+          Sign out
+        </Button>
+      </div>
     </div>
   );
 }
