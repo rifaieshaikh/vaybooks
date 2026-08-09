@@ -13,3 +13,4 @@ export {
   ProjectsScheduledReportsPage,
   ProjectsSettingsPage,
 } from './Lists';
+export { ProjectsCalendarPage } from './Calendar';

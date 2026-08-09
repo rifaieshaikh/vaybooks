@@ -552,20 +552,21 @@ class AccountingAppService:
             ),
         )
 
-    def list_open_sales_invoices_for_customer(
+    def _list_open_invoices_for_customer(
         self,
         customer_account_id: str,
+        voucher_type: VoucherType,
         *,
         exclude_receipt_id: Optional[str] = None,
     ) -> list:
-        """Open sales invoices for a customer account, oldest first."""
+        """Open invoices of one voucher type for a customer account, oldest first."""
         discount = self.get_discount_account()
         discount_id = discount.id if discount else None
         settlement_map = self.invoice_settlement_map(
             exclude_receipt_id=exclude_receipt_id
         )
         rows = []
-        for voucher in self.list_vouchers_by_type(VoucherType.SALES_INVOICE):
+        for voucher in self.list_vouchers_by_type(voucher_type):
             if not self._voucher_touches_account(voucher, customer_account_id):
                 continue
             row = self.enrich_sales_invoice_row(
@@ -580,6 +581,32 @@ class AccountingAppService:
             key=lambda r: (r.get("sale_date") or date.min, r.get("id") or "")
         )
         return rows
+
+    def list_open_sales_invoices_for_customer(
+        self,
+        customer_account_id: str,
+        *,
+        exclude_receipt_id: Optional[str] = None,
+    ) -> list:
+        """Open trading sales invoices for a customer account, oldest first."""
+        return self._list_open_invoices_for_customer(
+            customer_account_id,
+            VoucherType.SALES_INVOICE,
+            exclude_receipt_id=exclude_receipt_id,
+        )
+
+    def list_open_customization_invoices_for_customer(
+        self,
+        customer_account_id: str,
+        *,
+        exclude_receipt_id: Optional[str] = None,
+    ) -> list:
+        """Open boutique customization invoices for a customer account, oldest first."""
+        return self._list_open_invoices_for_customer(
+            customer_account_id,
+            VoucherType.CUSTOMIZATION_INVOICE,
+            exclude_receipt_id=exclude_receipt_id,
+        )
 
     def _description_with_receipt_allocations(
         self,

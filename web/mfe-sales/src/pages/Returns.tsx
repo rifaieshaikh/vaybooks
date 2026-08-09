@@ -14,9 +14,17 @@ import {
   Button,
   EntityCard,
   EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -25,6 +33,7 @@ import {
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
@@ -32,6 +41,15 @@ import { asCaption, extractError, formatMoney } from '../utils';
 
 const DEFAULT_FILTERS = { return_number: '', customer_name: '', status: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'return_date', desc: true }];
+const STATUS_CHIPS = [
+  { id: 'all', label: 'All' },
+  { id: 'Pending Approval', label: 'Pending Approval' },
+  { id: 'Approved', label: 'Approved' },
+  { id: 'Rejected', label: 'Rejected' },
+  { id: 'Goods Received', label: 'Goods Received' },
+  { id: 'Refund Processed', label: 'Refund Processed' },
+  { id: 'Closed', label: 'Closed' },
+];
 
 export function SalesReturnsListPage() {
   const navigate = useNavigate();
@@ -65,7 +83,7 @@ export function SalesReturnsListPage() {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.return_number, filters.return_number)) return false;
       if (!matchesRegex(row.customer_name, filters.customer_name)) return false;
-      if (!matchesRegex(row.status, filters.status)) return false;
+      if (filters.status && String(row.status) !== filters.status) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -73,6 +91,46 @@ export function SalesReturnsListPage() {
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type ReturnRow = (typeof data)[number];
+
+  const columns: EntityListColumn<ReturnRow>[] = useMemo(
+    () => [
+      {
+        id: 'return_number',
+        header: 'Return #',
+        render: (row) => (
+          <span className="el-customer-name">
+            {asCaption(row.return_number) || String(row.id)}
+          </span>
+        ),
+      },
+      {
+        id: 'customer',
+        header: 'Customer',
+        render: (row) => asCaption(row.customer_name) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'date',
+        header: 'Date',
+        render: (row) =>
+          asCaption(row.return_date).slice(0, 10) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'amount',
+        header: 'Amount',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
+      },
+    ],
+    [],
+  );
 
   async function onCreate() {
     setFormError('');
@@ -90,57 +148,85 @@ export function SalesReturnsListPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Sales"
         title="Sales Returns"
-        countLabel="returns"
-        count={filtered.length}
-        primaryLabel="New return"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-          if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'return_date', label: 'Date' },
-          { value: 'return_number', label: 'Return #' },
-          { value: 'total_amount', label: 'Amount' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
+        count={`${filtered.length} ${filtered.length === 1 ? 'return' : 'returns'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setOpen(true);
+              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
+            }}
+          >
+            New return
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={STATUS_CHIPS}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'return_date', label: 'Date' },
+              { value: 'return_number', label: 'Return #' },
+              { value: 'total_amount', label: 'Amount' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
 
-      {isLoading && <p>Loading…</p>}
+      {isLoading ? <EntityListLoading>Loading returns…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load returns.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No returns found.</p>}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No returns found.</strong>
+        </EntityListEmpty>
+      ) : null}
 
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={asCaption(row.return_number) || String(row.id)}
-            captions={[
-              asCaption(row.customer_name),
-              asCaption(row.status),
-              asCaption(row.return_date).slice(0, 10),
-              formatMoney(Number(row.total_amount ?? 0)),
-            ]}
-            onView={() => navigate(`/sales/returns/${row.id}`)}
-          />
-        ))}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/sales/returns/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -215,7 +301,7 @@ export function SalesReturnsListPage() {
           </div>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 

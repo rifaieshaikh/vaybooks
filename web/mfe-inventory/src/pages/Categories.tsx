@@ -6,11 +6,17 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -20,6 +26,7 @@ import {
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
@@ -161,6 +168,8 @@ export function CategoriesListPage() {
     [data, editId],
   );
 
+  type CategoryRow = (typeof data)[number];
+
   function setField(name: keyof CategoryFormValues, value: string | boolean) {
     setValues((p) => ({ ...p, [name]: value }));
   }
@@ -172,7 +181,7 @@ export function CategoriesListPage() {
     setDialog('add');
   }
 
-  function openEdit(row: Record<string, unknown>) {
+  function openEdit(row: CategoryRow) {
     setFormError('');
     setEditId(String(row.id));
     setValues(categoryToForm(row));
@@ -198,60 +207,120 @@ export function CategoriesListPage() {
     }
   }
 
-  return (
-    <div>
-      <ListToolbar
-        title="Categories"
-        countLabel="categories"
-        count={filtered.length}
-        primaryLabel="Add Category"
-        onPrimary={openAdd}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_CATEGORY_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_CATEGORY_SORT}
-        sortOptions={[
-          { value: 'created_at', label: 'Created' },
-          { value: 'name', label: 'Name' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
-      />
-
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load categories. Is the API running?</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No categories found.</p>}
-
-      <EntityCardGrid>
-        {pageRows.map((row) => {
+  const columns: EntityListColumn<CategoryRow>[] = useMemo(
+    () => [
+      {
+        id: 'name',
+        header: 'Category',
+        render: (row) => {
+          const name = displayName(row, ['name'], 'Unnamed category');
           const path = Array.isArray(row.path) ? (row.path as string[]) : [];
           return (
-            <EntityCard
-              key={String(row.id)}
-              title={displayName(row, ['name'], 'Unnamed category')}
-              captions={[
-                path.length > 1 ? path.join(' › ') : '',
-                `${Number(row.product_count ?? 0)} products`,
-              ].filter(Boolean)}
-              badges={[
-                {
-                  label: row.is_active === false ? 'Inactive' : 'Active',
-                  tone: row.is_active === false ? 'gray' : 'green',
-                },
-              ]}
-              onEdit={() => openEdit(row)}
-            />
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{name}</span>
+                <span className="el-customer-sub">
+                  {path.length > 1 ? path.join(' › ') : 'Top level'}
+                </span>
+              </div>
+            </div>
           );
-        })}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+        },
+      },
+      {
+        id: 'products',
+        header: 'Products',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => Number(row.product_count ?? 0),
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => (
+          <span className={row.is_active === false ? 'el-muted' : undefined}>
+            {row.is_active === false ? 'Inactive' : 'Active'}
+          </span>
+        ),
+      },
+    ],
+    [],
+  );
+
+  return (
+    <EntityListPage>
+      <EntityListHero
+        kicker="Inventory"
+        title="Categories"
+        count={`${filtered.length} ${filtered.length === 1 ? 'category' : 'categories'}`}
+        actions={
+          <Button type="button" onClick={openAdd}>
+            Add Category
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.active_only || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, active_only: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'yes', label: 'Active' },
+              { id: 'no', label: 'Inactive' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_CATEGORY_FILTERS}
+            excludeKeys={['active_only']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_CATEGORY_SORT}
+            sortOptions={[
+              { value: 'created_at', label: 'Created' },
+              { value: 'name', label: 'Name' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading categories…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load categories. Is the API running?</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No categories found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => <EntityListActions onEdit={() => openEdit(row)} />}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         title={dialog === 'edit' ? 'Edit Category' : 'Add Category'}
@@ -275,6 +344,6 @@ export function CategoriesListPage() {
         {formError ? <ErrorText>{formError}</ErrorText> : null}
         <CategoryFormFields values={values} onChange={setField} parentOptions={parentOptions} />
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }

@@ -12,18 +12,26 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
+  displayName,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
@@ -33,6 +41,8 @@ import {
   measurementFormMissingRequired,
 } from '../MeasurementForm';
 import { asCaption, extractError } from '../utils';
+
+const PERSON_TYPES = ['Men', 'Women', 'Boy Child', 'Girl Child', 'Infant'] as const;
 
 const DEFAULT_FILTERS = { measurement_number: '', wearer_name: '', person_type: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'measurement_number', desc: true }];
@@ -55,7 +65,13 @@ export function BoutiqueMeasurementsListPage() {
     () => [
       { key: 'measurement_number', label: 'Number', type: 'text' },
       { key: 'wearer_name', label: 'Wearer', type: 'text' },
-      { key: 'person_type', label: 'Person type', type: 'text' },
+      {
+        key: 'person_type',
+        label: 'Person type',
+        type: 'select',
+        allLabel: 'All types',
+        options: PERSON_TYPES.map((t) => ({ value: t, label: t })),
+      },
     ],
     [],
   );
@@ -64,7 +80,7 @@ export function BoutiqueMeasurementsListPage() {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.measurement_number, filters.measurement_number)) return false;
       if (!matchesRegex(row.wearer_name, filters.wearer_name)) return false;
-      if (!matchesRegex(row.person_type, filters.person_type)) return false;
+      if (filters.person_type && String(row.person_type || '') !== filters.person_type) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -100,54 +116,129 @@ export function BoutiqueMeasurementsListPage() {
     }
   }
 
+  type MeasurementRow = (typeof data)[number];
+
+  const columns: EntityListColumn<MeasurementRow>[] = useMemo(
+    () => [
+      {
+        id: 'measurement',
+        header: 'Measurement',
+        render: (row) => {
+          const number = displayName(row, ['measurement_number'], String(row.id));
+          const wearer = asCaption(row.wearer_name) || 'No wearer';
+          return (
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{number}</span>
+                <span className="el-customer-sub">{wearer}</span>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'person_type',
+        header: 'Person type',
+        render: (row) => {
+          const personType = asCaption(row.person_type);
+          return <span className={personType ? undefined : 'el-muted'}>{personType || '—'}</span>;
+        },
+      },
+      {
+        id: 'customer',
+        header: 'Customer',
+        render: (row) => {
+          const customer = asCaption(row.customer_id);
+          return <span className={customer ? undefined : 'el-muted'}>{customer || '—'}</span>;
+        },
+      },
+    ],
+    [],
+  );
+
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Boutique"
         title="Measurements"
-        countLabel="records"
-        count={filtered.length}
-        primaryLabel="New measurement"
-        onPrimary={() => {
-          setFormError('');
-          setForm(null);
-          setOpen(true);
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'measurement_number', label: 'Number' },
-          { value: 'person_type', label: 'Person type' },
-          { value: 'wearer_name', label: 'Wearer' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load measurements.</ErrorText> : null}
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={asCaption(row.measurement_number) || String(row.id)}
-            captions={[
-              asCaption(row.wearer_name),
-              asCaption(row.person_type),
-              asCaption(row.customer_id),
+        count={`${filtered.length} ${filtered.length === 1 ? 'record' : 'records'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setForm(null);
+              setOpen(true);
+            }}
+          >
+            New measurement
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Person type"
+            value={filters.person_type || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, person_type: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              ...PERSON_TYPES.map((t) => ({ id: t, label: t })),
             ]}
-            onView={() => navigate(`/boutique/measurements/${row.id}`)}
           />
-        ))}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['person_type']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'measurement_number', label: 'Number' },
+              { value: 'person_type', label: 'Person type' },
+              { value: 'wearer_name', label: 'Wearer' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading measurements…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load measurements.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No measurements found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/boutique/measurements/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -183,7 +274,7 @@ export function BoutiqueMeasurementsListPage() {
           <MeasurementForm onChange={setForm} />
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 
@@ -212,7 +303,9 @@ export function BoutiqueMeasurementDetailPage() {
       measured_at: String(data.measured_at || ''),
       notes: String(data.notes || ''),
       print_notes: String(data.print_notes || ''),
-      values: Array.isArray(data.values) ? (data.values as Record<string, unknown>[]) : [],
+      values: Array.isArray(data.values)
+        ? (data.values as MeasurementFormValue['values'])
+        : [],
     };
   }, [data]);
 

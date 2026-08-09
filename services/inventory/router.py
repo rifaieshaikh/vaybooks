@@ -6,12 +6,14 @@ from datetime import date, datetime
 from typing import Any, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from packages.messaging.bus import get_bus
 from packages.messaging.locking import ReserveLockService
 from packages.services_kit.inventory_container import get_inventory_container
+from packages.services_kit.sales_container import get_sales_container
+from services.common.authz import require_permission
 from services.parties.serialize import entity_dict
 from vaybooks.bms.domain.shared.enums import StockMovementType, StockTransferStatus
 from vaybooks.bms.domain.shared.exceptions import ValidationError
@@ -19,9 +21,6 @@ from vaybooks.bms.domain.shared.exceptions import ValidationError
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 _locks = ReserveLockService()
 _CONSUMER_HEALTHY = True
-
-# In-memory customer price store (sales SOR later; keeps UI working)
-_CUSTOMER_PRICES: list[dict[str, Any]] = []
 
 
 class ReserveRequest(BaseModel):
@@ -98,6 +97,10 @@ class ReportRunBody(BaseModel):
 
 def _svc():
     return get_inventory_container().inventory
+
+
+def _sales():
+    return get_sales_container().sales
 
 
 def _http_err(exc: Exception) -> HTTPException:
@@ -385,8 +388,11 @@ def create_location(body: LocationWrite) -> dict[str, Any]:
 
     try:
         loc_type = LocationType(body.location_type)
-    except ValueError:
-        loc_type = LocationType.WAREHOUSE
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="location_type must be 'Warehouse' or 'Retail Store'",
+        ) from exc
     try:
         loc = _svc().create_location(
             body.code,
@@ -409,8 +415,11 @@ def patch_location(location_id: str, body: LocationWrite) -> dict[str, Any]:
 
     try:
         loc_type = LocationType(body.location_type)
-    except ValueError:
-        loc_type = LocationType.WAREHOUSE
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="location_type must be 'Warehouse' or 'Retail Store'",
+        ) from exc
     try:
         loc = _svc().update_location(
             location_id,
@@ -576,48 +585,95 @@ def cancel_transfer(transfer_id: str) -> dict[str, Any]:
         raise _http_err(exc) from exc
 
 
-# --- Customer prices (local stub until sales SOR) ------------------------------
+# --- Customer prices (SalesAppService / Mongo) ---------------------------------
+
+
+def _customer_price_row(entry: Any, *, selling_rate: float = 0.0) -> dict[str, Any]:
+    data = entity_dict(entry)
+    rate = round(float(getattr(entry, "rate", 0) or data.get("rate") or 0), 2)
+    sell = round(float(selling_rate or 0), 2)
+    data["customer_rate"] = rate
+    data["selling_rate"] = sell
+    data["difference"] = round(rate - sell, 2)
+    return data
+
+
+def _latest_customer_price_rows(
+    *, customer_id: Optional[str] = None, limit: int = 2000
+) -> list[dict[str, Any]]:
+    entries = list(_sales().list_customer_prices(limit=limit) or [])
+    cid = (customer_id or "").strip()
+    if cid:
+        entries = [e for e in entries if str(getattr(e, "customer_id", "") or "") == cid]
+
+    # list_customer_prices returns newest-first; keep first (latest) per pair
+    latest: dict[tuple[str, str], Any] = {}
+    for entry in entries:
+        key = (
+            str(getattr(entry, "customer_id", "") or ""),
+            str(getattr(entry, "product_id", "") or ""),
+        )
+        if key not in latest:
+            latest[key] = entry
+
+    inv = _svc()
+    selling_by_product: dict[str, float] = {}
+    rows: list[dict[str, Any]] = []
+    for entry in latest.values():
+        product_id = str(getattr(entry, "product_id", "") or "")
+        if product_id and product_id not in selling_by_product:
+            product = inv.get_product(product_id)
+            selling_by_product[product_id] = (
+                float(getattr(product, "selling_rate", 0) or 0) if product else 0.0
+            )
+        rows.append(
+            _customer_price_row(
+                entry, selling_rate=selling_by_product.get(product_id, 0.0)
+            )
+        )
+    return rows
 
 
 @router.get("/customer-prices")
-def list_customer_prices() -> list[dict[str, Any]]:
-    # Prefer latest per customer×product
-    latest: dict[tuple[str, str], dict[str, Any]] = {}
-    for row in sorted(_CUSTOMER_PRICES, key=lambda r: r.get("effective_date") or ""):
-        latest[(row["customer_id"], row["product_id"])] = row
-    return list(latest.values())
+def list_customer_prices(
+    customer_id: Optional[str] = Query(default=None),
+    _: str = Depends(require_permission("inventory.customer_prices.view")),
+) -> list[dict[str, Any]]:
+    return _latest_customer_price_rows(customer_id=customer_id)
 
 
 @router.post("/customer-prices", status_code=201)
-def create_customer_price(body: CustomerPriceWrite) -> dict[str, Any]:
+def create_customer_price(
+    body: CustomerPriceWrite,
+    _: str = Depends(require_permission("inventory.customer_prices.edit")),
+) -> dict[str, Any]:
+    try:
+        entry = _sales().create_customer_price(
+            customer_id=body.customer_id,
+            product_id=body.product_id,
+            rate=body.rate,
+            effective_date=_parse_date(body.effective_date),
+            customer_name=body.customer_name,
+            sku=body.sku,
+            product_name=body.product_name,
+        )
+    except Exception as exc:
+        raise _http_err(exc) from exc
     product = _svc().get_product(body.product_id)
-    row = {
-        "id": uuid4().hex,
-        "customer_id": body.customer_id,
-        "customer_name": body.customer_name,
-        "product_id": body.product_id,
-        "sku": body.sku or (getattr(product, "sku", "") if product else ""),
-        "product_name": body.product_name or (getattr(product, "name", "") if product else ""),
-        "customer_rate": float(body.rate),
-        "selling_rate": float(getattr(product, "selling_rate", 0) or 0) if product else 0.0,
-        "effective_date": (_parse_date(body.effective_date)).isoformat(),
-        "created_at": datetime.utcnow().isoformat(),
-    }
-    row["difference"] = round(row["customer_rate"] - row["selling_rate"], 2)
-    _CUSTOMER_PRICES.append(row)
-    return row
+    selling = float(getattr(product, "selling_rate", 0) or 0) if product else 0.0
+    return _customer_price_row(entry, selling_rate=selling)
 
 
 @router.get("/customer-prices/history")
 def customer_price_history(
     customer_id: str = Query(...),
     product_id: str = Query(...),
+    _: str = Depends(require_permission("inventory.customer_prices.view")),
 ) -> list[dict[str, Any]]:
-    return [
-        r
-        for r in _CUSTOMER_PRICES
-        if r["customer_id"] == customer_id and r["product_id"] == product_id
-    ]
+    entries = _sales().list_customer_price_history(customer_id, product_id, limit=100)
+    product = _svc().get_product(product_id)
+    selling = float(getattr(product, "selling_rate", 0) or 0) if product else 0.0
+    return [_customer_price_row(e, selling_rate=selling) for e in entries]
 
 
 # --- Reports -------------------------------------------------------------------
@@ -688,7 +744,7 @@ def run_report(body: ReportRunBody) -> dict[str, Any]:
             qty = sum(float(getattr(p, "current_qty", 0) or 0) for p in products)
             rows.append({"category": cat.name, "product_count": len(products), "qty": qty})
     elif rtype == "Customer Latest Prices":
-        rows = list_customer_prices()
+        rows = _latest_customer_price_rows()
     elif rtype == "HSN Stock Summary":
         buckets: dict[str, dict[str, Any]] = {}
         for p in inv.list_products(active_only=False):

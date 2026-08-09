@@ -9,7 +9,32 @@ import {
   useListAccessUsersQuery,
   useUpdateAccessUserMutation,
 } from '@vaybooks/store';
-import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
+import {
+  Button,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
+  ErrorText,
+  FormRow,
+  Modal,
+  PAGE_SIZE,
+  PaginationBar,
+  TextInput,
+  displayName,
+  matchesRegex,
+  pageCount,
+  paginate,
+  sortRows,
+  type EntityListColumn,
+  type FilterFieldDef,
+  type SortCriterion,
+} from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
 
 function LocationChecklist({
@@ -49,24 +74,81 @@ function LocationChecklist({
   );
 }
 
+const DEFAULT_USER_FILTERS = { username: '', display_name: '', active: '' };
+const DEFAULT_USER_SORT: SortCriterion[] = [{ key: 'username', desc: false }];
+const USER_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'username', label: 'Username', type: 'text' },
+  { key: 'display_name', label: 'Display name', type: 'text' },
+  {
+    key: 'active',
+    label: 'Active',
+    type: 'select',
+    options: [
+      { value: 'yes', label: 'Active' },
+      { value: 'no', label: 'Inactive' },
+    ],
+  },
+];
+
 export function AccessUsersListPage() {
   const navigate = useNavigate();
-  const { data = [], isLoading, error, refetch } = useListAccessUsersQuery();
+  const { data = [], isLoading, error } = useListAccessUsersQuery();
   const rolesQ = useListAccessRolesQuery();
   const { data: locations = [] } = useListInventoryLocationsQuery();
   const [createUser, createState] = useCreateAccessUserMutation();
+
+  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_USER_SORT);
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ ...DEFAULT_USER_FILTERS });
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [username, setUsername] = useState('');
-  const [displayName, setDisplayName] = useState('');
+  const [userDisplayName, setUserDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [roleId, setRoleId] = useState('');
   const [locationIds, setLocationIds] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
 
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+  const filtered = useMemo(() => {
+    let rows = data.filter((row) => {
+      if (!matchesRegex(row.username, filters.username)) return false;
+      if (!matchesRegex(row.display_name, filters.display_name)) return false;
+      if (filters.active === 'yes' && !row.active) return false;
+      if (filters.active === 'no' && row.active) return false;
+      return true;
+    });
+    rows = sortRows(rows, sort);
+    return rows;
+  }, [data, filters, sort]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type UserRow = (typeof data)[number];
+
+  const columns: EntityListColumn<UserRow>[] = useMemo(
     () => [
-      { key: 'username', header: 'Username' },
-      { key: 'display_name', header: 'Display name' },
-      { key: 'active', header: 'Active' },
+      {
+        id: 'username',
+        header: 'Username',
+        render: (row) => displayName(row, ['username'], 'Unnamed'),
+      },
+      {
+        id: 'display_name',
+        header: 'Display name',
+        render: (row) => {
+          const name = String(row.display_name || '').trim();
+          return <span className={name ? undefined : 'el-muted'}>{name || '—'}</span>;
+        },
+      },
+      {
+        id: 'active',
+        header: 'Active',
+        render: (row) => (
+          <span className={row.active ? 'el-advance' : 'el-muted'}>
+            {row.active ? 'Active' : 'Inactive'}
+          </span>
+        ),
+      },
     ],
     [],
   );
@@ -76,15 +158,16 @@ export function AccessUsersListPage() {
     try {
       const row = await createUser({
         username,
-        display_name: displayName || username,
+        display_name: userDisplayName || username,
         password,
         role_ids: roleId ? [roleId] : [],
         location_ids: locationIds,
       }).unwrap();
       setUsername('');
-      setDisplayName('');
+      setUserDisplayName('');
       setPassword('');
       setLocationIds([]);
+      setDialogOpen(false);
       navigate(`/access/users/${row.id}`);
     } catch (e) {
       setFormError(extractError(e));
@@ -92,23 +175,122 @@ export function AccessUsersListPage() {
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Users</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <div style={{ display: 'grid', gap: 12, marginBottom: 20, maxWidth: 560 }}>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
+    <EntityListPage>
+      <EntityListHero
+        kicker="Access"
+        title="Users"
+        count={`${filtered.length} ${filtered.length === 1 ? 'user' : 'users'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setUsername('');
+              setUserDisplayName('');
+              setPassword('');
+              setRoleId('');
+              setLocationIds([]);
+              setFormError('');
+              setDialogOpen(true);
+            }}
+          >
+            Create user
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.active || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, active: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'yes', label: 'Active' },
+              { id: 'no', label: 'Inactive' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={USER_FILTER_FIELDS}
+            filters={filters}
+            defaultFilters={DEFAULT_USER_FILTERS}
+            excludeKeys={['active']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_USER_SORT}
+            sortOptions={[
+              { value: 'username', label: 'Username' },
+              { value: 'display_name', label: 'Display name' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading users…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load users.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No users found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/access/users/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+
+      <Modal
+        title="Create user"
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        footer={
+          <>
+            <Button
+              type="button"
+              onClick={() => void onCreate()}
+              disabled={!username.trim() || password.length < 4 || createState.isLoading}
+            >
+              {createState.isLoading ? 'Creating…' : 'Create'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        {formError ? <ErrorText>{formError}</ErrorText> : null}
+        <div style={{ display: 'grid', gap: 10 }}>
           <FormRow label="Username">
-            <input value={username} onChange={(e) => setUsername(e.target.value)} />
+            <TextInput value={username} onChange={(e) => setUsername(e.target.value)} />
           </FormRow>
           <FormRow label="Display name">
-            <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+            <TextInput value={userDisplayName} onChange={(e) => setUserDisplayName(e.target.value)} />
           </FormRow>
           <FormRow label="Password">
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </FormRow>
           <FormRow label="Role">
             <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
@@ -120,28 +302,12 @@ export function AccessUsersListPage() {
               ))}
             </select>
           </FormRow>
+          <FormRow label="Locations">
+            <LocationChecklist locations={locations} selected={locationIds} onChange={setLocationIds} />
+          </FormRow>
         </div>
-        <FormRow label="Locations">
-          <LocationChecklist locations={locations} selected={locationIds} onChange={setLocationIds} />
-        </FormRow>
-        <Button
-          type="button"
-          onClick={onCreate}
-          disabled={!username.trim() || password.length < 4 || createState.isLoading}
-        >
-          Create
-        </Button>
-      </div>
-      {formError ? <ErrorText>{formError}</ErrorText> : null}
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load users.</ErrorText> : null}
-      <DataTable
-        columns={columns}
-        data={data as Record<string, unknown>[]}
-        rowKey={(row) => String(row.id)}
-        onRowClick={(row) => navigate(`/access/users/${row.id}`)}
-      />
-    </div>
+      </Modal>
+    </EntityListPage>
   );
 }
 
@@ -152,7 +318,7 @@ export function AccessUserDetailPage() {
   const [setPassword, passwordState] = useSetAccessUserPasswordMutation();
   const rolesQ = useListAccessRolesQuery();
   const { data: locations = [] } = useListInventoryLocationsQuery();
-  const [displayName, setDisplayName] = useState('');
+  const [userDisplayName, setUserDisplayName] = useState('');
   const [roleIds, setRoleIds] = useState<string[]>([]);
   const [locationIds, setLocationIds] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
@@ -162,7 +328,7 @@ export function AccessUserDetailPage() {
 
   useEffect(() => {
     if (!data || hydrated) return;
-    setDisplayName(String(data.display_name || ''));
+    setUserDisplayName(String(data.display_name || ''));
     setRoleIds(Array.isArray(data.role_ids) ? data.role_ids.map(String) : []);
     setLocationIds(Array.isArray(data.location_ids) ? data.location_ids.map(String) : []);
     setActive(Boolean(data.active));
@@ -175,7 +341,7 @@ export function AccessUserDetailPage() {
       await updateUser({
         id,
         body: {
-          display_name: displayName || String(data?.display_name || ''),
+          display_name: userDisplayName || String(data?.display_name || ''),
           role_ids: roleIds,
           location_ids: locationIds,
           active,
@@ -201,7 +367,7 @@ export function AccessUserDetailPage() {
       <h2 style={{ color: 'var(--vb-color-primary, #185c4c)' }}>{asCaption(data.username)}</h2>
       <div style={{ display: 'grid', gap: 12, maxWidth: 560 }}>
         <FormRow label="Display name">
-          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+          <input value={userDisplayName} onChange={(e) => setUserDisplayName(e.target.value)} />
         </FormRow>
         <FormRow label="Roles">
           <select

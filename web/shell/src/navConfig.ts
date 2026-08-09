@@ -1,202 +1,406 @@
 /** Sidebar + topbar navigation mirroring Streamlit `page_groups` in app.py. */
 
-export type NavItem = { to: string; label: string };
+export type NavIcon =
+  | 'dashboard'
+  | 'calendarDays'
+  | 'users'
+  | 'truck'
+  | 'handshake'
+  | 'userCog'
+  | 'tags'
+  | 'layoutGrid'
+  | 'userPlus'
+  | 'messageSquare'
+  | 'activity'
+  | 'barChart'
+  | 'clock'
+  | 'shoppingBag'
+  | 'ruler'
+  | 'package'
+  | 'folderKanban'
+  | 'clipboardList'
+  | 'fileText'
+  | 'fileSignature'
+  | 'receipt'
+  | 'undo'
+  | 'shoppingCart'
+  | 'packageCheck'
+  | 'boxes'
+  | 'warehouse'
+  | 'arrowLeftRight'
+  | 'badgeDollar'
+  | 'flaskConical'
+  | 'layers'
+  | 'bookOpen'
+  | 'percent'
+  | 'scale'
+  | 'landmark'
+  | 'wallet'
+  | 'creditCard'
+  | 'notebook'
+  | 'balanceScale'
+  | 'hardDrive'
+  | 'settings'
+  | 'refreshCw'
+  | 'scrollText'
+  | 'building'
+  | 'mapPin'
+  | 'printer'
+  | 'keyboard'
+  | 'sliders'
+  | 'flag'
+  | 'shield'
+  | 'keyRound'
+  | 'usersRound'
+  | 'database'
+  | 'calendarClock'
+  | 'plus';
+
+export type NavItem = {
+  to: string;
+  label: string;
+  icon?: NavIcon;
+  /** Org entitlement module id (e.g. sales, crm). */
+  module?: string;
+  permission?: string;
+};
 
 export type NavGroup = {
   /** Empty string = ungrouped home items (Dashboard / MTD). */
   header: string;
+  module?: string;
   items: NavItem[];
 };
 
-/** Left sidebar — same groups Streamlit keeps visible (not topbar-only). */
+function item(
+  to: string,
+  label: string,
+  module: string,
+  permission: string | undefined,
+  icon: NavIcon,
+): NavItem {
+  return { to, label, module, permission, icon };
+}
+
+/** Left sidebar — operational modules only (admin lives in Settings flyout). */
 export const SIDEBAR_GROUPS: NavGroup[] = [
   {
     header: '',
+    module: 'core',
     items: [
-      { to: '/', label: 'Dashboard' },
-      { to: '/mtd-dashboard', label: 'MTD' },
+      item('/', 'Dashboard', 'core', 'core.dashboard.view', 'dashboard'),
+      item('/mtd-dashboard', 'MTD', 'core', 'core.mtd.view', 'calendarDays'),
     ],
   },
   {
     header: 'Parties',
+    module: 'parties',
     items: [
-      { to: '/parties/customers', label: 'Customers' },
-      { to: '/parties/vendors', label: 'Vendors' },
-      { to: '/parties/delivery-partners', label: 'Delivery Partners' },
-      { to: '/parties/commission-agents', label: 'Commission Agents' },
-      { to: '/parties/workers', label: 'Employees' },
-      { to: '/parties/segments', label: 'Segments' },
+      item('/parties/customers', 'Customers', 'parties', 'parties.customers.view', 'users'),
+      item('/parties/vendors', 'Vendors', 'parties', 'parties.vendors.view', 'truck'),
+      item(
+        '/parties/delivery-partners',
+        'Delivery Partners',
+        'parties',
+        'parties.delivery_partners.view',
+        'truck',
+      ),
+      item(
+        '/parties/commission-agents',
+        'Commission Agents',
+        'parties',
+        'parties.commission_agents.view',
+        'handshake',
+      ),
+      item('/parties/workers', 'Employees', 'parties', 'parties.employees.view', 'userCog'),
+      item('/parties/segments', 'Segments', 'parties', 'parties.segments.view', 'tags'),
     ],
   },
   {
     header: 'CRM',
+    module: 'crm',
     items: [
-      { to: '/crm', label: 'Overview' },
-      { to: '/crm/leads', label: 'Leads' },
-      { to: '/crm/enquiries', label: 'Enquiries' },
-      { to: '/crm/activities', label: 'Activities' },
-      { to: '/crm/calendar', label: 'Calendar' },
-      { to: '/crm/reports', label: 'Reports' },
-      { to: '/crm/scheduled-reports', label: 'Scheduled reports' },
+      item('/crm', 'Overview', 'crm', 'crm.dashboard.view', 'layoutGrid'),
+      item('/crm/leads', 'Leads', 'crm', 'crm.leads.view', 'userPlus'),
+      item('/crm/enquiries', 'Enquiries', 'crm', 'crm.enquiries.view', 'messageSquare'),
+      item('/crm/activities', 'Activities', 'crm', 'crm.activities.view', 'activity'),
+      item('/crm/calendar', 'Calendar', 'crm', 'crm.calendar.view', 'calendarDays'),
+      item('/crm/reports', 'Reports', 'crm', 'crm.reports.view', 'barChart'),
+      item('/crm/scheduled-reports', 'Scheduled reports', 'schedulers', 'schedulers.view', 'calendarClock'),
     ],
   },
   {
     header: 'Boutique',
+    module: 'boutique',
     items: [
-      { to: '/boutique', label: 'Overview' },
-      { to: '/boutique/orders', label: 'Customization Orders' },
-      { to: '/boutique/measurements', label: 'Measurements' },
-      { to: '/boutique/items', label: 'Customization Items' },
-      { to: '/boutique/time', label: 'Tasks' },
-      { to: '/boutique/calendar', label: 'Calendar' },
-      { to: '/boutique/reports', label: 'Reports' },
-      { to: '/boutique/scheduled-reports', label: 'Scheduled reports' },
+      item('/boutique', 'Overview', 'boutique', 'boutique.overview.view', 'layoutGrid'),
+      item('/boutique/orders', 'Customization Orders', 'boutique', 'boutique.orders.view', 'shoppingBag'),
+      item('/boutique/measurements', 'Measurements', 'boutique', 'boutique.measurements.view', 'ruler'),
+      item('/boutique/items', 'Customization Items', 'boutique', 'boutique.items.view', 'package'),
+      item('/boutique/time', 'Tasks', 'boutique', 'boutique.tasks.view', 'clock'),
+      item('/boutique/calendar', 'Calendar', 'boutique', 'boutique.calendar.view', 'calendarDays'),
+      item('/boutique/reports', 'Reports', 'boutique', 'boutique.reports.view', 'barChart'),
+      item(
+        '/boutique/scheduled-reports',
+        'Scheduled reports',
+        'schedulers',
+        'schedulers.view',
+        'calendarClock',
+      ),
     ],
   },
   {
     header: 'Projects',
+    module: 'projects',
     items: [
-      { to: '/projects', label: 'Overview' },
-      { to: '/projects/enquiries', label: 'Enquiries' },
-      { to: '/projects/list', label: 'Projects' },
-      { to: '/projects/measurements', label: 'Measurements' },
-      { to: '/projects/ra-bills', label: 'RA Bills' },
-      { to: '/projects/reports', label: 'Reports' },
-      { to: '/projects/scheduled-reports', label: 'Scheduled reports' },
-      { to: '/projects/settings', label: 'Settings' },
+      item('/projects', 'Overview', 'projects', 'projects.overview.view', 'layoutGrid'),
+      item('/projects/enquiries', 'Enquiries', 'projects', 'projects.enquiries.view', 'messageSquare'),
+      item('/projects/list', 'Projects', 'projects', 'projects.projects.view', 'folderKanban'),
+      item('/projects/measurements', 'Measurements', 'projects', 'projects.measurements.view', 'ruler'),
+      item('/projects/ra-bills', 'RA Bills', 'projects', 'projects.ra_bills.view', 'receipt'),
+      item('/projects/reports', 'Reports', 'projects', 'projects.reports.view', 'barChart'),
+      item(
+        '/projects/scheduled-reports',
+        'Scheduled reports',
+        'schedulers',
+        'schedulers.view',
+        'calendarClock',
+      ),
+      item('/projects/settings', 'Settings', 'projects', 'projects.settings.view', 'settings'),
     ],
   },
   {
     header: 'Sales',
+    module: 'sales',
     items: [
-      { to: '/sales', label: 'Overview' },
-      { to: '/sales/estimates', label: 'Estimates' },
-      { to: '/sales/quotations', label: 'Quotations' },
-      { to: '/sales/orders', label: 'Orders' },
-      { to: '/sales/delivery-notes', label: 'Delivery Notes' },
-      { to: '/sales/invoices', label: 'Invoices' },
-      { to: '/sales/returns', label: 'Returns' },
-      { to: '/sales/reports', label: 'Reports' },
-      { to: '/sales/scheduled-reports', label: 'Scheduled reports' },
+      item('/sales', 'Overview', 'sales', 'sales.overview.view', 'layoutGrid'),
+      item('/sales/estimates', 'Estimates', 'sales', 'sales.estimates.view', 'fileText'),
+      item('/sales/quotations', 'Quotations', 'sales', 'sales.quotations.view', 'fileSignature'),
+      item('/sales/orders', 'Orders', 'sales', 'sales.orders.view', 'clipboardList'),
+      item('/sales/delivery-notes', 'Delivery Notes', 'sales', 'sales.delivery_notes.view', 'truck'),
+      item('/sales/invoices', 'Invoices', 'sales', 'sales.invoices.view', 'receipt'),
+      item('/sales/returns', 'Returns', 'sales', 'sales.returns.view', 'undo'),
+      item('/sales/reports', 'Reports', 'sales', 'sales.reports.view', 'barChart'),
+      item('/sales/scheduled-reports', 'Scheduled reports', 'schedulers', 'schedulers.view', 'calendarClock'),
     ],
   },
   {
     header: 'Purchases',
+    module: 'purchases',
     items: [
-      { to: '/purchases', label: 'Overview' },
-      { to: '/purchases/orders', label: 'Purchase Orders' },
-      { to: '/purchases/goods-receipt', label: 'Goods Receipt' },
-      { to: '/purchases/bills', label: 'Bills' },
-      { to: '/purchases/returns', label: 'Returns' },
-      { to: '/purchases/reports', label: 'Reports' },
-      { to: '/purchases/scheduled-reports', label: 'Scheduled reports' },
+      item('/purchases', 'Overview', 'purchases', 'purchases.overview.view', 'layoutGrid'),
+      item('/purchases/orders', 'Purchase Orders', 'purchases', 'purchases.orders.view', 'shoppingCart'),
+      item(
+        '/purchases/goods-receipt',
+        'Goods Receipt',
+        'purchases',
+        'purchases.goods_receipt.view',
+        'packageCheck',
+      ),
+      item('/purchases/bills', 'Bills', 'purchases', 'purchases.bills.view', 'receipt'),
+      item('/purchases/returns', 'Returns', 'purchases', 'purchases.returns.view', 'undo'),
+      item('/purchases/reports', 'Reports', 'purchases', 'purchases.reports.view', 'barChart'),
+      item(
+        '/purchases/scheduled-reports',
+        'Scheduled reports',
+        'schedulers',
+        'schedulers.view',
+        'calendarClock',
+      ),
     ],
   },
   {
     header: 'Inventory',
+    module: 'inventory',
     items: [
-      { to: '/inventory', label: 'Overview' },
-      { to: '/inventory/categories', label: 'Categories' },
-      { to: '/inventory/products', label: 'Products' },
-      { to: '/inventory/stock', label: 'Stock' },
-      { to: '/inventory/stock-ledger', label: 'Stock Ledger' },
-      { to: '/inventory/movements', label: 'Movements' },
-      { to: '/inventory/transfers', label: 'Transfers' },
-      { to: '/inventory/customer-prices', label: 'Customer Prices' },
-      { to: '/inventory/reports', label: 'Reports' },
-      { to: '/inventory/scheduled-reports', label: 'Scheduled reports' },
+      item('/inventory', 'Overview', 'inventory', 'inventory.overview.view', 'layoutGrid'),
+      item('/inventory/categories', 'Categories', 'inventory', 'inventory.categories.view', 'tags'),
+      item('/inventory/products', 'Products', 'inventory', 'inventory.products.view', 'package'),
+      item('/inventory/stock', 'Stock', 'inventory', 'inventory.stock.view', 'boxes'),
+      item('/inventory/stock-ledger', 'Stock Ledger', 'inventory', 'inventory.stock_ledger.view', 'scrollText'),
+      item('/inventory/movements', 'Movements', 'inventory', 'inventory.movements.view', 'arrowLeftRight'),
+      item('/inventory/transfers', 'Transfers', 'inventory', 'inventory.transfers.view', 'warehouse'),
+      item(
+        '/inventory/customer-prices',
+        'Customer Prices',
+        'inventory',
+        'inventory.customer_prices.view',
+        'badgeDollar',
+      ),
+      item('/inventory/reports', 'Reports', 'inventory', 'inventory.reports.view', 'barChart'),
+      item(
+        '/inventory/scheduled-reports',
+        'Scheduled reports',
+        'schedulers',
+        'schedulers.view',
+        'calendarClock',
+      ),
     ],
   },
   {
     header: 'Production',
+    module: 'production',
     items: [
-      { to: '/production', label: 'Overview' },
-      { to: '/production/recipes', label: 'Recipes' },
-      { to: '/production/batches', label: 'Batches' },
-      { to: '/production/day-book', label: 'Day Book' },
-      { to: '/production/margins', label: 'Margins' },
-      { to: '/production/yield', label: 'Yield' },
-      { to: '/production/reports', label: 'Reports' },
-      { to: '/production/scheduled-reports', label: 'Scheduled reports' },
+      item('/production', 'Overview', 'production', 'production.overview.view', 'layoutGrid'),
+      item('/production/recipes', 'Recipes', 'production', 'production.recipes.view', 'flaskConical'),
+      item('/production/batches', 'Batches', 'production', 'production.batches.view', 'layers'),
+      item('/production/day-book', 'Day Book', 'production', 'production.day_book.view', 'bookOpen'),
+      item('/production/margins', 'Margins', 'production', 'production.margins.view', 'percent'),
+      item('/production/yield', 'Yield', 'production', 'production.yield.view', 'scale'),
+      item('/production/reports', 'Reports', 'production', 'production.reports.view', 'barChart'),
+      item(
+        '/production/scheduled-reports',
+        'Scheduled reports',
+        'schedulers',
+        'schedulers.view',
+        'calendarClock',
+      ),
     ],
   },
   {
     header: 'Finance',
+    module: 'finance',
     items: [
-      { to: '/finance', label: 'Overview' },
-      { to: '/finance/accounts', label: 'Accounts' },
-      { to: '/finance/vouchers', label: 'Vouchers' },
-      { to: '/finance/receipts', label: 'Receipts' },
-      { to: '/finance/payments', label: 'Payments' },
-      { to: '/finance/credit-notes', label: 'Credit Notes' },
-      { to: '/finance/debit-notes', label: 'Debit Notes' },
-      { to: '/finance/accounting-invoices', label: 'Accounting Invoices' },
-      { to: '/finance/journal', label: 'Journal' },
-      { to: '/finance/trial-balance', label: 'Trial Balance' },
-      { to: '/finance/reports', label: 'Reports' },
-      { to: '/finance/export-backup', label: 'Export / Backup' },
-    ],
-  },
-  {
-    header: 'System',
-    items: [
-      { to: '/system', label: 'Settings' },
-      { to: '/system/updates', label: 'Updates' },
-      { to: '/system/logs', label: 'Logs' },
+      item('/finance', 'Overview', 'finance', 'finance.overview.view', 'layoutGrid'),
+      item('/finance/accounts', 'Accounts', 'finance', 'finance.accounts.view', 'landmark'),
+      item('/finance/vouchers', 'Vouchers', 'finance', 'finance.vouchers.view', 'receipt'),
+      item('/finance/receipts', 'Receipts', 'finance', 'finance.receipts.view', 'wallet'),
+      item('/finance/payments', 'Payments', 'finance', 'finance.payments.view', 'creditCard'),
+      item('/finance/credit-notes', 'Credit Notes', 'finance', 'finance.credit_notes.view', 'fileText'),
+      item('/finance/debit-notes', 'Debit Notes', 'finance', 'finance.debit_notes.view', 'fileText'),
+      item(
+        '/finance/accounting-invoices',
+        'Accounting Invoices',
+        'finance',
+        'finance.accounting_invoices.view',
+        'receipt',
+      ),
+      item('/finance/journal', 'Journal', 'finance', 'finance.journal.view', 'notebook'),
+      item('/finance/trial-balance', 'Trial Balance', 'finance', 'finance.trial_balance.view', 'balanceScale'),
+      item('/finance/reports', 'Reports', 'finance', 'finance.reports.view', 'barChart'),
+      item('/finance/export-backup', 'Export / Backup', 'finance', 'finance.export.view', 'hardDrive'),
     ],
   },
 ];
 
-/** Topbar popovers — Streamlit surfaces these from the header, not the sidebar. */
+/** Create menu — high-frequency entity actions (not admin). */
+export const CREATE_ACTIONS: NavItem[] = [
+  item('/parties/customers', 'Customer', 'parties', 'parties.customers.view', 'users'),
+  item('/sales/orders', 'Sales order', 'sales', 'sales.orders.view', 'clipboardList'),
+  item('/sales/invoices', 'Invoice', 'sales', 'sales.invoices.view', 'receipt'),
+  item('/boutique/orders/workspace', 'Boutique order', 'boutique', 'boutique.orders.view', 'shoppingBag'),
+  item('/purchases/orders', 'Purchase order', 'purchases', 'purchases.orders.view', 'shoppingCart'),
+  item('/purchases/bills', 'Purchase bill', 'purchases', 'purchases.bills.view', 'receipt'),
+];
+
+/** Settings flyout sections — admin / config / access / tools / system. */
+export const SETTINGS_SECTIONS: { title: string; items: NavItem[] }[] = [
+  {
+    title: 'Business',
+    items: [
+      item('/business-settings', 'Business Settings', 'settings', 'settings.business.view', 'building'),
+      item('/settings-locations', 'Locations', 'settings', 'settings.locations.view', 'mapPin'),
+      item('/store-time', 'Business Tasks', 'store', 'parties.store_tasks.view', 'clock'),
+    ],
+  },
+  {
+    title: 'Configuration',
+    items: [
+      item('/settings/print', 'Print', 'settings', 'settings.print.view', 'printer'),
+      item('/settings/keyboard', 'Keyboard Shortcuts', 'settings', 'settings.keyboard.view', 'keyboard'),
+      item('/settings/activities', 'Customization Activities', 'boutique', 'settings.activities.view', 'activity'),
+      item(
+        '/settings/project-activities',
+        'Project Activities',
+        'projects',
+        'settings.project_activities.view',
+        'activity',
+      ),
+      item('/settings/store-activities', 'Store Activities', 'store', 'settings.store_activities.view', 'activity'),
+      item(
+        '/settings/measurement-specs',
+        'Measurement Specs',
+        'boutique',
+        'settings.measurement_specs.view',
+        'ruler',
+      ),
+      item('/settings/services', 'Service Configuration', 'settings', 'settings.services.view', 'sliders'),
+      item('/settings/discounts', 'Discounts', 'settings', 'settings.discounts.view', 'percent'),
+      item('/settings/crm', 'CRM Settings', 'crm', 'crm.settings.view', 'settings'),
+      item('/settings/production', 'Production Settings', 'production', 'production.settings.view', 'settings'),
+    ],
+  },
+  {
+    title: 'Access',
+    items: [
+      item('/access/users', 'Users', 'settings', 'settings.users.view', 'usersRound'),
+      item('/access/roles', 'Roles', 'settings', 'settings.roles.view', 'shield'),
+      item('/access/permissions', 'Permissions', 'settings', 'settings.permissions.view', 'keyRound'),
+      item('/access/audit-logs', 'Audit Logs', 'settings', 'settings.audit.view', 'scrollText'),
+      item('/access/plans', 'Plans', 'settings', 'settings.plans.view', 'badgeDollar'),
+      item('/access/feature-flags', 'Feature Flags', 'settings', 'settings.flags.view', 'flag'),
+    ],
+  },
+  {
+    title: 'Tools',
+    items: [
+      item('/migration', 'Data Migration', 'migration', 'migration.view', 'database'),
+      item('/schedulers/crm', 'CRM Schedulers', 'schedulers', 'schedulers.view', 'calendarClock'),
+      item('/schedulers/sales', 'Sales Schedulers', 'schedulers', 'schedulers.view', 'calendarClock'),
+      item('/schedulers/purchases', 'Purchases Schedulers', 'schedulers', 'schedulers.view', 'calendarClock'),
+      item('/schedulers/inventory', 'Inventory Schedulers', 'schedulers', 'schedulers.view', 'calendarClock'),
+      item('/schedulers/production', 'Production Schedulers', 'schedulers', 'schedulers.view', 'calendarClock'),
+      item('/schedulers/boutique', 'Boutique Schedulers', 'schedulers', 'schedulers.view', 'calendarClock'),
+      item('/schedulers/projects', 'Projects Schedulers', 'schedulers', 'schedulers.view', 'calendarClock'),
+    ],
+  },
+  {
+    title: 'System',
+    items: [
+      item('/system', 'System Settings', 'system', 'system.settings.view', 'settings'),
+      item('/system/updates', 'Updates', 'system', 'system.updates.view', 'refreshCw'),
+      item('/system/logs', 'Logs', 'system', 'system.logs.view', 'scrollText'),
+    ],
+  },
+];
+
+/** @deprecated Prefer SETTINGS_SECTIONS / CREATE_ACTIONS — kept for GlobalSearch Pages/Business/Settings. */
 export const TOPBAR_MENUS = {
   business: {
     title: 'Business',
-    items: [
-      { to: '/business-settings', label: 'Business Settings' },
-      { to: '/settings-locations', label: 'Locations' },
-      { to: '/store-time', label: 'Business Tasks' },
-    ] as NavItem[],
+    items: SETTINGS_SECTIONS[0].items,
   },
   access: {
     title: 'Access',
-    items: [
-      { to: '/access/users', label: 'Users' },
-      { to: '/access/roles', label: 'Roles' },
-      { to: '/access/permissions', label: 'Permissions' },
-      { to: '/access/audit-logs', label: 'Audit Logs' },
-      { to: '/access/plans', label: 'Plans' },
-      { to: '/access/feature-flags', label: 'Feature Flags' },
-    ] as NavItem[],
+    items: SETTINGS_SECTIONS[2].items,
   },
   settings: {
     title: 'Settings',
-    items: [
-      { to: '/settings/print', label: 'Print' },
-      { to: '/settings/keyboard', label: 'Keyboard Shortcuts' },
-      { to: '/settings/activities', label: 'Customization Activities' },
-      { to: '/settings/project-activities', label: 'Project Activities' },
-      { to: '/settings/store-activities', label: 'Store Activities' },
-      { to: '/settings/measurement-specs', label: 'Measurement Specs' },
-      { to: '/settings/services', label: 'Service Configuration' },
-      { to: '/settings/discounts', label: 'Discounts' },
-      { to: '/settings/crm', label: 'CRM Settings' },
-      { to: '/settings/production', label: 'Production Settings' },
-    ] as NavItem[],
+    items: SETTINGS_SECTIONS[1].items,
   },
   migration: {
     title: 'Migration',
-    items: [{ to: '/migration', label: 'Data Migration' }] as NavItem[],
+    items: [SETTINGS_SECTIONS[3].items[0]],
   },
   schedulers: {
     title: 'Schedulers',
-    items: [
-      { to: '/schedulers/crm', label: 'CRM' },
-      { to: '/schedulers/sales', label: 'Sales' },
-      { to: '/schedulers/purchases', label: 'Purchases' },
-      { to: '/schedulers/inventory', label: 'Inventory' },
-      { to: '/schedulers/production', label: 'Production' },
-      { to: '/schedulers/boutique', label: 'Boutique' },
-      { to: '/schedulers/projects', label: 'Projects' },
-    ] as NavItem[],
+    items: SETTINGS_SECTIONS[3].items.slice(1),
   },
 };
+
+/** Visible if org module is enabled; then page permission (or module.* key) when known. */
+export function navItemVisible(
+  item: NavItem,
+  opts: {
+    moduleEnabled: (mod: string | undefined) => boolean;
+    can: (key: string) => boolean;
+    hasPermissionList: boolean;
+  },
+): boolean {
+  if (!opts.moduleEnabled(item.module)) return false;
+  if (!item.permission) return true;
+  if (!opts.hasPermissionList) return true;
+  if (opts.can(item.permission)) return true;
+  if (item.module && opts.can(`module.${item.module}`)) return true;
+  return false;
+}

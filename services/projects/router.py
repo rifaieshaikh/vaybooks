@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from packages.services_kit import publish
 from packages.services_kit.projects_container import get_projects_container
+from services.common.authz import require_permission
 from services.parties.serialize import entity_dict
 from vaybooks.bms.domain.shared.exceptions import ValidationError
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+RECENT_PROJECT_LIMIT = 5
 
 
 class ProjectCreate(BaseModel):
@@ -303,6 +306,96 @@ def project_module_settings() -> dict[str, Any]:
         elif hasattr(_c().activity_configs, "list_activities"):
             activities = [entity_dict(a) for a in _c().activity_configs.list_activities()]
         return {"activity_configs": activities}
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/customers/{customer_id}/related-summary")
+def customer_related_summary(
+    customer_id: str,
+    _: str = Depends(
+        require_permission(
+            "parties.customers.view", "parties.customers.insights.view"
+        )
+    ),
+) -> dict[str, Any]:
+    """Customer-scoped project summary and recent projects."""
+    try:
+        projects_svc = _c().projects
+    except Exception:
+        return {"available": False}
+    if projects_svc is None:
+        return {"available": False}
+
+    try:
+        summary = dict(projects_svc.get_customer_summary(customer_id) or {})
+        projects: list[Any] = []
+        try:
+            if hasattr(projects_svc, "list_by_customer"):
+                projects = list(projects_svc.list_by_customer(customer_id) or [])
+            else:
+                projects = [
+                    p
+                    for p in (projects_svc.list_projects() or [])
+                    if str(getattr(p, "customer_id", "") or "") == customer_id
+                ]
+        except Exception:
+            projects = []
+
+        def _sort_key(project: Any):
+            raw = (
+                getattr(project, "updated_at", None)
+                or getattr(project, "created_at", None)
+                or getattr(project, "start_date", None)
+            )
+            if raw is None:
+                return datetime.min
+            if isinstance(raw, datetime):
+                return raw.replace(tzinfo=None) if raw.tzinfo else raw
+            if isinstance(raw, date):
+                return datetime.combine(raw, datetime.min.time())
+            return datetime.min
+
+        try:
+            projects.sort(key=_sort_key, reverse=True)
+        except Exception:
+            pass
+
+        recent: list[dict[str, Any]] = []
+        for p in projects[:RECENT_PROJECT_LIMIT]:
+            try:
+                recent.append(entity_dict(p))
+            except Exception:
+                continue
+
+        # Average billed margin (falls back to budget margin) across projects.
+        try:
+            profitability = _c().profitability
+            margins: list[float] = []
+            billed_revenues: list[float] = []
+            for project in projects:
+                try:
+                    row = profitability.get_project_profitability(project.id)
+                except Exception:
+                    continue
+                margin = getattr(row, "billed_margin", None)
+                if margin is None:
+                    margin = getattr(row, "budget_margin", None)
+                if margin is not None:
+                    margins.append(float(margin))
+                billed = getattr(row, "billed_revenue", None)
+                if billed is not None:
+                    billed_revenues.append(float(billed))
+            if margins:
+                summary["avg_margin"] = round(sum(margins) / len(margins), 2)
+            else:
+                summary["avg_margin"] = None
+            summary["total_billed_revenue"] = round(sum(billed_revenues), 2)
+        except Exception:
+            summary.setdefault("avg_margin", None)
+            summary.setdefault("total_billed_revenue", 0.0)
+
+        return {"available": True, "summary": summary, "recent": recent}
     except Exception as exc:
         raise _http_err(exc) from exc
 

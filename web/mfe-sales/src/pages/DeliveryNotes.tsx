@@ -16,9 +16,17 @@ import {
   Button,
   EntityCard,
   EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -27,6 +35,7 @@ import {
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
@@ -34,6 +43,15 @@ import { asCaption, extractError, formatMoney } from '../utils';
 
 const DEFAULT_FILTERS = { dn_number: '', customer_name: '', status: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'delivery_date', desc: true }];
+const STATUS_CHIPS = [
+  { id: 'all', label: 'All' },
+  { id: 'Draft', label: 'Draft' },
+  { id: 'Confirmed', label: 'Confirmed' },
+  { id: 'Dispatched', label: 'Dispatched' },
+  { id: 'Delivered', label: 'Delivered' },
+  { id: 'Partially Delivered', label: 'Partially Delivered' },
+  { id: 'Cancelled', label: 'Cancelled' },
+];
 
 export function DeliveryNotesListPage() {
   const navigate = useNavigate();
@@ -69,7 +87,7 @@ export function DeliveryNotesListPage() {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.dn_number, filters.dn_number)) return false;
       if (!matchesRegex(row.customer_name, filters.customer_name)) return false;
-      if (!matchesRegex(row.status, filters.status)) return false;
+      if (filters.status && String(row.status) !== filters.status) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -77,6 +95,44 @@ export function DeliveryNotesListPage() {
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type DnRow = (typeof data)[number];
+
+  const columns: EntityListColumn<DnRow>[] = useMemo(
+    () => [
+      {
+        id: 'dn_number',
+        header: 'DN #',
+        render: (row) => (
+          <span className="el-customer-name">{asCaption(row.dn_number) || String(row.id)}</span>
+        ),
+      },
+      {
+        id: 'customer',
+        header: 'Customer',
+        render: (row) => asCaption(row.customer_name) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'date',
+        header: 'Date',
+        render: (row) =>
+          asCaption(row.delivery_date).slice(0, 10) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'amount',
+        header: 'Amount',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
+      },
+    ],
+    [],
+  );
 
   async function onCreate() {
     setFormError('');
@@ -96,57 +152,85 @@ export function DeliveryNotesListPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Sales"
         title="Delivery Notes"
-        countLabel="notes"
-        count={filtered.length}
-        primaryLabel="New DN"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-          if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'delivery_date', label: 'Date' },
-          { value: 'dn_number', label: 'DN #' },
-          { value: 'status', label: 'Status' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
+        count={`${filtered.length} ${filtered.length === 1 ? 'note' : 'notes'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setOpen(true);
+              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
+            }}
+          >
+            New DN
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={STATUS_CHIPS}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'delivery_date', label: 'Date' },
+              { value: 'dn_number', label: 'DN #' },
+              { value: 'status', label: 'Status' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
 
-      {isLoading && <p>Loading…</p>}
+      {isLoading ? <EntityListLoading>Loading delivery notes…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load delivery notes.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No delivery notes found.</p>}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No delivery notes found.</strong>
+        </EntityListEmpty>
+      ) : null}
 
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={asCaption(row.dn_number) || String(row.id)}
-            captions={[
-              asCaption(row.customer_name),
-              asCaption(row.status),
-              asCaption(row.delivery_date).slice(0, 10),
-              formatMoney(Number(row.total_amount ?? 0)),
-            ]}
-            onView={() => navigate(`/sales/delivery-notes/${row.id}`)}
-          />
-        ))}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/sales/delivery-notes/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -235,7 +319,7 @@ export function DeliveryNotesListPage() {
           </div>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 

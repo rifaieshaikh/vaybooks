@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   useBoutiqueCalendarQuery,
   useCreateBoutiqueTimeEntryMutation,
@@ -9,25 +10,45 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  CalendarView,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
   TextInput,
+  displayName,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type CalendarCategory,
+  type CalendarEvent,
+  type CalendarEventTone,
+  type CalendarViewMode,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
 
-const DEFAULT_FILTERS = { worker_name: '', activity_name: '', order_number: '' };
+/** Boutique time entries have no approval status — chip by task_type instead. */
+const TASK_TYPES = [
+  { id: 'activity', label: 'Activity' },
+  { id: 'etd', label: 'ETD' },
+  { id: 'delivery', label: 'Delivery' },
+] as const;
+
+const DEFAULT_FILTERS = { worker_name: '', activity_name: '', order_number: '', task_type: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'work_date', desc: true }];
 
 export function BoutiqueTimePage() {
@@ -69,6 +90,13 @@ export function BoutiqueTimePage() {
       { key: 'worker_name', label: 'Worker', type: 'text' },
       { key: 'activity_name', label: 'Activity', type: 'text' },
       { key: 'order_number', label: 'Order #', type: 'text' },
+      {
+        key: 'task_type',
+        label: 'Task type',
+        type: 'select',
+        allLabel: 'All types',
+        options: TASK_TYPES.map((t) => ({ value: t.id, label: t.label })),
+      },
     ],
     [],
   );
@@ -78,6 +106,10 @@ export function BoutiqueTimePage() {
       if (!matchesRegex(row.worker_name, filters.worker_name)) return false;
       if (!matchesRegex(row.activity_name, filters.activity_name)) return false;
       if (!matchesRegex(row.order_number, filters.order_number)) return false;
+      if (filters.task_type) {
+        const taskType = String(row.task_type || 'activity');
+        if (taskType !== filters.task_type) return false;
+      }
       return true;
     });
     return sortRows(rows, sort);
@@ -109,59 +141,139 @@ export function BoutiqueTimePage() {
     }
   }
 
+  async function onDelete(id: string) {
+    if (!window.confirm('Delete this time entry?')) return;
+    await deleteEntry(id);
+    refetch();
+  }
+
+  type TimeRow = (typeof data)[number];
+
+  const columns: EntityListColumn<TimeRow>[] = useMemo(
+    () => [
+      {
+        id: 'entry',
+        header: 'Entry',
+        render: (row) => {
+          const activity = displayName(row, ['activity_name'], 'Activity');
+          const date = asCaption(row.work_date).slice(0, 10) || 'No date';
+          return (
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">
+                  {date} · {activity}
+                </span>
+                <span className="el-customer-sub">
+                  {asCaption(row.worker_name) || 'No worker'} · {asCaption(row.order_number) || 'No order'}
+                </span>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'duration',
+        header: 'Minutes',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => `${Number(row.duration_minutes ?? 0)}`,
+      },
+      {
+        id: 'window',
+        header: 'Time',
+        render: (row) => {
+          const start = asCaption(row.start_time);
+          const end = asCaption(row.end_time);
+          const label = start || end ? `${start || '—'}–${end || '—'}` : '';
+          return <span className={label ? undefined : 'el-muted'}>{label || '—'}</span>;
+        },
+      },
+    ],
+    [],
+  );
+
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Boutique"
         title="Tasks / Time"
-        countLabel="entries"
-        count={filtered.length}
-        primaryLabel="Log time"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'work_date', label: 'Date' },
-          { value: 'worker_name', label: 'Worker' },
-          { value: 'duration_minutes', label: 'Minutes' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load time entries.</ErrorText> : null}
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={`${asCaption(row.work_date).slice(0, 10)} · ${asCaption(row.activity_name)}`}
-            captions={[
-              asCaption(row.worker_name),
-              asCaption(row.order_number),
-              `${Number(row.duration_minutes ?? 0)} min`,
-              `${asCaption(row.start_time)}–${asCaption(row.end_time)}`,
+        count={`${filtered.length} ${filtered.length === 1 ? 'entry' : 'entries'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setOpen(true);
+            }}
+          >
+            Log time
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Task type"
+            value={filters.task_type || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, task_type: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              ...TASK_TYPES.map((t) => ({ id: t.id, label: t.label })),
             ]}
-            onEdit={() => {
-              if (window.confirm('Delete this time entry?')) {
-                deleteEntry(String(row.id)).then(() => refetch());
-              }
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['task_type']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'work_date', label: 'Date' },
+              { value: 'worker_name', label: 'Worker' },
+              { value: 'duration_minutes', label: 'Minutes' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
             }}
           />
-        ))}
-      </EntityCardGrid>
-      <p style={{ color: '#889', fontSize: 13 }}>Edit deletes the time entry (with confirmation).</p>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading time entries…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load time entries.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No time entries found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onDelete={() => void onDelete(String(row.id))} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -259,61 +371,110 @@ export function BoutiqueTimePage() {
           </FormRow>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 
 export function BoutiqueCalendarPage() {
+  const navigate = useNavigate();
   const { data = [], isLoading, error, refetch } = useBoutiqueCalendarQuery();
-  const byDate = useMemo(() => {
-    const map = new Map<string, Record<string, unknown>[]>();
-    for (const row of data) {
-      const key = asCaption(row.work_date).slice(0, 10) || 'undated';
-      const list = map.get(key) || [];
-      list.push(row);
-      map.set(key, list);
-    }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [data]);
+  const { data: orders = [] } = useListBoutiqueOrdersQuery();
+  const [view, setView] = useState<CalendarViewMode>('month');
+  const [cursor, setCursor] = useState(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const [selectedCategories, setSelectedCategories] = useState(['activity', 'etd', 'delivery', 'order_etd']);
+
+  const categories: CalendarCategory[] = [
+    { id: 'activity', label: 'Activity', tone: 'primary' },
+    { id: 'etd', label: 'ETD task', tone: 'warn' },
+    { id: 'delivery', label: 'Delivery task', tone: 'accent' },
+    { id: 'order_etd', label: 'Order ETD', tone: 'ok' },
+  ];
+
+  const events: CalendarEvent[] = useMemo(() => {
+    const fromTasks: CalendarEvent[] = data.map((row) => {
+      const taskType = String(row.task_type || 'activity');
+      const day = asCaption(row.work_date).slice(0, 10);
+      const startTime = asCaption(row.start_time).slice(0, 5);
+      const endTime = asCaption(row.end_time).slice(0, 5);
+      const start = startTime ? `${day}T${startTime}` : day;
+      const end = endTime ? `${day}T${endTime}` : undefined;
+      const tone: CalendarEventTone =
+        taskType === 'etd' ? 'warn' : taskType === 'delivery' ? 'accent' : 'primary';
+      return {
+        id: `task-${String(row.id)}`,
+        title: asCaption(row.activity_name) || asCaption(row.task_type) || 'Task',
+        start,
+        end,
+        allDay: !startTime,
+        category: taskType === 'etd' || taskType === 'delivery' ? taskType : 'activity',
+        tone,
+        meta: [asCaption(row.worker_name), asCaption(row.order_number)].filter(Boolean).join(' · '),
+        payload: row,
+      };
+    });
+
+    const fromOrders: CalendarEvent[] = orders
+      .map((row) => {
+        const etd = asCaption(row.expected_delivery_date).slice(0, 10);
+        if (!etd) return null;
+        return {
+          id: `order-etd-${String(row.id)}`,
+          title: asCaption(row.order_number) || 'Order ETD',
+          start: etd,
+          allDay: true,
+          category: 'order_etd',
+          tone: 'ok' as const,
+          meta: asCaption(row.customer_name) || asCaption(row.status) || undefined,
+          payload: { ...row, _kind: 'order' },
+        };
+      })
+      .filter(Boolean) as CalendarEvent[];
+
+    return [...fromTasks, ...fromOrders];
+  }, [data, orders]);
 
   return (
-    <div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 16,
-        }}
-      >
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Boutique Calendar</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load calendar.</ErrorText> : null}
-      {!isLoading && byDate.length === 0 && (
-        <p style={{ color: '#667' }}>No calendar entries in range.</p>
-      )}
-      {byDate.map(([day, rows]) => (
-        <div key={day} style={{ marginBottom: 20 }}>
-          <h3 style={{ color: 'var(--vb-color-primary, #185c4c)', marginBottom: 8 }}>{day}</h3>
-          <EntityCardGrid>
-            {rows.map((row) => (
-              <EntityCard
-                key={String(row.id)}
-                title={asCaption(row.activity_name) || asCaption(row.task_type) || 'Task'}
-                captions={[
-                  asCaption(row.worker_name),
-                  asCaption(row.order_number),
-                  `${asCaption(row.start_time)}–${asCaption(row.end_time)}`,
-                ]}
-              />
-            ))}
-          </EntityCardGrid>
-        </div>
-      ))}
-    </div>
+    <CalendarView
+      kicker="Boutique"
+      title="Calendar"
+      count={`${events.length} scheduled`}
+      events={events}
+      view={view}
+      onViewChange={setView}
+      cursor={cursor}
+      onCursorChange={setCursor}
+      categories={categories}
+      selectedCategories={selectedCategories}
+      onCategoriesChange={setSelectedCategories}
+      loading={isLoading}
+      error={error ? <ErrorText>Failed to load calendar.</ErrorText> : null}
+      emptyLabel="No boutique work or delivery dates in view."
+      actions={
+        <>
+          <Button type="button" variant="ghost" onClick={() => void refetch()}>
+            Refresh
+          </Button>
+          <Button type="button" onClick={() => navigate('/boutique/time?new=1')}>
+            Log time
+          </Button>
+        </>
+      }
+      onEventClick={(ev) => {
+        const row = ev.payload as Record<string, unknown> | undefined;
+        if (!row) return;
+        if (row._kind === 'order' || ev.category === 'order_etd') {
+          navigate(`/boutique/orders/${String(row.id)}`);
+          return;
+        }
+        const orderId = row.order_id != null ? String(row.order_id) : '';
+        if (orderId) navigate(`/boutique/orders/${orderId}`);
+        else navigate('/boutique/time');
+      }}
+      onSlotClick={() => navigate('/boutique/time?new=1')}
+    />
   );
 }

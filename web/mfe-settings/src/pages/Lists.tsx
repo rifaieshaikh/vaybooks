@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import {
-  useCreateDiscountRuleMutation,
   useCreateInventoryLocationMutation,
   useCreateMeasurementSpecMutation,
   useCreateSettingsActivityMutation,
@@ -9,11 +8,11 @@ import {
   useCreateSettingsStoreActivityMutation,
   useCreateVendorServiceMutation,
   useDeleteInventoryLocationMutation,
+  useDeleteMeasurementSpecMutation,
   useGetCrmSettingsQuery,
   useGetKeyboardShortcutsQuery,
   useGetPrintSettingsQuery,
   useGetProductionSettingsStubQuery,
-  useListDiscountRulesQuery,
   useListInventoryLocationsQuery,
   useListMeasurementSpecsQuery,
   useListSettingsActivitiesQuery,
@@ -21,17 +20,63 @@ import {
   useListSettingsStoreActivitiesQuery,
   useListVendorServicesQuery,
   useUpdateCrmSettingsMutation,
-  useUpdateDiscountRuleMutation,
   useUpdateInventoryLocationMutation,
   useUpdateKeyboardShortcutsMutation,
   useUpdateMeasurementSpecMutation,
   useUpdatePrintSettingsMutation,
   useUpdateVendorServiceMutation,
 } from '@vaybooks/store';
-import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
+import {
+  Button,
+  DataTable,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
+  ErrorText,
+  FormRow,
+  Modal,
+  PAGE_SIZE,
+  PaginationBar,
+  TextInput,
+  Select,
+  displayName,
+  matchesRegex,
+  pageCount,
+  paginate,
+  sortRows,
+  type DataTableColumn,
+  type EntityListColumn,
+  type FilterFieldDef,
+  type SortCriterion,
+} from '@vaybooks/ui-kit';
 import { extractError } from '../utils';
 
 const ACTIVITY_CATEGORY = 'In House Service';
+
+const ACTIVE_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'name', label: 'Name', type: 'text' },
+  {
+    key: 'active',
+    label: 'Active',
+    type: 'select',
+    allLabel: 'All',
+    options: [
+      { value: 'yes', label: 'Active' },
+      { value: 'no', label: 'Inactive' },
+    ],
+  },
+];
+
+function statusCell(active: boolean | undefined) {
+  const on = active !== false;
+  return <span className={on ? 'el-advance' : 'el-muted'}>{on ? 'Active' : 'Inactive'}</span>;
+}
 
 export function PrintSettingsPage() {
   const { data, isLoading, error, refetch } = useGetPrintSettingsQuery();
@@ -161,546 +206,1055 @@ export function KeyboardShortcutsPage() {
   );
 }
 
-export function CustomizationActivitiesPage() {
-  const { data = [], isLoading, error, refetch } = useListSettingsActivitiesQuery();
-  const [create, createState] = useCreateSettingsActivityMutation();
+function ActivityListPage({
+  kicker,
+  title,
+  singular,
+  useList,
+  useCreate,
+  createBody,
+}: {
+  kicker: string;
+  title: string;
+  singular: string;
+  useList: () => {
+    data?: Record<string, unknown>[];
+    isLoading: boolean;
+    error?: unknown;
+    refetch: () => void;
+  };
+  useCreate: () => readonly [
+    (body: Record<string, unknown>) => { unwrap: () => Promise<unknown> },
+    { isLoading: boolean },
+  ];
+  createBody: (name: string) => Record<string, unknown>;
+}) {
+  const { data = [], isLoading, error, refetch } = useList();
+  const [create, createState] = useCreate();
+  const [sort, setSort] = useState<SortCriterion[]>([{ key: 'activity_name', desc: false }]);
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ name: '', active: '' });
+  const [dialog, setDialog] = useState(false);
   const [name, setName] = useState('');
   const [formError, setFormError] = useState('');
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+
+  const filtered = useMemo(() => {
+    let rows = data.filter((row) => {
+      if (!matchesRegex(row.activity_name, filters.name)) return false;
+      if (filters.active === 'yes' && row.is_active === false) return false;
+      if (filters.active === 'no' && row.is_active !== false) return false;
+      return true;
+    });
+    rows = sortRows(rows, sort);
+    return rows;
+  }, [data, filters, sort]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type Row = (typeof data)[number];
+
+  const columns: EntityListColumn<Row>[] = useMemo(
     () => [
-      { key: 'activity_name', header: 'Name' },
-      { key: 'is_active', header: 'Active' },
+      {
+        id: 'name',
+        header: 'Name',
+        render: (row) => displayName(row, ['activity_name'], 'Unnamed'),
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => statusCell(row.is_active as boolean | undefined),
+      },
     ],
     [],
   );
+
   async function onCreate() {
     setFormError('');
     try {
-      await create({
-        activity_name: name,
-        activity_category: ACTIVITY_CATEGORY,
-        default_hourly_expense: 0,
-      }).unwrap();
+      await create(createBody(name)).unwrap();
       setName('');
+      setDialog(false);
       refetch();
     } catch (e) {
       setFormError(extractError(e));
     }
   }
+
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Customization activities</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'end' }}>
-        <FormRow label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </FormRow>
-        <Button type="button" onClick={onCreate} disabled={!name.trim() || createState.isLoading}>
-          Create
-        </Button>
-      </div>
-      {formError ? <ErrorText>{formError}</ErrorText> : null}
-      {isLoading && <p>Loading…</p>}
+    <EntityListPage>
+      <EntityListHero
+        kicker={kicker}
+        title={title}
+        count={`${filtered.length} ${filtered.length === 1 ? singular : `${singular}s`}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setName('');
+              setDialog(true);
+            }}
+          >
+            Add {singular}
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.active || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, active: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'yes', label: 'Active' },
+              { id: 'no', label: 'Inactive' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={ACTIVE_FILTER_FIELDS}
+            filters={filters}
+            defaultFilters={{ name: '', active: '' }}
+            excludeKeys={['active']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={[{ key: 'activity_name', desc: false }]}
+            sortOptions={[{ value: 'activity_name', label: 'Name' }]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load.</ErrorText> : null}
-      <DataTable columns={columns} data={data as Record<string, unknown>[]} rowKey={(row) => String(row.id)} />
-    </div>
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No {singular}s found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+
+      <Modal
+        title={`Add ${singular}`}
+        open={dialog}
+        onClose={() => setDialog(false)}
+        footer={
+          <>
+            <Button type="button" onClick={() => void onCreate()} disabled={!name.trim() || createState.isLoading}>
+              Create
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setDialog(false)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        {formError ? <ErrorText>{formError}</ErrorText> : null}
+        <FormRow label="Name *">
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} required />
+        </FormRow>
+      </Modal>
+    </EntityListPage>
+  );
+}
+
+export function CustomizationActivitiesPage() {
+  return (
+    <ActivityListPage
+      kicker="Settings"
+      title="Customization activities"
+      singular="activity"
+      useList={useListSettingsActivitiesQuery}
+      useCreate={useCreateSettingsActivityMutation}
+      createBody={(name) => ({
+        activity_name: name,
+        activity_category: ACTIVITY_CATEGORY,
+        default_hourly_expense: 0,
+      })}
+    />
   );
 }
 
 export function StoreActivitiesSettingsPage() {
-  const { data = [], isLoading, error, refetch } = useListSettingsStoreActivitiesQuery();
-  const [create, createState] = useCreateSettingsStoreActivityMutation();
-  const [name, setName] = useState('');
-  const [formError, setFormError] = useState('');
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
-    () => [
-      { key: 'activity_name', header: 'Name' },
-      { key: 'is_active', header: 'Active' },
-    ],
-    [],
-  );
-  async function onCreate() {
-    setFormError('');
-    try {
-      await create({
+  return (
+    <ActivityListPage
+      kicker="Settings"
+      title="Store activities"
+      singular="activity"
+      useList={useListSettingsStoreActivitiesQuery}
+      useCreate={useCreateSettingsStoreActivityMutation}
+      createBody={(name) => ({
         activity_name: name,
         activity_category: ACTIVITY_CATEGORY,
         default_hourly_expense: 50,
-      }).unwrap();
-      setName('');
-      refetch();
-    } catch (e) {
-      setFormError(extractError(e));
-    }
-  }
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Store activities</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'end' }}>
-        <FormRow label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </FormRow>
-        <Button type="button" onClick={onCreate} disabled={!name.trim() || createState.isLoading}>
-          Create
-        </Button>
-      </div>
-      {formError ? <ErrorText>{formError}</ErrorText> : null}
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load.</ErrorText> : null}
-      <DataTable columns={columns} data={data as Record<string, unknown>[]} rowKey={(row) => String(row.id)} />
-    </div>
+      })}
+    />
   );
 }
 
 export function ProjectActivitiesSettingsPage() {
-  const { data = [], isLoading, error, refetch } = useListSettingsProjectActivitiesQuery();
-  const [create, createState] = useCreateSettingsProjectActivityMutation();
-  const [name, setName] = useState('');
-  const [formError, setFormError] = useState('');
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
-    () => [
-      { key: 'activity_name', header: 'Name' },
-      { key: 'is_active', header: 'Active' },
-    ],
-    [],
-  );
-  async function onCreate() {
-    setFormError('');
-    try {
-      await create({
+  return (
+    <ActivityListPage
+      kicker="Settings"
+      title="Project activities"
+      singular="activity"
+      useList={useListSettingsProjectActivitiesQuery}
+      useCreate={useCreateSettingsProjectActivityMutation}
+      createBody={(name) => ({
         activity_name: name,
         activity_category: ACTIVITY_CATEGORY,
         default_hourly_rate: 100,
-      }).unwrap();
-      setName('');
-      refetch();
-    } catch (e) {
-      setFormError(extractError(e));
-    }
-  }
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Project activities</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'end' }}>
-        <FormRow label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </FormRow>
-        <Button type="button" onClick={onCreate} disabled={!name.trim() || createState.isLoading}>
-          Create
-        </Button>
-      </div>
-      {formError ? <ErrorText>{formError}</ErrorText> : null}
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load.</ErrorText> : null}
-      <DataTable columns={columns} data={data as Record<string, unknown>[]} rowKey={(row) => String(row.id)} />
-    </div>
+      })}
+    />
   );
+}
+
+type SpecForm = {
+  key: string;
+  label: string;
+  personTypes: string;
+  section: string;
+  valueType: string;
+  unit: string;
+  required: boolean;
+  sortOrder: string;
+  helpText: string;
+  options: string;
+  isActive: boolean;
+};
+
+function emptySpecForm(): SpecForm {
+  return {
+    key: '',
+    label: '',
+    personTypes: 'Men',
+    section: 'Torso',
+    valueType: 'number',
+    unit: 'inch',
+    required: false,
+    sortOrder: '0',
+    helpText: '',
+    options: '',
+    isActive: true,
+  };
+}
+
+function specFromRow(row: Record<string, unknown>): SpecForm {
+  return {
+    key: String(row.key || ''),
+    label: String(row.label || ''),
+    personTypes: Array.isArray(row.person_types)
+      ? (row.person_types as string[]).join(', ')
+      : String(row.person_types || 'Men'),
+    section: String(row.section || 'Torso'),
+    valueType: String(row.value_type || 'number'),
+    unit: String(row.unit || 'inch'),
+    required: Boolean(row.required),
+    sortOrder: String(row.sort_order ?? 0),
+    helpText: String(row.help_text || ''),
+    options: Array.isArray(row.options) ? (row.options as string[]).join(', ') : String(row.options || ''),
+    isActive: row.is_active !== false,
+  };
+}
+
+function specBody(form: SpecForm) {
+  return {
+    key: form.key,
+    label: form.label || form.key,
+    person_types: form.personTypes
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+    section: form.section,
+    value_type: form.valueType,
+    unit: form.unit,
+    required: form.required,
+    sort_order: Number(form.sortOrder) || 0,
+    help_text: form.helpText,
+    options: form.options
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+    is_active: form.isActive,
+  };
 }
 
 export function MeasurementSpecsPage() {
   const { data = [], isLoading, error, refetch } = useListMeasurementSpecsQuery();
   const [create, createState] = useCreateMeasurementSpecMutation();
-  const [update] = useUpdateMeasurementSpecMutation();
-  const [key, setKey] = useState('');
-  const [label, setLabel] = useState('');
-  const [personTypes, setPersonTypes] = useState('Men');
-  const [section, setSection] = useState('Torso');
-  const [valueType, setValueType] = useState('number');
-  const [unit, setUnit] = useState('inch');
-  const [required, setRequired] = useState(false);
-  const [sortOrder, setSortOrder] = useState('0');
-  const [helpText, setHelpText] = useState('');
-  const [options, setOptions] = useState('');
-  const [formError, setFormError] = useState('');
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
-    () => [
-      { key: 'key', header: 'Key' },
-      { key: 'label', header: 'Label' },
-      { key: 'section', header: 'Section' },
-    ],
-    [],
-  );
+  const [update, updateState] = useUpdateMeasurementSpecMutation();
+  const [remove] = useDeleteMeasurementSpecMutation();
 
-  async function onCreate() {
+  const [sort, setSort] = useState<SortCriterion[]>([{ key: 'sort_order', desc: false }]);
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ name: '', active: '' });
+  const [dialog, setDialog] = useState<'add' | 'edit' | null>(null);
+  const [editId, setEditId] = useState('');
+  const [form, setForm] = useState<SpecForm>(emptySpecForm);
+  const [formError, setFormError] = useState('');
+
+  const filtered = useMemo(() => {
+    let rows = (data as Record<string, unknown>[]).filter((row) => {
+      const label = `${row.key || ''} ${row.label || ''}`;
+      if (filters.name && !matchesRegex(label, filters.name)) return false;
+      if (filters.active === 'yes' && row.is_active === false) return false;
+      if (filters.active === 'no' && row.is_active !== false) return false;
+      return true;
+    });
+    rows = sortRows(rows, sort);
+    return rows;
+  }, [data, filters, sort]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type Row = Record<string, unknown>;
+
+  function openAdd() {
     setFormError('');
+    setEditId('');
+    setForm(emptySpecForm());
+    setDialog('add');
+  }
+
+  function openEdit(row: Row) {
+    setFormError('');
+    setEditId(String(row.id));
+    setForm(specFromRow(row));
+    setDialog('edit');
+  }
+
+  async function onSubmit() {
+    setFormError('');
+    if (!form.key.trim()) {
+      setFormError('Key is required');
+      return;
+    }
     try {
-      await create({
-        key,
-        label: label || key,
-        person_types: personTypes.split(',').map((value) => value.trim()).filter(Boolean),
-        section,
-        value_type: valueType,
-        unit,
-        required,
-        sort_order: Number(sortOrder) || 0,
-        help_text: helpText,
-        options: options.split(',').map((value) => value.trim()).filter(Boolean),
-      }).unwrap();
-      setKey('');
-      setLabel('');
+      if (dialog === 'edit' && editId) {
+        await update({ id: editId, body: specBody(form) }).unwrap();
+      } else {
+        await create(specBody(form)).unwrap();
+      }
+      setDialog(null);
       refetch();
     } catch (e) {
       setFormError(extractError(e));
     }
   }
 
+  async function onDelete(id: string) {
+    if (!window.confirm('Delete this measurement spec?')) return;
+    try {
+      await remove(id).unwrap();
+      refetch();
+    } catch (e) {
+      setFormError(extractError(e));
+    }
+  }
+
+  const columns: EntityListColumn<Row>[] = useMemo(
+    () => [
+      {
+        id: 'key',
+        header: 'Spec',
+        render: (row) => (
+          <div className="el-customer">
+            <div className="el-customer-meta">
+              <span className="el-customer-name">{displayName(row, ['label', 'key'], 'Unnamed')}</span>
+              <span className="el-customer-sub">{String(row.key || '')}</span>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: 'section',
+        header: 'Section',
+        render: (row) => String(row.section || '—'),
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => statusCell(row.is_active as boolean | undefined),
+      },
+    ],
+    [],
+  );
+
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Measurement specs</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'end', flexWrap: 'wrap' }}>
-        <FormRow label="Key">
-          <input value={key} onChange={(e) => setKey(e.target.value)} />
-        </FormRow>
-        <FormRow label="Label">
-          <input value={label} onChange={(e) => setLabel(e.target.value)} />
-        </FormRow>
-        <FormRow label="Person types (comma separated)"><input value={personTypes} onChange={(e) => setPersonTypes(e.target.value)} /></FormRow>
-        <FormRow label="Section"><input value={section} onChange={(e) => setSection(e.target.value)} /></FormRow>
-        <FormRow label="Value type"><select value={valueType} onChange={(e) => setValueType(e.target.value)}><option value="number">Number</option><option value="text">Text</option><option value="select">Select</option></select></FormRow>
-        <FormRow label="Unit"><input value={unit} onChange={(e) => setUnit(e.target.value)} /></FormRow>
-        <FormRow label="Sort order"><input type="number" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} /></FormRow>
-        <FormRow label="Help text"><input value={helpText} onChange={(e) => setHelpText(e.target.value)} /></FormRow>
-        <FormRow label="Options (comma separated)"><input value={options} onChange={(e) => setOptions(e.target.value)} /></FormRow>
-        <label><input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} /> Required</label>
-        <Button type="button" onClick={onCreate} disabled={!key.trim() || createState.isLoading}>
-          Create
-        </Button>
-      </div>
-      {formError ? <ErrorText>{formError}</ErrorText> : null}
-      {isLoading && <p>Loading…</p>}
+    <EntityListPage>
+      <EntityListHero
+        kicker="Settings"
+        title="Measurement specs"
+        count={`${filtered.length} ${filtered.length === 1 ? 'spec' : 'specs'}`}
+        actions={
+          <Button type="button" onClick={openAdd}>
+            Add spec
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.active || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, active: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'yes', label: 'Active' },
+              { id: 'no', label: 'Inactive' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={[
+              { key: 'name', label: 'Key / label', type: 'text' },
+              ACTIVE_FILTER_FIELDS[1],
+            ]}
+            filters={filters}
+            defaultFilters={{ name: '', active: '' }}
+            excludeKeys={['active']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={[{ key: 'sort_order', desc: false }]}
+            sortOptions={[
+              { value: 'sort_order', label: 'Sort order' },
+              { value: 'key', label: 'Key' },
+              { value: 'label', label: 'Label' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {formError && !dialog ? <ErrorText>{formError}</ErrorText> : null}
+      {isLoading ? <EntityListLoading>Loading specs…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load specs.</ErrorText> : null}
-      <DataTable columns={columns} data={data as Record<string, unknown>[]} rowKey={(row) => String(row.id)} onRowClick={async (row) => {
-        try {
-          await update({ id: String(row.id), body: { is_active: !row.is_active } }).unwrap();
-          refetch();
-        } catch (e) { setFormError(extractError(e)); }
-      }} />
-      <p style={{ opacity: 0.7 }}>Click a spec to toggle active. Delete is available only for API-backed records through the REST endpoint.</p>
-    </div>
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No measurement specs found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions
+              onEdit={() => openEdit(row)}
+              onDelete={() => void onDelete(String(row.id))}
+            />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+
+      <Modal
+        title={dialog === 'edit' ? 'Edit measurement spec' : 'Add measurement spec'}
+        open={dialog !== null}
+        onClose={() => setDialog(null)}
+        wide
+        footer={
+          <>
+            <Button
+              type="button"
+              onClick={() => void onSubmit()}
+              disabled={!form.key.trim() || createState.isLoading || updateState.isLoading}
+            >
+              {dialog === 'edit' ? 'Save changes' : 'Create'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setDialog(null)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        {formError ? <ErrorText>{formError}</ErrorText> : null}
+        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+          <FormRow label="Key *">
+            <TextInput
+              value={form.key}
+              onChange={(e) => setForm((p) => ({ ...p, key: e.target.value }))}
+              disabled={dialog === 'edit'}
+              required
+            />
+          </FormRow>
+          <FormRow label="Label">
+            <TextInput
+              value={form.label}
+              onChange={(e) => setForm((p) => ({ ...p, label: e.target.value }))}
+            />
+          </FormRow>
+          <FormRow label="Person types (comma separated)">
+            <TextInput
+              value={form.personTypes}
+              onChange={(e) => setForm((p) => ({ ...p, personTypes: e.target.value }))}
+            />
+          </FormRow>
+          <FormRow label="Section">
+            <TextInput
+              value={form.section}
+              onChange={(e) => setForm((p) => ({ ...p, section: e.target.value }))}
+            />
+          </FormRow>
+          <FormRow label="Value type">
+            <Select
+              value={form.valueType}
+              onChange={(e) => setForm((p) => ({ ...p, valueType: e.target.value }))}
+            >
+              <option value="number">Number</option>
+              <option value="text">Text</option>
+              <option value="select">Select</option>
+            </Select>
+          </FormRow>
+          <FormRow label="Unit">
+            <TextInput
+              value={form.unit}
+              onChange={(e) => setForm((p) => ({ ...p, unit: e.target.value }))}
+            />
+          </FormRow>
+          <FormRow label="Sort order">
+            <TextInput
+              type="number"
+              value={form.sortOrder}
+              onChange={(e) => setForm((p) => ({ ...p, sortOrder: e.target.value }))}
+            />
+          </FormRow>
+          <FormRow label="Help text">
+            <TextInput
+              value={form.helpText}
+              onChange={(e) => setForm((p) => ({ ...p, helpText: e.target.value }))}
+            />
+          </FormRow>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <FormRow label="Options (comma separated)">
+              <TextInput
+                value={form.options}
+                onChange={(e) => setForm((p) => ({ ...p, options: e.target.value }))}
+              />
+            </FormRow>
+          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={form.required}
+              onChange={(e) => setForm((p) => ({ ...p, required: e.target.checked }))}
+            />
+            Required
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={form.isActive}
+              onChange={(e) => setForm((p) => ({ ...p, isActive: e.target.checked }))}
+            />
+            Active
+          </label>
+        </div>
+      </Modal>
+    </EntityListPage>
   );
 }
 
 export function ServicesSettingsPage() {
   const { data = [], isLoading, error, refetch } = useListVendorServicesQuery();
   const [create, createState] = useCreateVendorServiceMutation();
-  const [update] = useUpdateVendorServiceMutation();
+  const [update, updateState] = useUpdateVendorServiceMutation();
+
+  const [sort, setSort] = useState<SortCriterion[]>([{ key: 'service_name', desc: false }]);
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ name: '', active: '' });
+  const [dialog, setDialog] = useState<'add' | 'edit' | null>(null);
+  const [editId, setEditId] = useState('');
   const [name, setName] = useState('');
   const [accountId, setAccountId] = useState('exp-main');
+  const [isActive, setIsActive] = useState(true);
   const [formError, setFormError] = useState('');
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
-    () => [
-      { key: 'service_name', header: 'Service' },
-      { key: 'expense_account_id', header: 'Expense account' },
-      { key: 'is_active', header: 'Active' },
-    ],
-    [],
-  );
 
-  async function onCreate() {
+  const filtered = useMemo(() => {
+    let rows = (data as Record<string, unknown>[]).filter((row) => {
+      if (!matchesRegex(row.service_name, filters.name)) return false;
+      if (filters.active === 'yes' && row.is_active === false) return false;
+      if (filters.active === 'no' && row.is_active !== false) return false;
+      return true;
+    });
+    rows = sortRows(rows, sort);
+    return rows;
+  }, [data, filters, sort]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type Row = Record<string, unknown>;
+
+  function openAdd() {
+    setFormError('');
+    setEditId('');
+    setName('');
+    setAccountId('exp-main');
+    setIsActive(true);
+    setDialog('add');
+  }
+
+  function openEdit(row: Row) {
+    setFormError('');
+    setEditId(String(row.id));
+    setName(String(row.service_name || ''));
+    setAccountId(String(row.expense_account_id || 'exp-main'));
+    setIsActive(row.is_active !== false);
+    setDialog('edit');
+  }
+
+  async function onSubmit() {
     setFormError('');
     try {
-      await create({ service_name: name, expense_account_id: accountId }).unwrap();
-      setName('');
+      if (dialog === 'edit' && editId) {
+        await update({
+          id: editId,
+          body: {
+            service_name: name,
+            expense_account_id: accountId,
+            is_active: isActive,
+          },
+        }).unwrap();
+      } else {
+        await create({ service_name: name, expense_account_id: accountId }).unwrap();
+      }
+      setDialog(null);
       refetch();
     } catch (e) {
       setFormError(extractError(e));
     }
   }
 
+  const columns: EntityListColumn<Row>[] = useMemo(
+    () => [
+      {
+        id: 'service',
+        header: 'Service',
+        render: (row) => displayName(row, ['service_name'], 'Unnamed'),
+      },
+      {
+        id: 'account',
+        header: 'Expense account',
+        render: (row) => String(row.expense_account_id || '—'),
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => statusCell(row.is_active as boolean | undefined),
+      },
+    ],
+    [],
+  );
+
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Service configuration</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'end' }}>
-        <FormRow label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </FormRow>
-        <FormRow label="Expense account id">
-          <input value={accountId} onChange={(e) => setAccountId(e.target.value)} />
-        </FormRow>
-        <Button type="button" onClick={onCreate} disabled={!name.trim() || createState.isLoading}>
-          Create
-        </Button>
-      </div>
-      {formError ? <ErrorText>{formError}</ErrorText> : null}
-      {isLoading && <p>Loading…</p>}
+    <EntityListPage>
+      <EntityListHero
+        kicker="Settings"
+        title="Service configuration"
+        count={`${filtered.length} ${filtered.length === 1 ? 'service' : 'services'}`}
+        actions={
+          <Button type="button" onClick={openAdd}>
+            Add service
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.active || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, active: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'yes', label: 'Active' },
+              { id: 'no', label: 'Inactive' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={ACTIVE_FILTER_FIELDS}
+            filters={filters}
+            defaultFilters={{ name: '', active: '' }}
+            excludeKeys={['active']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={[{ key: 'service_name', desc: false }]}
+            sortOptions={[{ value: 'service_name', label: 'Name' }]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {formError && !dialog ? <ErrorText>{formError}</ErrorText> : null}
+      {isLoading ? <EntityListLoading>Loading services…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load services.</ErrorText> : null}
-      <DataTable columns={columns} data={data as Record<string, unknown>[]} rowKey={(row) => String(row.id)} onRowClick={async (row) => {
-        try {
-          await update({ id: String(row.id), body: {
-            service_name: String(row.service_name || ''),
-            expense_account_id: String(row.expense_account_id || ''),
-            is_active: !row.is_active,
-          } }).unwrap();
-          refetch();
-        } catch (e) { setFormError(extractError(e)); }
-      }} />
-      <p style={{ opacity: 0.7 }}>Click a service to toggle active.</p>
-    </div>
-  );
-}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No services found.</strong>
+        </EntityListEmpty>
+      ) : null}
 
-export function DiscountsSettingsPage() {
-  const { data = [], isLoading, error, refetch } = useListDiscountRulesQuery();
-  const [create, createState] = useCreateDiscountRuleMutation();
-  const [update] = useUpdateDiscountRuleMutation();
-  const [name, setName] = useState('');
-  const [value, setValue] = useState('10');
-  const [scope, setScope] = useState('global');
-  const [discountType, setDiscountType] = useState('percent');
-  const [priority, setPriority] = useState('100');
-  const [applyTo, setApplyTo] = useState('sales_order,sales_invoice,customization_invoice');
-  const [productIds, setProductIds] = useState('');
-  const [categoryIds, setCategoryIds] = useState('');
-  const [customerIds, setCustomerIds] = useState('');
-  const [segmentIds, setSegmentIds] = useState('');
-  const [validFrom, setValidFrom] = useState('');
-  const [validTo, setValidTo] = useState('');
-  const [maxAmount, setMaxAmount] = useState('');
-  const [formError, setFormError] = useState('');
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
-    () => [
-      { key: 'name', header: 'Name' },
-      { key: 'scope', header: 'Scope' },
-      { key: 'value', header: 'Value' },
-      { key: 'is_active', header: 'Active' },
-    ],
-    [],
-  );
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => <EntityListActions onEdit={() => openEdit(row)} />}
+        />
+      ) : null}
 
-  async function onCreate() {
-    setFormError('');
-    try {
-      await create({
-        name,
-        scope,
-        discount_type: discountType,
-        value: Number(value) || 0,
-        priority: Number(priority) || 100,
-        apply_to: applyTo.split(',').map((item) => item.trim()).filter(Boolean),
-        product_ids: productIds.split(',').map((item) => item.trim()).filter(Boolean),
-        category_ids: categoryIds.split(',').map((item) => item.trim()).filter(Boolean),
-        customer_ids: customerIds.split(',').map((item) => item.trim()).filter(Boolean),
-        segment_ids: segmentIds.split(',').map((item) => item.trim()).filter(Boolean),
-        valid_from: validFrom || undefined,
-        valid_to: validTo || undefined,
-        max_discount_amount: maxAmount ? Number(maxAmount) : undefined,
-      }).unwrap();
-      setName('');
-      refetch();
-    } catch (e) {
-      setFormError(extractError(e));
-    }
-  }
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Discounts</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'end', flexWrap: 'wrap' }}>
-        <FormRow label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </FormRow>
-        <FormRow label="Percent">
-          <input value={value} onChange={(e) => setValue(e.target.value)} />
-        </FormRow>
-        <FormRow label="Scope"><select value={scope} onChange={(e) => setScope(e.target.value)}><option value="global">Global</option><option value="product">Product</option><option value="category">Category</option><option value="customer">Customer</option><option value="seasonal">Seasonal</option></select></FormRow>
-        <FormRow label="Type"><select value={discountType} onChange={(e) => setDiscountType(e.target.value)}><option value="percent">Percent</option><option value="fixed">Fixed</option></select></FormRow>
-        <FormRow label="Priority"><input type="number" value={priority} onChange={(e) => setPriority(e.target.value)} /></FormRow>
-        <FormRow label="Apply to (comma separated)"><input value={applyTo} onChange={(e) => setApplyTo(e.target.value)} /></FormRow>
-        <FormRow label="Product IDs"><input value={productIds} onChange={(e) => setProductIds(e.target.value)} /></FormRow>
-        <FormRow label="Category IDs"><input value={categoryIds} onChange={(e) => setCategoryIds(e.target.value)} /></FormRow>
-        <FormRow label="Customer IDs"><input value={customerIds} onChange={(e) => setCustomerIds(e.target.value)} /></FormRow>
-        <FormRow label="Segment IDs"><input value={segmentIds} onChange={(e) => setSegmentIds(e.target.value)} /></FormRow>
-        <FormRow label="Valid from"><input type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} /></FormRow>
-        <FormRow label="Valid to"><input type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} /></FormRow>
-        <FormRow label="Maximum amount"><input type="number" value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} /></FormRow>
-        <Button type="button" onClick={onCreate} disabled={!name.trim() || createState.isLoading}>
-          Create
-        </Button>
-      </div>
-      {formError ? <ErrorText>{formError}</ErrorText> : null}
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load discounts.</ErrorText> : null}
-      <DataTable columns={columns} data={data as Record<string, unknown>[]} rowKey={(row) => String(row.id)} onRowClick={async (row) => {
-        try {
-          await update({ id: String(row.id), body: { is_active: !row.is_active } }).unwrap();
-          refetch();
-        } catch (e) { setFormError(extractError(e)); }
-      }} />
-      <p style={{ opacity: 0.7 }}>Click a rule to toggle active. The API supports full edits and deletion for persisted rules.</p>
-    </div>
+      <Modal
+        title={dialog === 'edit' ? 'Edit service' : 'Add service'}
+        open={dialog !== null}
+        onClose={() => setDialog(null)}
+        footer={
+          <>
+            <Button
+              type="button"
+              onClick={() => void onSubmit()}
+              disabled={!name.trim() || createState.isLoading || updateState.isLoading}
+            >
+              {dialog === 'edit' ? 'Save changes' : 'Create'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setDialog(null)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        {formError ? <ErrorText>{formError}</ErrorText> : null}
+        <div style={{ display: 'grid', gap: 10 }}>
+          <FormRow label="Name *">
+            <TextInput value={name} onChange={(e) => setName(e.target.value)} required />
+          </FormRow>
+          <FormRow label="Expense account id">
+            <TextInput value={accountId} onChange={(e) => setAccountId(e.target.value)} />
+          </FormRow>
+          {dialog === 'edit' ? (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={isActive}
+                onChange={(e) => setIsActive(e.target.checked)}
+              />
+              Active
+            </label>
+          ) : null}
+        </div>
+      </Modal>
+    </EntityListPage>
   );
 }
 
 export function SettingsLocationsPage() {
   const { data = [], isLoading, error, refetch } = useListInventoryLocationsQuery();
   const [createLoc, createState] = useCreateInventoryLocationMutation();
-  const [updateLoc] = useUpdateInventoryLocationMutation();
+  const [updateLoc, updateState] = useUpdateInventoryLocationMutation();
   const [deleteLoc] = useDeleteInventoryLocationMutation();
+
+  const [sort, setSort] = useState<SortCriterion[]>([{ key: 'name', desc: false }]);
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ name: '', active: '' });
+  const [dialog, setDialog] = useState<'add' | 'edit' | null>(null);
+  const [editId, setEditId] = useState('');
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [address, setAddress] = useState('');
   const [locationType, setLocationType] = useState('Warehouse');
-  const [editId, setEditId] = useState('');
-  const [msg, setMsg] = useState('');
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+  const [isActive, setIsActive] = useState(true);
+  const [formError, setFormError] = useState('');
+
+  const filtered = useMemo(() => {
+    let rows = (data as Record<string, unknown>[]).filter((row) => {
+      const hay = `${row.name || ''} ${row.code || ''}`;
+      if (filters.name && !matchesRegex(hay, filters.name)) return false;
+      if (filters.active === 'yes' && row.is_active === false) return false;
+      if (filters.active === 'no' && row.is_active !== false) return false;
+      return true;
+    });
+    rows = sortRows(rows, sort);
+    return rows;
+  }, [data, filters, sort]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type Row = Record<string, unknown>;
+
+  function resetForm() {
+    setName('');
+    setCode('');
+    setAddress('');
+    setLocationType('Warehouse');
+    setIsActive(true);
+    setEditId('');
+  }
+
+  function openAdd() {
+    setFormError('');
+    resetForm();
+    setDialog('add');
+  }
+
+  function openEdit(row: Row) {
+    setFormError('');
+    setEditId(String(row.id));
+    setName(String(row.name || ''));
+    setCode(String(row.code || ''));
+    setAddress(String(row.address || ''));
+    setLocationType(String(row.location_type || 'Warehouse'));
+    setIsActive(row.is_active !== false);
+    setDialog('edit');
+  }
+
+  async function onSubmit() {
+    setFormError('');
+    const body = {
+      name,
+      code,
+      address,
+      location_type: locationType,
+      is_active: isActive,
+    };
+    try {
+      if (dialog === 'edit' && editId) {
+        await updateLoc({ id: editId, body }).unwrap();
+      } else {
+        await createLoc(body).unwrap();
+      }
+      setDialog(null);
+      resetForm();
+      refetch();
+    } catch (e) {
+      setFormError(extractError(e));
+    }
+  }
+
+  async function onDelete(id: string) {
+    if (!window.confirm('Delete this location?')) return;
+    try {
+      await deleteLoc(id).unwrap();
+      refetch();
+    } catch (e) {
+      setFormError(extractError(e));
+    }
+  }
+
+  const columns: EntityListColumn<Row>[] = useMemo(
     () => [
-      { key: 'name', header: 'Name' },
-      { key: 'code', header: 'Code' },
-      { key: 'location_type', header: 'Type' },
-      { key: 'is_active', header: 'Active' },
+      {
+        id: 'name',
+        header: 'Location',
+        render: (row) => (
+          <div className="el-customer">
+            <div className="el-customer-meta">
+              <span className="el-customer-name">{displayName(row, ['name'], 'Unnamed')}</span>
+              <span className="el-customer-sub">{String(row.code || '')}</span>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: 'type',
+        header: 'Type',
+        render: (row) => String(row.location_type || '—'),
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => statusCell(row.is_active as boolean | undefined),
+      },
     ],
     [],
   );
 
-  async function onCreate() {
-    setMsg('');
-    try {
-      await createLoc({
-        name,
-        code,
-        address,
-        location_type: locationType,
-        is_active: true,
-      }).unwrap();
-      setName('');
-      setCode('');
-      setAddress('');
-      setMsg('Created');
-      refetch();
-    } catch (e) {
-      setMsg(extractError(e));
-    }
-  }
-
-  async function onSaveEdit() {
-    if (!editId) return;
-    setMsg('');
-    try {
-      await updateLoc({
-        id: editId,
-        body: {
-          name,
-          code,
-          address,
-          location_type: locationType,
-          is_active: true,
-        },
-      }).unwrap();
-      setEditId('');
-      setMsg('Updated');
-      refetch();
-    } catch (e) {
-      setMsg(extractError(e));
-    }
-  }
-
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Locations</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16, alignItems: 'end' }}>
-        <FormRow label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </FormRow>
-        <FormRow label="Code">
-          <input value={code} onChange={(e) => setCode(e.target.value)} />
-        </FormRow>
-        <FormRow label="Address">
-          <input value={address} onChange={(e) => setAddress(e.target.value)} />
-        </FormRow>
-        <FormRow label="Type">
-          <select value={locationType} onChange={(e) => setLocationType(e.target.value)}>
-            {['Warehouse', 'Store', 'Site', 'Other'].map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        {editId ? (
+    <EntityListPage>
+      <EntityListHero
+        kicker="Settings"
+        title="Locations"
+        count={`${filtered.length} ${filtered.length === 1 ? 'location' : 'locations'}`}
+        actions={
+          <Button type="button" onClick={openAdd}>
+            Add location
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.active || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, active: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'yes', label: 'Active' },
+              { id: 'no', label: 'Inactive' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={[
+              { key: 'name', label: 'Name / code', type: 'text' },
+              ACTIVE_FILTER_FIELDS[1],
+            ]}
+            filters={filters}
+            defaultFilters={{ name: '', active: '' }}
+            excludeKeys={['active']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={[{ key: 'name', desc: false }]}
+            sortOptions={[
+              { value: 'name', label: 'Name' },
+              { value: 'code', label: 'Code' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {formError && !dialog ? <ErrorText>{formError}</ErrorText> : null}
+      {isLoading ? <EntityListLoading>Loading locations…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load locations.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No locations yet.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions
+              onEdit={() => openEdit(row)}
+              onDelete={() => void onDelete(String(row.id))}
+            />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+
+      <Modal
+        title={dialog === 'edit' ? 'Edit location' : 'Add location'}
+        open={dialog !== null}
+        onClose={() => setDialog(null)}
+        footer={
           <>
-            <Button type="button" onClick={onSaveEdit} disabled={!name || !code}>
-              Save edit
+            <Button
+              type="button"
+              onClick={() => void onSubmit()}
+              disabled={!name || !code || createState.isLoading || updateState.isLoading}
+            >
+              {dialog === 'edit' ? 'Save changes' : 'Create'}
             </Button>
-            <Button type="button" variant="ghost" onClick={() => setEditId('')}>
+            <Button type="button" variant="ghost" onClick={() => setDialog(null)}>
               Cancel
             </Button>
           </>
-        ) : (
-          <Button type="button" onClick={onCreate} disabled={!name || !code || createState.isLoading}>
-            Create
-          </Button>
-        )}
-      </div>
-      {msg ? <p>{msg}</p> : null}
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load locations.</ErrorText> : null}
-      <DataTable
-        columns={columns}
-        data={data as Record<string, unknown>[]}
-        rowKey={(row) => String(row.id)}
-        onRowClick={(row) => {
-          setEditId(String(row.id));
-          setName(String(row.name || ''));
-          setCode(String(row.code || ''));
-          setAddress(String(row.address || ''));
-          setLocationType(String(row.location_type || 'Warehouse'));
-        }}
-      />
-      <p style={{ color: '#667', fontSize: 13 }}>Click a row to edit. Use Delete on the selected row below.</p>
-      {editId ? (
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={async () => {
-            if (!window.confirm('Delete this location?')) return;
-            try {
-              await deleteLoc(editId).unwrap();
-              setEditId('');
-              setMsg('Deleted');
-              refetch();
-            } catch (e) {
-              setMsg(extractError(e));
-            }
-          }}
-        >
-          Delete selected
-        </Button>
-      ) : null}
-    </div>
+        }
+      >
+        {formError ? <ErrorText>{formError}</ErrorText> : null}
+        <div style={{ display: 'grid', gap: 10 }}>
+          <FormRow label="Name *">
+            <TextInput value={name} onChange={(e) => setName(e.target.value)} required />
+          </FormRow>
+          <FormRow label="Code *">
+            <TextInput value={code} onChange={(e) => setCode(e.target.value)} required />
+          </FormRow>
+          <FormRow label="Address">
+            <TextInput value={address} onChange={(e) => setAddress(e.target.value)} />
+          </FormRow>
+          <FormRow label="Type">
+            <Select value={locationType} onChange={(e) => setLocationType(e.target.value)}>
+              {['Warehouse', 'Retail Store'].map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
+          </FormRow>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+            Active
+          </label>
+        </div>
+      </Modal>
+    </EntityListPage>
   );
 }
 

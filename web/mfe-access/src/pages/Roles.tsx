@@ -6,22 +6,104 @@ import {
   useListAccessRolesQuery,
   useUpdateAccessRoleMutation,
 } from '@vaybooks/store';
-import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
+import {
+  Button,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
+  ErrorText,
+  FormRow,
+  Modal,
+  PAGE_SIZE,
+  PaginationBar,
+  TextInput,
+  displayName,
+  matchesRegex,
+  pageCount,
+  paginate,
+  sortRows,
+  type EntityListColumn,
+  type FilterFieldDef,
+  type SortCriterion,
+} from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
+
+const DEFAULT_ROLE_FILTERS = { name: '', description: '', kind: '' };
+const DEFAULT_ROLE_SORT: SortCriterion[] = [{ key: 'name', desc: false }];
+const ROLE_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'name', label: 'Name', type: 'text' },
+  { key: 'description', label: 'Description', type: 'text' },
+  {
+    key: 'kind',
+    label: 'Kind',
+    type: 'select',
+    options: [
+      { value: 'system', label: 'System' },
+      { value: 'custom', label: 'Custom' },
+    ],
+  },
+];
 
 export function AccessRolesListPage() {
   const navigate = useNavigate();
-  const { data = [], isLoading, error, refetch } = useListAccessRolesQuery();
+  const { data = [], isLoading, error } = useListAccessRolesQuery();
   const [createRole, createState] = useCreateAccessRoleMutation();
+
+  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_ROLE_SORT);
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ ...DEFAULT_ROLE_FILTERS });
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState('');
 
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+  const filtered = useMemo(() => {
+    let rows = data.filter((row) => {
+      if (!matchesRegex(row.name, filters.name)) return false;
+      if (!matchesRegex(row.description, filters.description)) return false;
+      if (filters.kind === 'system' && !row.is_system) return false;
+      if (filters.kind === 'custom' && row.is_system) return false;
+      return true;
+    });
+    rows = sortRows(rows, sort);
+    return rows;
+  }, [data, filters, sort]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type RoleRow = (typeof data)[number];
+
+  const columns: EntityListColumn<RoleRow>[] = useMemo(
     () => [
-      { key: 'name', header: 'Name' },
-      { key: 'is_system', header: 'System' },
-      { key: 'description', header: 'Description' },
+      {
+        id: 'name',
+        header: 'Name',
+        render: (row) => displayName(row, ['name'], 'Unnamed'),
+      },
+      {
+        id: 'is_system',
+        header: 'System',
+        render: (row) => (
+          <span className={row.is_system ? 'el-muted' : 'el-advance'}>
+            {row.is_system ? 'System' : 'Custom'}
+          </span>
+        ),
+      },
+      {
+        id: 'description',
+        header: 'Description',
+        render: (row) => {
+          const text = String(row.description || '').trim();
+          return <span className={text ? undefined : 'el-muted'}>{text || '—'}</span>;
+        },
+      },
     ],
     [],
   );
@@ -32,6 +114,7 @@ export function AccessRolesListPage() {
       const row = await createRole({ name, description, permission_keys: [] }).unwrap();
       setName('');
       setDescription('');
+      setDialogOpen(false);
       navigate(`/access/roles/${row.id}`);
     } catch (e) {
       setFormError(extractError(e));
@@ -39,34 +122,120 @@ export function AccessRolesListPage() {
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Roles</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20, alignItems: 'end' }}>
-        <FormRow label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </FormRow>
-        <FormRow label="Description">
-          <input value={description} onChange={(e) => setDescription(e.target.value)} />
-        </FormRow>
-        <Button type="button" onClick={onCreate} disabled={!name.trim() || createState.isLoading}>
-          Create custom role
-        </Button>
-      </div>
-      {formError ? <ErrorText>{formError}</ErrorText> : null}
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load roles.</ErrorText> : null}
-      <DataTable
-        columns={columns}
-        data={data as Record<string, unknown>[]}
-        rowKey={(row) => String(row.id)}
-        onRowClick={(row) => navigate(`/access/roles/${row.id}`)}
+    <EntityListPage>
+      <EntityListHero
+        kicker="Access"
+        title="Roles"
+        count={`${filtered.length} ${filtered.length === 1 ? 'role' : 'roles'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setName('');
+              setDescription('');
+              setFormError('');
+              setDialogOpen(true);
+            }}
+          >
+            Create custom role
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Kind"
+            value={filters.kind || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, kind: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'system', label: 'System' },
+              { id: 'custom', label: 'Custom' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={ROLE_FILTER_FIELDS}
+            filters={filters}
+            defaultFilters={DEFAULT_ROLE_FILTERS}
+            excludeKeys={['kind']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_ROLE_SORT}
+            sortOptions={[
+              { value: 'name', label: 'Name' },
+              { value: 'description', label: 'Description' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
-    </div>
+
+      {isLoading ? <EntityListLoading>Loading roles…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load roles.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No roles found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/access/roles/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+
+      <Modal
+        title="Create custom role"
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        footer={
+          <>
+            <Button
+              type="button"
+              onClick={() => void onCreate()}
+              disabled={!name.trim() || createState.isLoading}
+            >
+              {createState.isLoading ? 'Creating…' : 'Create'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        {formError ? <ErrorText>{formError}</ErrorText> : null}
+        <div style={{ display: 'grid', gap: 10 }}>
+          <FormRow label="Name">
+            <TextInput value={name} onChange={(e) => setName(e.target.value)} />
+          </FormRow>
+          <FormRow label="Description">
+            <TextInput value={description} onChange={(e) => setDescription(e.target.value)} />
+          </FormRow>
+        </div>
+      </Modal>
+    </EntityListPage>
   );
 }
 

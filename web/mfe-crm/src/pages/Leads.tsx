@@ -12,7 +12,27 @@ import {
   useSetCrmLeadStatusMutation,
   useUpdateCrmLeadMutation,
 } from '@vaybooks/store';
-import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
+import {
+  Button,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
+  ErrorText,
+  FormRow,
+  Modal,
+  PAGE_SIZE,
+  PaginationBar,
+  displayName,
+  matchesRegex,
+  pageCount,
+  paginate,
+  type EntityListColumn,
+} from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
 
 const LEAD_STATUSES = [
@@ -25,25 +45,97 @@ const LEAD_STATUSES = [
   'On Hold',
 ];
 
+const LEAD_STATUS_CHIPS = [
+  { id: 'all', label: 'All' },
+  { id: 'New', label: 'New' },
+  { id: 'Contacted', label: 'Contacted' },
+  { id: 'Qualified', label: 'Qualified' },
+  { id: 'Converted', label: 'Converted' },
+  { id: 'Lost', label: 'Lost' },
+] as const;
+
 export function CrmLeadsListPage() {
   const navigate = useNavigate();
   const { data = [], isLoading, error, refetch } = useListCrmLeadsQuery();
   const [createLead, createState] = useCreateCrmLeadMutation();
+  const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState({ status: '' });
+  const [page, setPage] = useState(1);
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [locationId, setLocationId] = useState('loc-main');
   const [formError, setFormError] = useState('');
 
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+  type LeadRow = (typeof data)[number];
+
+  const filtered = useMemo(() => {
+    return data.filter((row) => {
+      if (filters.status && String(row.status || '') !== filters.status) return false;
+      if (!search.trim()) return true;
+      return (
+        matchesRegex(row.lead_number, search) ||
+        matchesRegex(row.name, search) ||
+        matchesRegex(row.phone, search) ||
+        matchesRegex(row.status, search) ||
+        matchesRegex(row.source, search)
+      );
+    });
+  }, [data, filters, search]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  const columns: EntityListColumn<LeadRow>[] = useMemo(
     () => [
-      { key: 'lead_number', header: 'No.' },
-      { key: 'name', header: 'Name' },
-      { key: 'phone', header: 'Phone' },
-      { key: 'status', header: 'Status' },
-      { key: 'source', header: 'Source' },
+      {
+        id: 'lead',
+        header: 'Lead',
+        render: (row) => {
+          const number = displayName(row, ['lead_number'], String(row.id));
+          const leadName = asCaption(row.name);
+          return (
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{leadName}</span>
+                <span className="el-customer-sub">{number}</span>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'phone',
+        header: 'Phone',
+        render: (row) => {
+          const phoneValue = String(row.phone || '').trim();
+          return <span className={phoneValue ? undefined : 'el-muted'}>{phoneValue || '—'}</span>;
+        },
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status),
+      },
+      {
+        id: 'source',
+        header: 'Source',
+        render: (row) => {
+          const source = String(row.source || '').trim();
+          return <span className={source ? undefined : 'el-muted'}>{source || '—'}</span>;
+        },
+      },
     ],
     [],
   );
+
+  function openCreate() {
+    setFormError('');
+    setName('');
+    setPhone('');
+    setLocationId('loc-main');
+    setOpen(true);
+  }
 
   async function onCreate() {
     setFormError('');
@@ -54,8 +146,7 @@ export function CrmLeadsListPage() {
         location_id: locationId,
         allow_duplicate: true,
       }).unwrap();
-      setName('');
-      setPhone('');
+      setOpen(false);
       navigate(`/crm/leads/${row.id}`);
     } catch (e) {
       setFormError(extractError(e));
@@ -63,38 +154,102 @@ export function CrmLeadsListPage() {
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Leads</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20, alignItems: 'end' }}>
-        <FormRow label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </FormRow>
-        <FormRow label="Phone">
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} />
-        </FormRow>
-        <FormRow label="Location">
-          <input value={locationId} onChange={(e) => setLocationId(e.target.value)} />
-        </FormRow>
-        <Button type="button" onClick={onCreate} disabled={!name.trim() || createState.isLoading}>
-          Create
-        </Button>
-      </div>
-      {formError ? <ErrorText>{formError}</ErrorText> : null}
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load leads.</ErrorText> : null}
-      <DataTable
-        columns={columns}
-        data={data as Record<string, unknown>[]}
-        rowKey={(row) => String(row.id)}
-        onRowClick={(row) => navigate(`/crm/leads/${row.id}`)}
+    <EntityListPage>
+      <EntityListHero
+        kicker="CRM"
+        title="Leads"
+        count={`${filtered.length} ${filtered.length === 1 ? 'lead' : 'leads'}`}
+        actions={
+          <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
+            <Button type="button" onClick={openCreate}>
+              New lead
+            </Button>
+          </>
+        }
+        search={
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search name, phone, status…"
+            aria-label="Search leads"
+          />
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters({ status: id === 'all' ? '' : id });
+              setPage(1);
+            }}
+            options={[...LEAD_STATUS_CHIPS]}
+          />
+        }
       />
-    </div>
+
+      {isLoading ? <EntityListLoading>Loading leads…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load leads.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>{search.trim() || filters.status ? 'No matching leads' : 'No leads yet'}</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/crm/leads/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+
+      <Modal
+        open={open}
+        title="New lead"
+        onClose={() => setOpen(false)}
+        footer={
+          <>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void onCreate()} disabled={!name.trim() || createState.isLoading}>
+              {createState.isLoading ? 'Saving…' : 'Create'}
+            </Button>
+          </>
+        }
+      >
+        <div style={{ display: 'grid', gap: 10 }}>
+          {formError ? <ErrorText>{formError}</ErrorText> : null}
+          <FormRow label="Name">
+            <input value={name} onChange={(e) => setName(e.target.value)} />
+          </FormRow>
+          <FormRow label="Phone">
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </FormRow>
+          <FormRow label="Location">
+            <input value={locationId} onChange={(e) => setLocationId(e.target.value)} />
+          </FormRow>
+        </div>
+      </Modal>
+    </EntityListPage>
   );
 }
 

@@ -186,13 +186,22 @@ def _ensure_seed_admin() -> None:
         pass
 
 
+def _enabled_modules_for_user() -> list[str]:
+    authz = _access().authorization
+    if authz is None:
+        return []
+    try:
+        ent = authz.get_org_entitlement()
+        return list(getattr(ent, "enabled_modules", None) or [])
+    except Exception:
+        return []
+
+
 def _user_payload(user: Any, *, working_location_id: Optional[str] = None) -> dict[str, Any]:
     authz = _access().authorization
     perms = sorted(authz.effective_keys(user)) if authz and user else []
-    # Owner / empty effective keys in early seed: grant all for usability
-    if user and ROLE_OWNER in (getattr(user, "role_ids", None) or []) and not perms:
-        perms = ["*"]
     oid = getattr(user, "org_id", None) or get_org_id() or DEFAULT_ORG_ID
+    modules = _enabled_modules_for_user()
     cached = permission_cache.get(_perm_key(user.username, oid)) or {}
     work = working_location_id
     if work is None:
@@ -206,6 +215,7 @@ def _user_payload(user: Any, *, working_location_id: Optional[str] = None) -> di
         "location_ids": list(getattr(user, "location_ids", None) or []),
         "active": bool(getattr(user, "active", True)),
         "permissions": perms or list(cached.get("permissions") or []),
+        "enabled_modules": modules or list(cached.get("modules") or []),
         "working_location_id": work,
     }
 
@@ -223,17 +233,16 @@ def _load_user_by_username(username: str) -> Any:
 def _cache_session(user: Any, working_location_id: str) -> None:
     authz = _access().authorization
     perms = sorted(authz.effective_keys(user)) if authz else []
-    if ROLE_OWNER in (getattr(user, "role_ids", None) or []) and not perms:
-        perms = ["*"]
     oid = getattr(user, "org_id", None) or get_org_id() or DEFAULT_ORG_ID
+    modules = _enabled_modules_for_user()
     permission_cache.set(
         _perm_key(user.username, oid),
         {
             "user_id": user.id,
             "username": user.username,
             "org_id": oid,
-            "permissions": perms or ["*"],
-            "modules": ["*"],
+            "permissions": perms,
+            "modules": modules,
             "working_location_id": working_location_id,
             "location_ids": list(getattr(user, "location_ids", None) or []),
             "role_ids": list(getattr(user, "role_ids", None) or []),

@@ -60,10 +60,18 @@ class BusinessBody(BaseModel):
     fy_start_month: int = 4
 
 
+class PrimaryLocationBody(BaseModel):
+    code: str = "MAIN"
+    name: str = "Main Warehouse"
+    location_type: str = "Warehouse"
+    address: str = ""
+
+
 class SetupCompleteBody(BaseModel):
     business: BusinessBody = Field(default_factory=BusinessBody)
     enabled_modules: list[str] = Field(default_factory=list)
     license_key: str = ""
+    primary_location: PrimaryLocationBody = Field(default_factory=PrimaryLocationBody)
 
 
 class OwnerBody(BaseModel):
@@ -115,6 +123,8 @@ def setup_complete(
             business=body.business.model_dump(),
             enabled_modules=body.enabled_modules,
             license_key=body.license_key or "",
+            primary_location=body.primary_location.model_dump(),
+            owner_user_id=getattr(user, "id", "") or "",
         )
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

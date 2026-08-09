@@ -14,9 +14,17 @@ import {
   Button,
   EntityCard,
   EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -25,6 +33,7 @@ import {
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
@@ -32,6 +41,12 @@ import { asCaption, extractError, formatMoney } from '../utils';
 
 const DEFAULT_FILTERS = { grn_number: '', vendor_name: '', status: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'receipt_date', desc: true }];
+const STATUS_CHIPS = [
+  { id: 'all', label: 'All' },
+  { id: 'Draft', label: 'Draft' },
+  { id: 'Received', label: 'Received' },
+  { id: 'Cancelled', label: 'Cancelled' },
+];
 
 export function GoodsReceiptListPage() {
   const navigate = useNavigate();
@@ -68,7 +83,7 @@ export function GoodsReceiptListPage() {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.grn_number, filters.grn_number)) return false;
       if (!matchesRegex(row.vendor_name, filters.vendor_name)) return false;
-      if (!matchesRegex(row.status, filters.status)) return false;
+      if (filters.status && String(row.status) !== filters.status) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -76,6 +91,43 @@ export function GoodsReceiptListPage() {
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type GrnRow = (typeof data)[number];
+
+  const columns: EntityListColumn<GrnRow>[] = useMemo(
+    () => [
+      {
+        id: 'grn',
+        header: 'GRN #',
+        render: (row) => (
+          <div className="el-customer">
+            <div className="el-customer-meta">
+              <span className="el-customer-name">{asCaption(row.grn_number) || String(row.id)}</span>
+              <span className="el-customer-sub">{asCaption(row.receipt_date).slice(0, 10) || '—'}</span>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: 'vendor',
+        header: 'Vendor',
+        render: (row) => asCaption(row.vendor_name) || '—',
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status) || '—',
+      },
+      {
+        id: 'amount',
+        header: 'Amount',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
+      },
+    ],
+    [],
+  );
 
   async function onCreate() {
     setFormError('');
@@ -95,57 +147,85 @@ export function GoodsReceiptListPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Purchases"
         title="Goods Receipt"
-        countLabel="receipts"
-        count={filtered.length}
-        primaryLabel="New GRN"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-          if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'receipt_date', label: 'Date' },
-          { value: 'grn_number', label: 'GRN #' },
-          { value: 'total_amount', label: 'Amount' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
+        count={`${filtered.length} ${filtered.length === 1 ? 'receipt' : 'receipts'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setOpen(true);
+              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
+            }}
+          >
+            New GRN
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={STATUS_CHIPS}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'receipt_date', label: 'Date' },
+              { value: 'grn_number', label: 'GRN #' },
+              { value: 'total_amount', label: 'Amount' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
 
-      {isLoading && <p>Loading…</p>}
+      {isLoading ? <EntityListLoading>Loading goods receipts…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load goods receipts.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No goods receipts found.</p>}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No goods receipts found.</strong>
+        </EntityListEmpty>
+      ) : null}
 
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={asCaption(row.grn_number) || String(row.id)}
-            captions={[
-              asCaption(row.vendor_name),
-              asCaption(row.status),
-              asCaption(row.receipt_date).slice(0, 10),
-              formatMoney(Number(row.total_amount ?? 0)),
-            ]}
-            onView={() => navigate(`/purchases/goods-receipt/${row.id}`)}
-          />
-        ))}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/purchases/goods-receipt/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -242,7 +322,7 @@ export function GoodsReceiptListPage() {
           </label>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 

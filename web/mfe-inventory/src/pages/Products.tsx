@@ -10,11 +10,17 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -24,7 +30,7 @@ import {
   pageCount,
   paginate,
   sortRows,
-  type EntityCardBadge,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
@@ -98,16 +104,21 @@ function extractError(e: unknown): string {
   return 'Save failed';
 }
 
-function stockBadge(status: unknown): EntityCardBadge {
+function stockStatusLabel(status: unknown): string {
   const s = String(status || '');
-  if (s === 'In') return { label: 'In stock', tone: 'green' };
-  if (s === 'Low') return { label: 'Low stock', tone: 'red' };
-  if (s === 'Out') return { label: 'Out of stock', tone: 'gray' };
-  return { label: s || 'Unknown', tone: 'gray' };
+  if (s === 'In') return 'In stock';
+  if (s === 'Low') return 'Low stock';
+  if (s === 'Out') return 'Out of stock';
+  return s || 'Unknown';
 }
 
-const DEFAULT_PRODUCT_FILTERS = { sku: '', name: '', hsn_sac: '', active: '' };
+const DEFAULT_PRODUCT_FILTERS = { sku: '', name: '', hsn_sac: '', active: '', stock: '' };
 const DEFAULT_PRODUCT_SORT: SortCriterion[] = [{ key: 'created_at', desc: true }];
+const STOCK_CHIP_OPTIONS = [
+  { id: 'In', label: 'In stock' },
+  { id: 'Low', label: 'Low' },
+  { id: 'Out', label: 'Out' },
+] as const;
 
 function ProductFormFields({
   values,
@@ -251,6 +262,13 @@ export function ProductsListPage() {
           { value: 'no', label: 'Inactive only' },
         ],
       },
+      {
+        key: 'stock',
+        label: 'Stock status',
+        type: 'select',
+        allLabel: 'All',
+        options: STOCK_CHIP_OPTIONS.map((o) => ({ value: o.id, label: o.label })),
+      },
     ],
     [],
   );
@@ -262,6 +280,7 @@ export function ProductsListPage() {
       if (!matchesRegex(row.hsn_sac, filters.hsn_sac)) return false;
       if (filters.active === 'yes' && row.is_active === false) return false;
       if (filters.active === 'no' && row.is_active !== false) return false;
+      if (filters.stock && String(row.stock_status || '') !== filters.stock) return false;
       return true;
     });
     rows = sortRows(rows, sort);
@@ -270,6 +289,8 @@ export function ProductsListPage() {
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type ProductRow = (typeof data)[number];
 
   function setField(name: keyof ProductFormValues, value: string | boolean | string[]) {
     setValues((p) => ({ ...p, [name]: value }));
@@ -282,7 +303,7 @@ export function ProductsListPage() {
     setDialog('add');
   }
 
-  function openEdit(row: Record<string, unknown>) {
+  function openEdit(row: ProductRow) {
     setFormError('');
     setEditId(String(row.id));
     setValues(productToForm(row));
@@ -308,65 +329,144 @@ export function ProductsListPage() {
     }
   }
 
+  const columns: EntityListColumn<ProductRow>[] = useMemo(
+    () => [
+      {
+        id: 'product',
+        header: 'Product',
+        render: (row) => {
+          const name = displayName(row, ['name'], 'Unnamed product');
+          const sku = String(row.sku || '—');
+          const catIds = Array.isArray(row.category_ids) ? (row.category_ids as unknown[]).map(String) : [];
+          const catNames =
+            Array.isArray(row.category_names) && (row.category_names as unknown[]).length > 0
+              ? (row.category_names as unknown[]).map(String)
+              : catIds.map((id) => categoryNameById.get(id) || id);
+          return (
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{name}</span>
+                <span className="el-customer-sub">
+                  SKU: {sku}
+                  {catNames.length > 0 ? ` · ${catNames.join(', ')}` : ''}
+                </span>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'qty',
+        header: 'Qty',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => Number(row.current_qty ?? 0),
+      },
+      {
+        id: 'stock',
+        header: 'Stock',
+        render: (row) => {
+          const status = String(row.stock_status || '');
+          const tone = status === 'Low' ? 'el-due' : status === 'Out' || row.is_active === false ? 'el-muted' : undefined;
+          const label =
+            row.is_active === false
+              ? `${stockStatusLabel(status)} · Inactive`
+              : stockStatusLabel(status);
+          return <span className={tone}>{label}</span>;
+        },
+      },
+      {
+        id: 'hsn',
+        header: 'HSN',
+        render: (row) => {
+          const hsn = String(row.hsn_sac || '').trim();
+          return <span className={hsn ? undefined : 'el-muted'}>{hsn || '—'}</span>;
+        },
+      },
+    ],
+    [categoryNameById],
+  );
+
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Inventory"
         title="Products"
-        countLabel="products"
-        count={filtered.length}
-        primaryLabel="Add Product"
-        onPrimary={openAdd}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_PRODUCT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_PRODUCT_SORT}
-        sortOptions={[
-          { value: 'created_at', label: 'Created' },
-          { value: 'name', label: 'Name' },
-          { value: 'sku', label: 'SKU' },
-          { value: 'current_qty', label: 'Qty on hand' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
+        count={`${filtered.length} ${filtered.length === 1 ? 'product' : 'products'}`}
+        actions={
+          <Button type="button" onClick={openAdd}>
+            Add Product
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Stock status"
+            value={filters.stock || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, stock: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              ...STOCK_CHIP_OPTIONS.map((o) => ({ id: o.id, label: o.label })),
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_PRODUCT_FILTERS}
+            excludeKeys={['stock']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_PRODUCT_SORT}
+            sortOptions={[
+              { value: 'created_at', label: 'Created' },
+              { value: 'name', label: 'Name' },
+              { value: 'sku', label: 'SKU' },
+              { value: 'current_qty', label: 'Qty on hand' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
 
-      {isLoading && <p>Loading…</p>}
+      {isLoading ? <EntityListLoading>Loading products…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load products. Is the API running?</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No products found.</p>}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No products found.</strong>
+        </EntityListEmpty>
+      ) : null}
 
-      <EntityCardGrid>
-        {pageRows.map((row) => {
-          const catIds = Array.isArray(row.category_ids) ? (row.category_ids as unknown[]).map(String) : [];
-          const catNames = Array.isArray(row.category_names) && (row.category_names as unknown[]).length > 0
-            ? (row.category_names as unknown[]).map(String)
-            : catIds.map((id) => categoryNameById.get(id) || id);
-          const badges: EntityCardBadge[] = [stockBadge(row.stock_status)];
-          if (row.is_active === false) badges.push({ label: 'Inactive', tone: 'gray' });
-          return (
-            <EntityCard
-              key={String(row.id)}
-              title={displayName(row, ['name'], 'Unnamed product')}
-              captions={[
-                `SKU: ${String(row.sku || '—')}`,
-                catNames.length > 0 ? `Category: ${catNames.join(', ')}` : '',
-                `Qty: ${Number(row.current_qty ?? 0)}`,
-                row.hsn_sac ? `HSN: ${String(row.hsn_sac)}` : '',
-              ].filter(Boolean)}
-              badges={badges}
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions
+              onOpen={() => navigate(`/inventory/products/${String(row.id)}`)}
               onEdit={() => openEdit(row)}
-              onView={() => navigate(`/inventory/products/${String(row.id)}`)}
             />
-          );
-        })}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         title={dialog === 'edit' ? 'Edit Product' : 'Add Product'}
@@ -395,7 +495,7 @@ export function ProductsListPage() {
           locationOptions={locationOptions}
         />
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 

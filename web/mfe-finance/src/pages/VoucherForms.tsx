@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   useCreateFinanceCreditNoteMutation,
   useCreateFinanceDebitNoteMutation,
@@ -15,11 +16,17 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
+  type EntityListQuickFilter,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -28,16 +35,40 @@ import {
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError, formatMoney } from '../utils';
 
-
-const DEFAULT_FILTERS = { voucher_number: '', description: '' };
+const DEFAULT_FILTERS = { voucher_number: '', voucher_type: '', description: '', amount: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'voucher_date', desc: true }];
 
-function useVoucherList(data: Record<string, unknown>[] | undefined) {
+const AMOUNT_CHIPS: EntityListQuickFilter[] = [
+  { id: 'all', label: 'All' },
+  { id: 'with', label: 'With amount' },
+  { id: 'zero', label: 'Zero' },
+];
+
+const PAYMENT_TYPE_CHIPS: EntityListQuickFilter[] = [
+  { id: 'all', label: 'All' },
+  { id: 'Payment', label: 'Payment' },
+  { id: 'Vendor Payment', label: 'Vendor' },
+  { id: 'Salary Payment', label: 'Salary' },
+  { id: 'Commission Payment', label: 'Commission' },
+];
+
+const INVOICE_TYPE_CHIPS: EntityListQuickFilter[] = [
+  { id: 'all', label: 'All' },
+  { id: 'Sales Invoice', label: 'Sales' },
+  { id: 'Customization Invoice', label: 'Customization' },
+  { id: 'Purchase Bill', label: 'Purchase Bill' },
+  { id: 'Purchase Expense', label: 'Expense' },
+];
+
+type VoucherRow = Record<string, unknown>;
+
+function useVoucherList(data: VoucherRow[] | undefined) {
   const rows = useMemo(() => (Array.isArray(data) ? data : []), [data]);
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
@@ -52,7 +83,11 @@ function useVoucherList(data: Record<string, unknown>[] | undefined) {
   const filtered = useMemo(() => {
     const next = rows.filter((row) => {
       if (!matchesRegex(row.voucher_number, filters.voucher_number)) return false;
+      if (filters.voucher_type && String(row.voucher_type || '') !== filters.voucher_type) return false;
       if (!matchesRegex(row.description, filters.description)) return false;
+      const amount = Number(row.amount ?? 0);
+      if (filters.amount === 'with' && !(Math.abs(amount) > 0.01)) return false;
+      if (filters.amount === 'zero' && Math.abs(amount) >= 0.01) return false;
       return true;
     });
     return sortRows(next, sort);
@@ -62,28 +97,159 @@ function useVoucherList(data: Record<string, unknown>[] | undefined) {
   return { filters, setFilters, sort, setSort, page, setPage, filterFields, filtered, pages, pageRows };
 }
 
-function VoucherCards({ rows }: { rows: Record<string, unknown>[] }) {
+const VOUCHER_COLUMNS: EntityListColumn<VoucherRow>[] = [
+  {
+    id: 'voucher',
+    header: 'Voucher',
+    render: (row) => {
+      const number = asCaption(row.voucher_number) || asCaption(row.caption) || String(row.id);
+      const type = asCaption(row.voucher_type);
+      return (
+        <div className="el-customer">
+          <div className="el-customer-meta">
+            <span className="el-customer-name">{number}</span>
+            <span className="el-customer-sub">{type || 'No type'}</span>
+          </div>
+        </div>
+      );
+    },
+  },
+  {
+    id: 'date',
+    header: 'Date',
+    render: (row) => asCaption(row.voucher_date).slice(0, 10) || '—',
+  },
+  {
+    id: 'amount',
+    header: 'Amount',
+    className: 'el-num',
+    headerClassName: 'el-col-num',
+    render: (row) => formatMoney(Number(row.amount ?? 0)),
+  },
+  {
+    id: 'party',
+    header: 'Party',
+    render: (row) => {
+      const party = asCaption(row.party_name);
+      return <span className={party ? undefined : 'el-muted'}>{party || '—'}</span>;
+    },
+  },
+  {
+    id: 'description',
+    header: 'Description',
+    render: (row) => {
+      const desc = asCaption(row.description);
+      const party = asCaption(row.party_name);
+      // Only show short human description; never dump SOR JSON payloads
+      if (!desc || desc.length > 80 || desc === party) {
+        return <span className="el-muted">—</span>;
+      }
+      return <span title={desc}>{desc}</span>;
+    },
+  },
+];
+
+function VoucherListShell({
+  kicker = 'Finance',
+  title,
+  countText,
+  actions,
+  list,
+  isLoading,
+  error,
+  loadingLabel,
+  emptyLabel,
+  errorLabel,
+  typeChips = AMOUNT_CHIPS,
+  children,
+}: {
+  kicker?: string;
+  title: string;
+  countText: string;
+  actions?: ReactNode;
+  list: ReturnType<typeof useVoucherList>;
+  isLoading: boolean;
+  error: unknown;
+  loadingLabel: string;
+  emptyLabel: string;
+  errorLabel: string;
+  typeChips?: EntityListQuickFilter[];
+  children?: ReactNode;
+}) {
+  const multiType = typeChips.some((c) => c.id !== 'all') && typeChips.length > 1;
+  const chipKey = multiType ? 'voucher_type' : 'amount';
   return (
-    <EntityCardGrid>
-      {rows.map((row) => {
-        const desc = asCaption(row.description);
-        const party = asCaption(row.party_name);
-        return (
-          <EntityCard
-            key={String(row.id)}
-            title={asCaption(row.voucher_number) || asCaption(row.caption) || String(row.id)}
-            captions={[
-              asCaption(row.voucher_type),
-              asCaption(row.voucher_date).slice(0, 10),
-              formatMoney(Number(row.amount ?? 0)),
-              party,
-              // Only show short human description; never dump SOR JSON payloads
-              desc && desc.length <= 80 && desc !== party ? desc : '',
-            ].filter(Boolean)}
+    <EntityListPage>
+      <EntityListHero
+        kicker={kicker}
+        title={title}
+        count={countText}
+        actions={actions}
+        chips={
+          <EntityListQuickFilters
+            ariaLabel={multiType ? 'Voucher type' : 'Amount'}
+            value={list.filters[chipKey] || 'all'}
+            onChange={(id) => {
+              list.setFilters((prev) => ({ ...prev, [chipKey]: id === 'all' ? '' : id }));
+              list.setPage(1);
+            }}
+            options={typeChips}
           />
-        );
-      })}
-    </EntityCardGrid>
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={list.filterFields}
+            filters={list.filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={[chipKey]}
+            onFiltersChange={(next) => {
+              list.setFilters(next as typeof list.filters);
+              list.setPage(1);
+            }}
+            sort={list.sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'voucher_date', label: 'Date' },
+              { value: 'amount', label: 'Amount' },
+            ]}
+            onSortChange={(next) => {
+              list.setSort(next);
+              list.setPage(1);
+            }}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>{loadingLabel}</EntityListLoading> : null}
+      {error ? <ErrorText>{errorLabel}</ErrorText> : null}
+      {!isLoading && !error && list.pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>{emptyLabel}</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && list.pageRows.length > 0 ? (
+        <EntityListTable
+          columns={VOUCHER_COLUMNS}
+          rows={list.pageRows}
+          rowKey={(row) => String(row.id)}
+        />
+      ) : null}
+
+      {!isLoading && !error && list.pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar
+              page={Math.min(list.page, list.pages)}
+              pageCount={list.pages}
+              onPage={list.setPage}
+            />
+          </div>
+        </EntityListFoot>
+      ) : null}
+
+      {children}
+    </EntityListPage>
   );
 }
 
@@ -120,6 +286,7 @@ function AccountSelect({
 }
 
 export function ReceiptsListPage() {
+  const [params] = useSearchParams();
   const { data = [], isLoading, error, refetch } = useListFinanceReceiptsQuery();
   const { data: accounts = [] } = useListFinanceAccountsQuery();
   const [createReceipt, createState] = useCreateFinanceReceiptMutation();
@@ -128,11 +295,22 @@ export function ReceiptsListPage() {
   const [formError, setFormError] = useState('');
   const [form, setForm] = useState({
     receiving_account_id: '',
-    customer_account_id: '',
+    customer_account_id: params.get('customer_account_id') || '',
     amount: '',
     description: '',
     location_id: 'default',
   });
+
+  useEffect(() => {
+    const acct = params.get('customer_account_id') || '';
+    if (acct) {
+      setForm((f) => ({ ...f, customer_account_id: acct }));
+    }
+    if (params.get('new') === '1') {
+      setFormError('');
+      setOpen(true);
+    }
+  }, [params]);
 
   async function submit() {
     setFormError('');
@@ -150,39 +328,27 @@ export function ReceiptsListPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
-        title="Receipts"
-        countLabel="receipts"
-        count={list.filtered.length}
-        primaryLabel="Record Receipt"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-        }}
-        filterFields={list.filterFields}
-        filters={list.filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          list.setFilters(next as typeof list.filters);
-          list.setPage(1);
-        }}
-        sort={list.sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'voucher_date', label: 'Date' },
-          { value: 'amount', label: 'Amount' },
-        ]}
-        onSortChange={(next) => {
-          list.setSort(next);
-          list.setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load receipts.</ErrorText> : null}
-      {!isLoading && !error && list.pageRows.length === 0 && <p>No receipts found.</p>}
-      <VoucherCards rows={list.pageRows} />
-      <PaginationBar page={Math.min(list.page, list.pages)} pageCount={list.pages} onPage={list.setPage} />
+    <VoucherListShell
+      title="Receipts"
+      countText={`${list.filtered.length} ${list.filtered.length === 1 ? 'receipt' : 'receipts'}`}
+      list={list}
+      isLoading={isLoading}
+      error={error}
+      loadingLabel="Loading receipts…"
+      emptyLabel="No receipts found."
+      errorLabel="Failed to load receipts."
+      actions={
+        <Button
+          type="button"
+          onClick={() => {
+            setFormError('');
+            setOpen(true);
+          }}
+        >
+          Record Receipt
+        </Button>
+      }
+    >
       <Modal
         title="Record Receipt"
         open={open}
@@ -224,7 +390,7 @@ export function ReceiptsListPage() {
           </FormRow>
         </div>
       </Modal>
-    </div>
+    </VoucherListShell>
   );
 }
 
@@ -261,39 +427,28 @@ export function PaymentsListPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
-        title="Payments"
-        countLabel="payments"
-        count={list.filtered.length}
-        primaryLabel="Record Payment"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-        }}
-        filterFields={list.filterFields}
-        filters={list.filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          list.setFilters(next as typeof list.filters);
-          list.setPage(1);
-        }}
-        sort={list.sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'voucher_date', label: 'Date' },
-          { value: 'amount', label: 'Amount' },
-        ]}
-        onSortChange={(next) => {
-          list.setSort(next);
-          list.setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load payments.</ErrorText> : null}
-      {!isLoading && !error && list.pageRows.length === 0 && <p>No payments found.</p>}
-      <VoucherCards rows={list.pageRows} />
-      <PaginationBar page={Math.min(list.page, list.pages)} pageCount={list.pages} onPage={list.setPage} />
+    <VoucherListShell
+      title="Payments"
+      countText={`${list.filtered.length} ${list.filtered.length === 1 ? 'payment' : 'payments'}`}
+      list={list}
+      isLoading={isLoading}
+      error={error}
+      loadingLabel="Loading payments…"
+      emptyLabel="No payments found."
+      errorLabel="Failed to load payments."
+      typeChips={PAYMENT_TYPE_CHIPS}
+      actions={
+        <Button
+          type="button"
+          onClick={() => {
+            setFormError('');
+            setOpen(true);
+          }}
+        >
+          Record Payment
+        </Button>
+      }
+    >
       <Modal
         title="Record Payment"
         open={open}
@@ -354,7 +509,7 @@ export function PaymentsListPage() {
           </FormRow>
         </div>
       </Modal>
-    </div>
+    </VoucherListShell>
   );
 }
 
@@ -408,39 +563,27 @@ function NotesPage({
   }
 
   return (
-    <div>
-      <ListToolbar
-        title={title}
-        countLabel="notes"
-        count={list.filtered.length}
-        primaryLabel={`Create ${kind === 'credit' ? 'Credit' : 'Debit'} Note`}
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-        }}
-        filterFields={list.filterFields}
-        filters={list.filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          list.setFilters(next as typeof list.filters);
-          list.setPage(1);
-        }}
-        sort={list.sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'voucher_date', label: 'Date' },
-          { value: 'amount', label: 'Amount' },
-        ]}
-        onSortChange={(next) => {
-          list.setSort(next);
-          list.setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load notes.</ErrorText> : null}
-      {!isLoading && !error && list.pageRows.length === 0 && <p>No notes found.</p>}
-      <VoucherCards rows={list.pageRows} />
-      <PaginationBar page={Math.min(list.page, list.pages)} pageCount={list.pages} onPage={list.setPage} />
+    <VoucherListShell
+      title={title}
+      countText={`${list.filtered.length} ${list.filtered.length === 1 ? 'note' : 'notes'}`}
+      list={list}
+      isLoading={isLoading}
+      error={error}
+      loadingLabel="Loading notes…"
+      emptyLabel="No notes found."
+      errorLabel="Failed to load notes."
+      actions={
+        <Button
+          type="button"
+          onClick={() => {
+            setFormError('');
+            setOpen(true);
+          }}
+        >
+          {`Create ${kind === 'credit' ? 'Credit' : 'Debit'} Note`}
+        </Button>
+      }
+    >
       <Modal
         title={`Create ${title.slice(0, -1)}`}
         open={open}
@@ -491,7 +634,7 @@ function NotesPage({
           </FormRow>
         </div>
       </Modal>
-    </div>
+    </VoucherListShell>
   );
 }
 
@@ -533,37 +676,17 @@ export function AccountingInvoicesListPage() {
   const { data = [], isLoading, error } = useListAccountingInvoicesQuery();
   const list = useVoucherList(data);
   return (
-    <div>
-      <ListToolbar
-        title="Accounting Invoices"
-        countLabel="invoices"
-        count={list.filtered.length}
-        primaryLabel="Refresh"
-        onPrimary={() => undefined}
-        filterFields={list.filterFields}
-        filters={list.filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          list.setFilters(next as typeof list.filters);
-          list.setPage(1);
-        }}
-        sort={list.sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'voucher_date', label: 'Date' },
-          { value: 'amount', label: 'Amount' },
-        ]}
-        onSortChange={(next) => {
-          list.setSort(next);
-          list.setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load invoices.</ErrorText> : null}
-      {!isLoading && !error && list.pageRows.length === 0 && <p>No accounting invoices found.</p>}
-      <VoucherCards rows={list.pageRows} />
-      <PaginationBar page={Math.min(list.page, list.pages)} pageCount={list.pages} onPage={list.setPage} />
-    </div>
+    <VoucherListShell
+      title="Accounting Invoices"
+      countText={`${list.filtered.length} ${list.filtered.length === 1 ? 'invoice' : 'invoices'}`}
+      list={list}
+      isLoading={isLoading}
+      error={error}
+      loadingLabel="Loading invoices…"
+      emptyLabel="No accounting invoices found."
+      errorLabel="Failed to load invoices."
+      typeChips={INVOICE_TYPE_CHIPS}
+    />
   );
 }
 
@@ -600,39 +723,27 @@ export function JournalListPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
-        title="Journal"
-        countLabel="entries"
-        count={list.filtered.length}
-        primaryLabel="Journal Entry"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-        }}
-        filterFields={list.filterFields}
-        filters={list.filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          list.setFilters(next as typeof list.filters);
-          list.setPage(1);
-        }}
-        sort={list.sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'voucher_date', label: 'Date' },
-          { value: 'amount', label: 'Amount' },
-        ]}
-        onSortChange={(next) => {
-          list.setSort(next);
-          list.setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load journal.</ErrorText> : null}
-      {!isLoading && !error && list.pageRows.length === 0 && <p>No journal entries found.</p>}
-      <VoucherCards rows={list.pageRows} />
-      <PaginationBar page={Math.min(list.page, list.pages)} pageCount={list.pages} onPage={list.setPage} />
+    <VoucherListShell
+      title="Journal"
+      countText={`${list.filtered.length} ${list.filtered.length === 1 ? 'entry' : 'entries'}`}
+      list={list}
+      isLoading={isLoading}
+      error={error}
+      loadingLabel="Loading journal…"
+      emptyLabel="No journal entries found."
+      errorLabel="Failed to load journal."
+      actions={
+        <Button
+          type="button"
+          onClick={() => {
+            setFormError('');
+            setOpen(true);
+          }}
+        >
+          Journal Entry
+        </Button>
+      }
+    >
       <Modal
         title="Journal Entry"
         open={open}
@@ -667,6 +778,6 @@ export function JournalListPage() {
           </FormRow>
         </div>
       </Modal>
-    </div>
+    </VoucherListShell>
   );
 }

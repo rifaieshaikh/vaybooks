@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useCancelSalesOrderMutation,
   useCloseSalesOrderMutation,
@@ -14,9 +14,17 @@ import {
   Button,
   EntityCard,
   EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -25,6 +33,7 @@ import {
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
@@ -32,9 +41,19 @@ import { asCaption, extractError, formatMoney } from '../utils';
 
 const DEFAULT_FILTERS = { so_number: '', customer_name: '', status: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'order_date', desc: true }];
+const STATUS_CHIPS = [
+  { id: 'all', label: 'All' },
+  { id: 'Draft', label: 'Draft' },
+  { id: 'Confirmed', label: 'Confirmed' },
+  { id: 'Partially Delivered', label: 'Partially Delivered' },
+  { id: 'Delivered', label: 'Delivered' },
+  { id: 'Closed', label: 'Closed' },
+  { id: 'Cancelled', label: 'Cancelled' },
+];
 
 export function SalesOrdersListPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const { data = [], isLoading, error } = useListSalesOrdersQuery();
   const { data: customers = [] } = useListCustomersQuery();
   const { data: products = [] } = useListInventoryProductsQuery();
@@ -46,11 +65,24 @@ export function SalesOrdersListPage() {
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
   const [formError, setFormError] = useState('');
-  const [customerId, setCustomerId] = useState('');
+  const [customerId, setCustomerId] = useState(() => params.get('customer_id') || '');
   const [locationId, setLocationId] = useState('');
   const [productId, setProductId] = useState('');
   const [qty, setQty] = useState('1');
   const [rate, setRate] = useState('0');
+
+  useEffect(() => {
+    const cid = params.get('customer_id') || '';
+    if (cid) setCustomerId(cid);
+    if (params.get('new') === '1') {
+      setFormError('');
+      setOpen(true);
+    }
+  }, [params]);
+
+  useEffect(() => {
+    if (open && !locationId && locations[0]) setLocationId(String(locations[0].id));
+  }, [open, locations, locationId]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
@@ -65,7 +97,7 @@ export function SalesOrdersListPage() {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.so_number, filters.so_number)) return false;
       if (!matchesRegex(row.customer_name, filters.customer_name)) return false;
-      if (!matchesRegex(row.status, filters.status)) return false;
+      if (filters.status && String(row.status) !== filters.status) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -73,6 +105,43 @@ export function SalesOrdersListPage() {
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type OrderRow = (typeof data)[number];
+
+  const columns: EntityListColumn<OrderRow>[] = useMemo(
+    () => [
+      {
+        id: 'so_number',
+        header: 'SO #',
+        render: (row) => (
+          <span className="el-customer-name">{asCaption(row.so_number) || String(row.id)}</span>
+        ),
+      },
+      {
+        id: 'customer',
+        header: 'Customer',
+        render: (row) => asCaption(row.customer_name) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'date',
+        header: 'Date',
+        render: (row) => asCaption(row.order_date).slice(0, 10) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'amount',
+        header: 'Amount',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
+      },
+    ],
+    [],
+  );
 
   async function onCreate() {
     setFormError('');
@@ -90,58 +159,86 @@ export function SalesOrdersListPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Sales"
         title="Sales Orders"
-        countLabel="orders"
-        count={filtered.length}
-        primaryLabel="New SO"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-          if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'order_date', label: 'Date' },
-          { value: 'so_number', label: 'SO #' },
-          { value: 'total_amount', label: 'Amount' },
-          { value: 'status', label: 'Status' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
+        count={`${filtered.length} ${filtered.length === 1 ? 'order' : 'orders'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setOpen(true);
+              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
+            }}
+          >
+            New SO
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={STATUS_CHIPS}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'order_date', label: 'Date' },
+              { value: 'so_number', label: 'SO #' },
+              { value: 'total_amount', label: 'Amount' },
+              { value: 'status', label: 'Status' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
 
-      {isLoading && <p>Loading…</p>}
+      {isLoading ? <EntityListLoading>Loading sales orders…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load sales orders.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No sales orders found.</p>}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No sales orders found.</strong>
+        </EntityListEmpty>
+      ) : null}
 
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={asCaption(row.so_number) || String(row.id)}
-            captions={[
-              asCaption(row.customer_name),
-              asCaption(row.status),
-              asCaption(row.order_date).slice(0, 10),
-              formatMoney(Number(row.total_amount ?? 0)),
-            ]}
-            onView={() => navigate(`/sales/orders/${row.id}`)}
-          />
-        ))}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/sales/orders/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -216,7 +313,7 @@ export function SalesOrdersListPage() {
           </div>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 

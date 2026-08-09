@@ -1,1 +1,6 @@
-export { StoreOverviewPage, StoreActivitiesPage, StoreTimePage } from './pages';
+export {
+  StoreOverviewPage,
+  StoreActivitiesPage,
+  StoreTimePage,
+  BusinessCalendarPage,
+} from './pages';

@@ -9,7 +9,33 @@ import {
   useSetAccessFeatureFlagMutation,
   useUpdateAccessRoleMutation,
 } from '@vaybooks/store';
-import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
+import {
+  Button,
+  DataTable,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
+  ErrorText,
+  FormRow,
+  Modal,
+  PAGE_SIZE,
+  PaginationBar,
+  TextInput,
+  displayName,
+  matchesRegex,
+  pageCount,
+  paginate,
+  sortRows,
+  type DataTableColumn,
+  type EntityListColumn,
+  type FilterFieldDef,
+  type SortCriterion,
+} from '@vaybooks/ui-kit';
 import { extractError } from '../utils';
 
 export function AccessPermissionsPage() {
@@ -86,16 +112,74 @@ export function AccessAuditLogsPage() {
   );
 }
 
+const DEFAULT_PLAN_FILTERS = { name: '', description: '', kind: '' };
+const DEFAULT_PLAN_SORT: SortCriterion[] = [{ key: 'name', desc: false }];
+const PLAN_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'name', label: 'Name', type: 'text' },
+  { key: 'description', label: 'Description', type: 'text' },
+  {
+    key: 'kind',
+    label: 'Kind',
+    type: 'select',
+    options: [
+      { value: 'system', label: 'System' },
+      { value: 'custom', label: 'Custom' },
+    ],
+  },
+];
+
 export function AccessPlansPage() {
   const { data = [], isLoading, error, refetch } = useListAccessPlansQuery();
   const [createPlan, createState] = useCreateAccessPlanMutation();
+
+  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_PLAN_SORT);
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ ...DEFAULT_PLAN_FILTERS });
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState('');
   const [formError, setFormError] = useState('');
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+
+  const filtered = useMemo(() => {
+    let rows = data.filter((row) => {
+      if (!matchesRegex(row.name, filters.name)) return false;
+      if (!matchesRegex(row.description, filters.description)) return false;
+      if (filters.kind === 'system' && !row.is_system) return false;
+      if (filters.kind === 'custom' && row.is_system) return false;
+      return true;
+    });
+    rows = sortRows(rows, sort);
+    return rows;
+  }, [data, filters, sort]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type PlanRow = (typeof data)[number];
+
+  const columns: EntityListColumn<PlanRow>[] = useMemo(
     () => [
-      { key: 'name', header: 'Name' },
-      { key: 'is_system', header: 'System' },
-      { key: 'description', header: 'Description' },
+      {
+        id: 'name',
+        header: 'Name',
+        render: (row) => displayName(row, ['name'], 'Unnamed'),
+      },
+      {
+        id: 'is_system',
+        header: 'System',
+        render: (row) => (
+          <span className={row.is_system ? 'el-muted' : 'el-advance'}>
+            {row.is_system ? 'System' : 'Custom'}
+          </span>
+        ),
+      },
+      {
+        id: 'description',
+        header: 'Description',
+        render: (row) => {
+          const text = String(row.description || '').trim();
+          return <span className={text ? undefined : 'el-muted'}>{text || '—'}</span>;
+        },
+      },
     ],
     [],
   );
@@ -105,6 +189,7 @@ export function AccessPlansPage() {
     try {
       await createPlan({ name, feature_keys: ['core.dashboard.view'] }).unwrap();
       setName('');
+      setDialogOpen(false);
       refetch();
     } catch (e) {
       setFormError(extractError(e));
@@ -112,26 +197,107 @@ export function AccessPlansPage() {
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Plans</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'end' }}>
-        <FormRow label="Custom plan name">
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </FormRow>
-        <Button type="button" onClick={onCreate} disabled={!name.trim() || createState.isLoading}>
-          Create
-        </Button>
-      </div>
-      {formError ? <ErrorText>{formError}</ErrorText> : null}
-      {isLoading && <p>Loading…</p>}
+    <EntityListPage>
+      <EntityListHero
+        kicker="Access"
+        title="Plans"
+        count={`${filtered.length} ${filtered.length === 1 ? 'plan' : 'plans'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setName('');
+              setFormError('');
+              setDialogOpen(true);
+            }}
+          >
+            Create plan
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Kind"
+            value={filters.kind || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, kind: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'system', label: 'System' },
+              { id: 'custom', label: 'Custom' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={PLAN_FILTER_FIELDS}
+            filters={filters}
+            defaultFilters={DEFAULT_PLAN_FILTERS}
+            excludeKeys={['kind']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_PLAN_SORT}
+            sortOptions={[
+              { value: 'name', label: 'Name' },
+              { value: 'description', label: 'Description' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading plans…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load plans.</ErrorText> : null}
-      <DataTable columns={columns} data={data as Record<string, unknown>[]} rowKey={(row) => String(row.id)} />
-    </div>
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No plans found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+
+      <Modal
+        title="Create plan"
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        footer={
+          <>
+            <Button
+              type="button"
+              onClick={() => void onCreate()}
+              disabled={!name.trim() || createState.isLoading}
+            >
+              {createState.isLoading ? 'Creating…' : 'Create'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        {formError ? <ErrorText>{formError}</ErrorText> : null}
+        <FormRow label="Custom plan name">
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} />
+        </FormRow>
+      </Modal>
+    </EntityListPage>
   );
 }
 
@@ -175,7 +341,10 @@ export function AccessFeatureFlagsPage() {
         rowKey={(row) => String(row.id)}
         onRowClick={(row) => toggle(row)}
       />
-      <p style={{ opacity: 0.7 }}>Click a row to toggle enabled.</p>
+      <p style={{ opacity: 0.7 }}>
+        Click a row to toggle enabled. Feature flags are not the same as product modules — enable or
+        disable modules under Business Settings → Enabled modules.
+      </p>
     </div>
   );
 }

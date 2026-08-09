@@ -7,19 +7,27 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
   TextInput,
+  displayName,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
@@ -32,8 +40,21 @@ const CATEGORIES = [
   'Outsourced Material',
 ];
 
-const DEFAULT_FILTERS = { activity_name: '', activity_category: '' };
+const DEFAULT_FILTERS = { activity_name: '', activity_category: '', active: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'activity_name', desc: false }];
+const FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'activity_name', label: 'Name', type: 'text' },
+  { key: 'activity_category', label: 'Category', type: 'text' },
+  {
+    key: 'active',
+    label: 'Active',
+    type: 'select',
+    options: [
+      { value: 'yes', label: 'Active' },
+      { value: 'no', label: 'Inactive' },
+    ],
+  },
+];
 
 export function StoreActivitiesPage() {
   const { data = [], isLoading, error, refetch } = useListStoreActivitiesQuery({
@@ -41,7 +62,7 @@ export function StoreActivitiesPage() {
   });
   const [createActivity, createState] = useCreateStoreActivityMutation();
   const [updateActivity, updateState] = useUpdateStoreActivityMutation();
-  const [deactivate, deactivateState] = useDeactivateStoreActivityMutation();
+  const [deactivate] = useDeactivateStoreActivityMutation();
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
@@ -53,18 +74,12 @@ export function StoreActivitiesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(true);
 
-  const filterFields: FilterFieldDef[] = useMemo(
-    () => [
-      { key: 'activity_name', label: 'Name', type: 'text' },
-      { key: 'activity_category', label: 'Category', type: 'text' },
-    ],
-    [],
-  );
-
   const filtered = useMemo(() => {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.activity_name, filters.activity_name)) return false;
       if (!matchesRegex(row.activity_category, filters.activity_category)) return false;
+      if (filters.active === 'yes' && row.is_active === false) return false;
+      if (filters.active === 'no' && row.is_active !== false) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -72,6 +87,53 @@ export function StoreActivitiesPage() {
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type ActivityRow = (typeof data)[number];
+
+  const columns: EntityListColumn<ActivityRow>[] = useMemo(
+    () => [
+      {
+        id: 'activity_name',
+        header: 'Activity',
+        render: (row) => displayName(row, ['activity_name'], 'Unnamed'),
+      },
+      {
+        id: 'activity_category',
+        header: 'Category',
+        render: (row) => {
+          const cat = String(row.activity_category || '').trim();
+          return <span className={cat ? undefined : 'el-muted'}>{cat || '—'}</span>;
+        },
+      },
+      {
+        id: 'rate',
+        header: 'Rate',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => `₹${Number(row.default_hourly_expense ?? 0)}/hr`,
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => (
+          <span className={row.is_active === false ? 'el-muted' : 'el-advance'}>
+            {row.is_active === false ? 'Inactive' : 'Active'}
+          </span>
+        ),
+      },
+    ],
+    [],
+  );
+
+  function openEdit(row: ActivityRow) {
+    setFormError('');
+    setEditingId(String(row.id));
+    setName(asCaption(row.activity_name));
+    setCategory(asCaption(row.activity_category) || CATEGORIES[0]);
+    setRate(String(row.default_hourly_expense ?? 0));
+    setIsActive(row.is_active !== false);
+    setOpen(true);
+  }
 
   async function onCreate() {
     setFormError('');
@@ -121,13 +183,11 @@ export function StoreActivitiesPage() {
     }
   }
 
-  async function onDeactivate() {
-    if (!editingId) return;
+  async function onDeactivate(id: string) {
+    if (!window.confirm('Deactivate this activity?')) return;
     setFormError('');
     try {
-      await deactivate(editingId).unwrap();
-      setOpen(false);
-      setEditingId(null);
+      await deactivate(id).unwrap();
       refetch();
     } catch (e) {
       setFormError(extractError(e));
@@ -135,68 +195,97 @@ export function StoreActivitiesPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Store"
         title="Store Activities"
-        countLabel="activities"
-        count={filtered.length}
-        primaryLabel="New activity"
-        onPrimary={() => {
-          setFormError('');
-          setEditingId(null);
-          setName('');
-          setCategory(CATEGORIES[0]);
-          setRate('100');
-          setIsActive(true);
-          setOpen(true);
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof DEFAULT_FILTERS);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'activity_name', label: 'Name' },
-          { value: 'activity_category', label: 'Category' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
+        count={`${filtered.length} ${filtered.length === 1 ? 'activity' : 'activities'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setEditingId(null);
+              setName('');
+              setCategory(CATEGORIES[0]);
+              setRate('100');
+              setIsActive(true);
+              setOpen(true);
+            }}
+          >
+            New activity
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.active || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, active: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'yes', label: 'Active' },
+              { id: 'no', label: 'Inactive' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={FILTER_FIELDS}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['active']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof DEFAULT_FILTERS);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'activity_name', label: 'Name' },
+              { value: 'activity_category', label: 'Category' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
-      {isLoading && <p>Loading…</p>}
+
+      {isLoading ? <EntityListLoading>Loading store activities…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load store activities.</ErrorText> : null}
-      {!isLoading && !error && filtered.length === 0 ? (
-        <p style={{ color: '#667' }}>No store activities yet.</p>
-      ) : (
-        <EntityCardGrid>
-          {pageRows.map((row) => (
-            <EntityCard
-              key={String(row.id)}
-              title={asCaption(row.activity_name) || String(row.id)}
-              captions={[
-                asCaption(row.activity_category),
-                row.is_active === false ? 'Inactive' : 'Active',
-                `₹${Number(row.default_hourly_expense ?? 0)}/hr`,
-              ]}
-              onEdit={() => {
-                setFormError('');
-                setEditingId(String(row.id));
-                setName(asCaption(row.activity_name));
-                setCategory(asCaption(row.activity_category) || CATEGORIES[0]);
-                setRate(String(row.default_hourly_expense ?? 0));
-                setIsActive(row.is_active !== false);
-                setOpen(true);
-              }}
+      {formError && !open ? <ErrorText>{formError}</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No store activities yet.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions
+              onEdit={() => openEdit(row)}
+              onDelete={row.is_active !== false ? () => void onDeactivate(String(row.id)) : undefined}
+              deleteLabel="Deactivate"
             />
-          ))}
-        </EntityCardGrid>
-      )}
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -207,11 +296,6 @@ export function StoreActivitiesPage() {
         }}
         footer={
           <>
-            {editingId && isActive ? (
-              <Button type="button" variant="ghost" onClick={() => void onDeactivate()} disabled={deactivateState.isLoading}>
-                {deactivateState.isLoading ? 'Deactivating…' : 'Deactivate'}
-              </Button>
-            ) : null}
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
@@ -244,6 +328,6 @@ export function StoreActivitiesPage() {
           </FormRow>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }

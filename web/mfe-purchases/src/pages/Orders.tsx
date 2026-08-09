@@ -16,9 +16,17 @@ import {
   Button,
   EntityCard,
   EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -27,6 +35,7 @@ import {
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
@@ -34,6 +43,15 @@ import { asCaption, extractError, formatMoney } from '../utils';
 
 const DEFAULT_FILTERS = { po_number: '', vendor_name: '', status: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'order_date', desc: true }];
+const STATUS_CHIPS = [
+  { id: 'all', label: 'All' },
+  { id: 'Draft', label: 'Draft' },
+  { id: 'Sent', label: 'Sent' },
+  { id: 'Partially Received', label: 'Partially Received' },
+  { id: 'Received', label: 'Received' },
+  { id: 'Closed', label: 'Closed' },
+  { id: 'Cancelled', label: 'Cancelled' },
+];
 
 type LineForm = { product_id: string; qty_ordered: string; rate: string };
 
@@ -68,7 +86,7 @@ export function PurchaseOrdersListPage() {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.po_number, filters.po_number)) return false;
       if (!matchesRegex(row.vendor_name, filters.vendor_name)) return false;
-      if (!matchesRegex(row.status, filters.status)) return false;
+      if (filters.status && String(row.status) !== filters.status) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -76,6 +94,43 @@ export function PurchaseOrdersListPage() {
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type OrderRow = (typeof data)[number];
+
+  const columns: EntityListColumn<OrderRow>[] = useMemo(
+    () => [
+      {
+        id: 'po',
+        header: 'PO #',
+        render: (row) => (
+          <div className="el-customer">
+            <div className="el-customer-meta">
+              <span className="el-customer-name">{asCaption(row.po_number) || String(row.id)}</span>
+              <span className="el-customer-sub">{asCaption(row.order_date).slice(0, 10) || '—'}</span>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: 'vendor',
+        header: 'Vendor',
+        render: (row) => asCaption(row.vendor_name) || '—',
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status) || '—',
+      },
+      {
+        id: 'amount',
+        header: 'Amount',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
+      },
+    ],
+    [],
+  );
 
   async function onCreate() {
     setFormError('');
@@ -103,58 +158,86 @@ export function PurchaseOrdersListPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Purchases"
         title="Purchase Orders"
-        countLabel="orders"
-        count={filtered.length}
-        primaryLabel="New PO"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-          if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'order_date', label: 'Date' },
-          { value: 'po_number', label: 'PO #' },
-          { value: 'total_amount', label: 'Amount' },
-          { value: 'status', label: 'Status' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
+        count={`${filtered.length} ${filtered.length === 1 ? 'order' : 'orders'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setOpen(true);
+              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
+            }}
+          >
+            New PO
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={STATUS_CHIPS}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'order_date', label: 'Date' },
+              { value: 'po_number', label: 'PO #' },
+              { value: 'total_amount', label: 'Amount' },
+              { value: 'status', label: 'Status' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
 
-      {isLoading && <p>Loading…</p>}
+      {isLoading ? <EntityListLoading>Loading purchase orders…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load purchase orders.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No purchase orders found.</p>}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No purchase orders found.</strong>
+        </EntityListEmpty>
+      ) : null}
 
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={asCaption(row.po_number) || String(row.id)}
-            captions={[
-              asCaption(row.vendor_name),
-              asCaption(row.status),
-              asCaption(row.order_date).slice(0, 10),
-              formatMoney(Number(row.total_amount ?? 0)),
-            ]}
-            onView={() => navigate(`/purchases/orders/${row.id}`)}
-          />
-        ))}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/purchases/orders/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -258,7 +341,7 @@ export function PurchaseOrdersListPage() {
           </Button>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 

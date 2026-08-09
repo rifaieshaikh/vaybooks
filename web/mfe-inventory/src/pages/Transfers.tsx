@@ -12,11 +12,17 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -25,7 +31,7 @@ import {
   pageCount,
   paginate,
   sortRows,
-  type EntityCardBadge,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
@@ -34,13 +40,16 @@ type TransferLineDraft = { product_id: string; qty: string };
 
 const TRANSFER_STATUSES = ['Draft', 'In Transit', 'Received', 'Cancelled'];
 
-function statusBadge(status: unknown): EntityCardBadge {
+function statusLabel(status: unknown): string {
+  return String(status || 'Unknown');
+}
+
+function statusTone(status: unknown): string | undefined {
   const s = String(status || '');
-  if (s === 'Draft') return { label: s, tone: 'gray' };
-  if (s === 'In Transit') return { label: s, tone: 'blue' };
-  if (s === 'Received') return { label: s, tone: 'green' };
-  if (s === 'Cancelled') return { label: s, tone: 'red' };
-  return { label: s || 'Unknown', tone: 'gray' };
+  if (s === 'Received') return 'el-advance';
+  if (s === 'Cancelled') return 'el-due';
+  if (s === 'Draft' || s === 'In Transit') return 'el-muted';
+  return undefined;
 }
 
 function extractError(e: unknown): string {
@@ -108,6 +117,8 @@ export function TransfersListPage() {
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
 
+  type TransferRow = (typeof data)[number];
+
   function openNew() {
     setFormError('');
     setFromLocationId(locationOptions[0]?.id || '');
@@ -162,58 +173,122 @@ export function TransfersListPage() {
     }
   }
 
+  const columns: EntityListColumn<TransferRow>[] = useMemo(
+    () => [
+      {
+        id: 'transfer',
+        header: 'Transfer',
+        render: (row) => {
+          const number = String(row.transfer_number || row.id);
+          const from = String(row.from_location_name || row.from_location_id || '—');
+          const to = String(row.to_location_name || row.to_location_id || '—');
+          return (
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{number}</span>
+                <span className="el-customer-sub">
+                  {from} → {to}
+                </span>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'lines',
+        header: 'Lines',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => {
+          const lineCount = Array.isArray(row.lines) ? (row.lines as unknown[]).length : 0;
+          return lineCount;
+        },
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => <span className={statusTone(row.status)}>{statusLabel(row.status)}</span>,
+      },
+    ],
+    [],
+  );
+
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Inventory"
         title="Stock Transfers"
-        countLabel="transfers"
-        count={filtered.length}
-        primaryLabel="New Transfer"
-        onPrimary={openNew}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_TRANSFER_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_TRANSFER_SORT}
-        sortOptions={[
-          { value: 'created_at', label: 'Created' },
-          { value: 'transfer_number', label: 'Transfer #' },
-          { value: 'status', label: 'Status' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
+        count={`${filtered.length} ${filtered.length === 1 ? 'transfer' : 'transfers'}`}
+        actions={
+          <Button type="button" onClick={openNew}>
+            New Transfer
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              ...TRANSFER_STATUSES.map((s) => ({ id: s, label: s })),
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_TRANSFER_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_TRANSFER_SORT}
+            sortOptions={[
+              { value: 'created_at', label: 'Created' },
+              { value: 'transfer_number', label: 'Transfer #' },
+              { value: 'status', label: 'Status' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
 
-      {isLoading && <p>Loading…</p>}
+      {isLoading ? <EntityListLoading>Loading transfers…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load transfers. Is the API running?</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No transfers found.</p>}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No transfers found.</strong>
+        </EntityListEmpty>
+      ) : null}
 
-      <EntityCardGrid>
-        {pageRows.map((row) => {
-          const lineCount = Array.isArray(row.lines) ? (row.lines as unknown[]).length : 0;
-          return (
-            <EntityCard
-              key={String(row.id)}
-              title={String(row.transfer_number || row.id)}
-              captions={[
-                `${String(row.from_location_name || row.from_location_id || '—')} → ${String(
-                  row.to_location_name || row.to_location_id || '—',
-                )}`,
-                `${lineCount} line${lineCount === 1 ? '' : 's'}`,
-              ]}
-              badges={[statusBadge(row.status)]}
-              onView={() => navigate(`/inventory/transfers/${String(row.id)}`)}
-            />
-          );
-        })}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/inventory/transfers/${String(row.id)}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         title="New Transfer"
@@ -317,7 +392,7 @@ export function TransfersListPage() {
           </FormRow>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 
@@ -335,7 +410,8 @@ export function TransferDetailPage() {
 
   const status = String(data.status || '');
   const lines = Array.isArray(data.lines) ? (data.lines as Record<string, unknown>[]) : [];
-  const badge = statusBadge(status);
+  const label = statusLabel(status);
+  const tone = statusTone(status);
 
   async function run(action: () => Promise<unknown>) {
     setActionError('');
@@ -354,17 +430,7 @@ export function TransferDetailPage() {
       </p>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>{String(data.transfer_number || id)}</h2>
-        <span
-          style={{
-            fontSize: 13,
-            padding: '0.25rem 0.7rem',
-            borderRadius: 999,
-            background: badge.tone === 'blue' ? '#e8f1fb' : badge.tone === 'green' ? '#e8f6ee' : badge.tone === 'red' ? '#fdecea' : '#eef0ef',
-            color: badge.tone === 'blue' ? '#1d4f91' : badge.tone === 'green' ? '#1b6b45' : badge.tone === 'red' ? '#a12828' : '#555',
-          }}
-        >
-          {badge.label}
-        </span>
+        <span className={tone}>{label}</span>
       </div>
       <p style={{ color: '#567' }}>
         {String(data.from_location_name || data.from_location_id || '—')} →{' '}

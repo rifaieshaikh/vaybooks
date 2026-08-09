@@ -15,26 +15,46 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
   TextInput,
+  displayName,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError, formatMoney } from '../utils';
 
+const BATCH_STATUSES = ['Draft', 'In Progress', 'Posted', 'Cancelled'] as const;
+
 const DEFAULT_FILTERS = { batch_number: '', recipe_name: '', status: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'batch_date', desc: true }];
+const FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'batch_number', label: 'Batch #', type: 'text' },
+  { key: 'recipe_name', label: 'Recipe', type: 'text' },
+  {
+    key: 'status',
+    label: 'Status',
+    type: 'select',
+    options: BATCH_STATUSES.map((value) => ({ value, label: value })),
+  },
+];
 
 export function ProductionBatchesListPage() {
   const navigate = useNavigate();
@@ -52,20 +72,11 @@ export function ProductionBatchesListPage() {
   const [planned, setPlanned] = useState('1');
   const [batchDate, setBatchDate] = useState('');
 
-  const filterFields: FilterFieldDef[] = useMemo(
-    () => [
-      { key: 'batch_number', label: 'Batch #', type: 'text' },
-      { key: 'recipe_name', label: 'Recipe', type: 'text' },
-      { key: 'status', label: 'Status', type: 'text' },
-    ],
-    [],
-  );
-
   const filtered = useMemo(() => {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.batch_number, filters.batch_number)) return false;
       if (!matchesRegex(row.recipe_name, filters.recipe_name)) return false;
-      if (!matchesRegex(row.status, filters.status)) return false;
+      if (filters.status && String(row.status || '') !== filters.status) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -73,6 +84,44 @@ export function ProductionBatchesListPage() {
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type BatchRow = (typeof data)[number];
+
+  const columns: EntityListColumn<BatchRow>[] = useMemo(
+    () => [
+      {
+        id: 'batch_number',
+        header: 'Batch',
+        render: (row) => displayName(row, ['batch_number'], 'Unnamed'),
+      },
+      {
+        id: 'recipe_name',
+        header: 'Recipe',
+        render: (row) => {
+          const recipe = String(row.recipe_name || '').trim();
+          return <span className={recipe ? undefined : 'el-muted'}>{recipe || '—'}</span>;
+        },
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status) || '—',
+      },
+      {
+        id: 'batch_date',
+        header: 'Date',
+        render: (row) => String(row.batch_date || '').slice(0, 10) || '—',
+      },
+      {
+        id: 'total_cost',
+        header: 'Cost',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => formatMoney(Number(row.total_cost ?? 0)),
+      },
+    ],
+    [],
+  );
 
   async function onCreate() {
     setFormError('');
@@ -96,53 +145,87 @@ export function ProductionBatchesListPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Production"
         title="Production Batches"
-        countLabel="batches"
-        count={filtered.length}
-        primaryLabel="New batch"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof DEFAULT_FILTERS);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'batch_date', label: 'Date' },
-          { value: 'batch_number', label: 'Number' },
-          { value: 'status', label: 'Status' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load batches.</ErrorText> : null}
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={asCaption(row.batch_number) || String(row.id)}
-            captions={[
-              asCaption(row.recipe_name),
-              asCaption(row.status),
-              String(row.batch_date || '').slice(0, 10),
-              formatMoney(Number(row.total_cost ?? 0)),
+        count={`${filtered.length} ${filtered.length === 1 ? 'batch' : 'batches'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setOpen(true);
+            }}
+          >
+            New batch
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              ...BATCH_STATUSES.map((status) => ({ id: status, label: status })),
             ]}
-            onEdit={() => navigate(`/production/batches/${String(row.id)}`)}
           />
-        ))}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={FILTER_FIELDS}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof DEFAULT_FILTERS);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'batch_date', label: 'Date' },
+              { value: 'batch_number', label: 'Number' },
+              { value: 'status', label: 'Status' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading batches…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load batches.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No batches found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/production/batches/${String(row.id)}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -197,7 +280,7 @@ export function ProductionBatchesListPage() {
           </FormRow>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 

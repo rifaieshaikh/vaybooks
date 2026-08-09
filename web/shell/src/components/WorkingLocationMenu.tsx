@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { MapPin } from 'lucide-react';
 import {
   setWorkingLocationId,
   useAppDispatch,
@@ -32,7 +33,8 @@ export function WorkingLocationMenu() {
   const label =
     current === 'ALL'
       ? 'All'
-      : data?.accessible?.find((l) => l.id === current)?.code || current.slice(0, 6);
+      : data?.accessible?.find((l) => l.id === current)?.code ||
+        (current !== '—' ? current.slice(0, 8) : 'Location');
 
   async function choose(id: string) {
     setMsg('');
@@ -41,7 +43,11 @@ export function WorkingLocationMenu() {
       dispatch(setWorkingLocationId(next.working_location_id));
       setOpen(false);
     } catch (e) {
-      setMsg(e && typeof e === 'object' && 'data' in e ? String((e as { data?: { detail?: string } }).data?.detail || 'Failed') : 'Failed');
+      setMsg(
+        e && typeof e === 'object' && 'data' in e
+          ? String((e as { data?: { detail?: string } }).data?.detail || 'Failed')
+          : 'Failed',
+      );
     }
   }
 
@@ -49,15 +55,17 @@ export function WorkingLocationMenu() {
     <div className="vb-popover" ref={ref}>
       <button
         type="button"
-        className="vb-icon-btn"
+        className="vb-location-chip"
         title="Working location"
+        aria-label={`Working location: ${label}`}
         aria-expanded={open}
         onClick={() => {
           setOpen((v) => !v);
           refetch();
         }}
       >
-        {label || 'Loc'}
+        <MapPin size={16} strokeWidth={1.75} aria-hidden />
+        <span className="vb-location-label">{label}</span>
       </button>
       {open && (
         <div className="vb-popover-menu vb-popover-menu-right" role="menu" style={{ minWidth: 260 }}>
@@ -91,7 +99,11 @@ export function WorkingLocationMenu() {
               {loc.code} — {loc.name}
             </button>
           ))}
-          {msg ? <div className="vb-popover-item" style={{ color: '#a33' }}>{msg}</div> : null}
+          {msg ? (
+            <div className="vb-popover-item" style={{ color: '#a33' }}>
+              {msg}
+            </div>
+          ) : null}
         </div>
       )}
     </div>

@@ -1,4 +1,4 @@
-import { Button, FormRow, TextInput } from './controls';
+import { Button, FormRow, Select, TextInput } from './controls';
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Modal } from './Modal';
 
@@ -76,7 +76,7 @@ function chipLabel(field: FilterFieldDef, value: string): string {
   return `${field.label}: ${value}`;
 }
 
-function FiltersDialog({
+export function FiltersDialog({
   open,
   fields,
   draft,
@@ -95,21 +95,27 @@ function FiltersDialog({
 }) {
   return (
     <Modal
-      title="Filters"
+      title="More filters"
       open={open}
       onClose={onClose}
+      compact
       footer={
         <>
-          <Button type="button" variant="ghost" onClick={onClear} style={{ flex: 1 }}>
+          <Button type="button" variant="ghost" onClick={onClear}>
             Clear all
           </Button>
-          <Button type="button" onClick={onApply} style={{ flex: 1 }}>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={onApply}>
             Apply
           </Button>
         </>
       }
     >
-      <div style={{ fontWeight: 650, marginBottom: 10 }}>Filters</div>
+      <p style={{ margin: '0 0 14px', fontSize: 13, color: '#5c736a', lineHeight: 1.4 }}>
+        Narrow the list by name, contact, tax, segment, or order activity.
+      </p>
       <div style={{ display: 'grid', gap: 12 }}>
         {fields.map((field) => {
           if (field.type === 'text') {
@@ -118,7 +124,7 @@ function FiltersDialog({
                 key={field.key}
                 label={field.label}
                 value={draft[field.key] || ''}
-                placeholder={field.placeholder || 'regex, case-insensitive'}
+                placeholder={field.placeholder || 'Contains…'}
                 onChange={(v) => onDraftChange({ ...draft, [field.key]: v })}
               />
             );
@@ -138,7 +144,7 @@ function FiltersDialog({
   );
 }
 
-function SortDialog({
+export function SortDialog({
   open,
   sortOptions,
   draft,
@@ -187,19 +193,25 @@ function SortDialog({
       title="Sort"
       open={open}
       onClose={onClose}
+      compact
       footer={
         <>
-          <Button type="button" variant="ghost" onClick={onClear} style={{ flex: 1 }}>
-            Clear sort
+          <Button type="button" variant="ghost" onClick={onClear}>
+            Reset
           </Button>
-          <Button type="button" onClick={onApply} style={{ flex: 1 }}>
-            Apply sort
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={onApply}>
+            Apply
           </Button>
         </>
       }
     >
-      <div style={{ fontWeight: 650, marginBottom: 10 }}>Sort by</div>
-      <div style={{ display: 'grid', gap: 14 }}>
+      <p style={{ margin: '0 0 14px', fontSize: 13, color: '#5c736a', lineHeight: 1.4 }}>
+        Choose how customers are ordered. Add a second level for ties.
+      </p>
+      <div style={{ display: 'grid', gap: 12 }}>
         {draft.map((level, i) => {
           const usedEarlier = new Set(draft.slice(0, i).map((d) => d.key));
           const available = sortOptions.filter(
@@ -208,57 +220,63 @@ function SortDialog({
           return (
             <div
               key={`${level.key}-${i}`}
-              style={{ display: 'grid', gridTemplateColumns: i > 0 ? '1fr 1fr auto' : '1fr 1fr', gap: 10, alignItems: 'end' }}
+              style={{
+                display: 'grid',
+                gap: 10,
+                padding: '0.75rem 0.8rem',
+                borderRadius: 10,
+                border: '1px solid #d5e3dc',
+                background: '#f7faf8',
+              }}
             >
-              <FormRow label={draft.length > 1 ? `Field ${i + 1}` : 'Field'}>
-                <select
-                  value={level.key}
-                  onChange={(e) => setLevel(i, { key: e.target.value })}
-                  style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-                >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 650, color: '#5c736a', letterSpacing: '0.04em' }}>
+                  {i === 0 ? 'PRIMARY' : `THEN BY ${i + 1}`}
+                </span>
+                {i > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => removeLevel(i)}
+                    title="Remove level"
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      color: '#5c736a',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      padding: '2px 4px',
+                    }}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+              <FormRow label="Field">
+                <Select value={level.key} onChange={(e) => setLevel(i, { key: e.target.value })}>
                   {available.map((o) => (
                     <option key={o.value} value={o.value}>
                       {labels[o.value] || o.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               </FormRow>
-              <FormRow label={draft.length > 1 ? `Direction ${i + 1}` : 'Direction'}>
-                <div style={{ display: 'flex', gap: 12, paddingTop: 6 }}>
-                  {(['Ascending', 'Descending'] as const).map((dir) => {
-                    const desc = dir === 'Descending';
-                    return (
-                      <label key={dir} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 14 }}>
-                        <input
-                          type="radio"
-                          name={`sort-dir-${i}`}
-                          checked={level.desc === desc}
-                          onChange={() => setLevel(i, { desc })}
-                        />
-                        {dir}
-                      </label>
-                    );
-                  })}
-                </div>
-              </FormRow>
-              {i > 0 && (
-                <button
-                  type="button"
-                  onClick={() => removeLevel(i)}
-                  title="Remove level"
-                  style={{ ...iconBtn, minWidth: 36, height: 34, marginBottom: 2 }}
+              <FormRow label="Direction">
+                <Select
+                  value={level.desc ? 'desc' : 'asc'}
+                  onChange={(e) => setLevel(i, { desc: e.target.value === 'desc' })}
                 >
-                  ✕
-                </button>
-              )}
+                  <option value="asc">Ascending</option>
+                  <option value="desc">Descending</option>
+                </Select>
+              </FormRow>
             </div>
           );
         })}
-        {canAdd && (
+        {canAdd ? (
           <Button type="button" variant="ghost" onClick={addLevel}>
             Add sort level
           </Button>
-        )}
+        ) : null}
       </div>
     </Modal>
   );
@@ -279,12 +297,19 @@ export function ListToolbar({
   sort,
   onSortChange,
   defaultSort,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder,
+  onRefresh,
+  pageSize,
+  pageSizeOptions,
+  onPageSizeChange,
 }: {
   title: string;
   countLabel: string;
   count: number;
-  primaryLabel: string;
-  onPrimary: () => void;
+  primaryLabel?: string;
+  onPrimary?: () => void;
   filterFields: FilterFieldDef[];
   filters: FilterValues;
   onFiltersChange: (next: FilterValues) => void;
@@ -293,6 +318,13 @@ export function ListToolbar({
   sort: SortCriterion[];
   onSortChange: (next: SortCriterion[]) => void;
   defaultSort: SortCriterion[];
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
+  searchPlaceholder?: string;
+  onRefresh?: () => void;
+  pageSize?: number;
+  pageSizeOptions?: number[];
+  onPageSizeChange?: (size: number) => void;
 }) {
   const [panel, setPanel] = useState<'filters' | 'sort' | null>(null);
   const [filterDraft, setFilterDraft] = useState<FilterValues>(filters);
@@ -319,6 +351,17 @@ export function ListToolbar({
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {onSearchChange ? (
+            <input
+              type="search"
+              className="vb-control"
+              value={searchValue || ''}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder={searchPlaceholder || 'Search…'}
+              aria-label="Search"
+              style={{ minWidth: 200, flex: '1 1 200px', width: 'auto' }}
+            />
+          ) : null}
           <button
             type="button"
             style={iconBtn}
@@ -332,9 +375,32 @@ export function ListToolbar({
           <button type="button" style={iconBtn} title="Sort" aria-label="Sort" onClick={() => setPanel('sort')}>
             <SortIcon />
           </button>
-          <Button type="button" onClick={onPrimary}>
-            {primaryLabel}
-          </Button>
+          {onRefresh ? (
+            <Button type="button" variant="ghost" onClick={onRefresh}>
+              Refresh
+            </Button>
+          ) : null}
+          {pageSize != null && pageSizeOptions && onPageSizeChange ? (
+            <label style={{ fontSize: 13, display: 'inline-flex', gap: 6, alignItems: 'center', color: '#456' }}>
+              Page size
+              <Select
+                value={pageSize}
+                onChange={(e) => onPageSizeChange(Number(e.target.value))}
+                style={{ width: 'auto', minWidth: '4.5rem', minHeight: '2.1rem' }}
+              >
+                {pageSizeOptions.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+          {primaryLabel && onPrimary ? (
+            <Button type="button" onClick={onPrimary}>
+              {primaryLabel}
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -421,17 +487,13 @@ export function FilterSelect({
 }) {
   return (
     <FormRow label={label}>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-      >
+      <Select value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map((o) => (
           <option key={o.value || '_all'} value={o.value}>
             {o.label}
           </option>
         ))}
-      </select>
+      </Select>
     </FormRow>
   );
 }
@@ -440,23 +502,55 @@ export function PaginationBar({
   page,
   pageCount,
   onPage,
+  totalCount,
+  pageSize,
 }: {
   page: number;
   pageCount: number;
   onPage: (p: number) => void;
+  totalCount?: number;
+  pageSize?: number;
 }) {
-  if (pageCount <= 1) return null;
+  if (pageCount <= 0) return null;
+  const size = pageSize && pageSize > 0 ? pageSize : 0;
+  const total = totalCount ?? 0;
+  const start = total === 0 || size === 0 ? 0 : (page - 1) * size + 1;
+  const end = size === 0 ? 0 : Math.min(page * size, total);
+  const rangeLabel =
+    totalCount != null && pageSize != null
+      ? total === 0
+        ? 'No results'
+        : `Showing ${start}–${end} of ${total}`
+      : null;
+
+  // Avoid empty spacer on single-page lists that don't request a range label.
+  if (pageCount <= 1 && rangeLabel == null) return null;
+
   return (
-    <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
-      <Button type="button" variant="ghost" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-        Previous
-      </Button>
-      <span style={{ fontSize: 13, alignSelf: 'center' }}>
-        Page {page} / {pageCount}
-      </span>
-      <Button type="button" variant="ghost" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
-        Next
-      </Button>
+    <div
+      style={{
+        display: 'flex',
+        gap: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        marginTop: 16,
+      }}
+    >
+      {rangeLabel ? <span style={{ fontSize: 13, color: '#667' }}>{rangeLabel}</span> : null}
+      {pageCount > 1 ? (
+        <>
+          <Button type="button" variant="ghost" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+            Previous
+          </Button>
+          <span style={{ fontSize: 13, alignSelf: 'center' }}>
+            Page {page} / {pageCount}
+          </span>
+          <Button type="button" variant="ghost" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
+            Next
+          </Button>
+        </>
+      ) : null}
     </div>
   );
 }

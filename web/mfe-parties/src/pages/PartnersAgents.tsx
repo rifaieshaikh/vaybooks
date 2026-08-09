@@ -1,4 +1,30 @@
-import { Button, ErrorText, FormRow, TextInput, StatusBanner } from '@vaybooks/ui-kit';
+import {
+  Button,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
+  ErrorText,
+  FormRow,
+  PAGE_SIZE,
+  PaginationBar,
+  StatusBanner,
+  TextInput,
+  displayName,
+  formatBalance,
+  matchesRegex,
+  pageCount,
+  paginate,
+  sortRows,
+  type EntityListColumn,
+  type FilterFieldDef,
+  type SortCriterion,
+} from '@vaybooks/ui-kit';
 import {
   useCreateDeliveryPartnerMutation,
   useGetDeliveryPartnerQuery,
@@ -21,15 +47,6 @@ import {
   type PartyFormValues,
 } from '../components/PartyFields';
 import { Modal } from '../components/Modal';
-import { PartyCard, PartyCardGrid, formatBalance } from '../components/PartyCard';
-import {
-  ListToolbar,
-  PAGE_SIZE,
-  PaginationBar,
-  type FilterFieldDef,
-  type SortCriterion,
-} from '../components/ListToolbar';
-import { displayName, matchesRegex, pageCount, paginate, sortRows } from '../components/listUtils';
 
 function partnerBody(v: PartyFormValues) {
   return {
@@ -125,7 +142,7 @@ function AgentForm({ values, onChange }: { values: PartyFormValues; onChange: (n
   );
 }
 
-const DEFAULT_PARTNER_FILTERS = { partner_name: '', phone_number: '' };
+const DEFAULT_PARTNER_FILTERS = { partner_name: '', phone_number: '', balance_state: '' };
 const DEFAULT_PARTNER_SORT: SortCriterion[] = [{ key: 'created_at', desc: true }];
 const PARTNER_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'partner_name', label: 'Partner name', type: 'text' },
@@ -146,11 +163,14 @@ export function DeliveryPartnersListPage() {
   const [formError, setFormError] = useState('');
 
   const filtered = useMemo(() => {
-    let rows = data.filter(
-      (row) =>
-        matchesRegex(row.partner_name, filters.partner_name) &&
-        matchesRegex(row.phone_number, filters.phone_number),
-    );
+    let rows = data.filter((row) => {
+      if (!matchesRegex(row.partner_name, filters.partner_name)) return false;
+      if (!matchesRegex(row.phone_number, filters.phone_number)) return false;
+      const bal = Number(row.current_balance ?? 0);
+      if (filters.balance_state === 'due' && !(bal > 0.01)) return false;
+      if (filters.balance_state === 'settled' && Math.abs(bal) >= 0.01) return false;
+      return true;
+    });
     rows = sortRows(rows, sort);
     return rows;
   }, [data, filters, sort]);
@@ -170,77 +190,148 @@ export function DeliveryPartnersListPage() {
     }
   }
 
-  return (
-    <div>
-      <ListToolbar
-        title="Delivery partners"
-        countLabel="partners"
-        count={filtered.length}
-        primaryLabel="Add Partner"
-        onPrimary={() => {
-          setValues({ location_ids: 'default', country: 'India' });
-          setEditId(null);
-          setDialog('add');
-        }}
-        filterFields={PARTNER_FILTER_FIELDS}
-        filters={filters}
-        defaultFilters={DEFAULT_PARTNER_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_PARTNER_SORT}
-        sortOptions={[
-          { value: 'created_at', label: 'Created' },
-          { value: 'partner_name', label: 'Name' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load partners.</ErrorText> : null}
-      {!isLoading && pageRows.length === 0 && <p>No partners found.</p>}
-      <PartyCardGrid>
-        {pageRows.map((row) => {
-          const bal = formatBalance(Number(row.current_balance ?? 0));
+  type PartnerRow = (typeof data)[number];
+
+  function openEdit(row: PartnerRow) {
+    setEditId(String(row.id));
+    setValues({
+      partner_name: String(row.partner_name || ''),
+      phone_number: String(row.phone_number || ''),
+      legal_display_name: String(row.legal_display_name || ''),
+      email: String(row.email || ''),
+      address_line1: String(row.address_line1 || ''),
+      city: String(row.city || ''),
+      state_code: String(row.state_code || ''),
+      pincode: String(row.pincode || ''),
+      country: String(row.country || 'India'),
+      gstin: String(row.gstin || ''),
+      pan: String(row.pan || ''),
+      payment_terms: String(row.payment_terms || ''),
+      notes: String(row.notes || ''),
+      location_ids: Array.isArray(row.location_ids)
+        ? (row.location_ids as string[]).join(', ')
+        : 'default',
+    });
+    setDialog('edit');
+  }
+
+  const columns: EntityListColumn<PartnerRow>[] = useMemo(
+    () => [
+      {
+        id: 'partner',
+        header: 'Partner',
+        render: (row) => {
+          const name = displayName(row, ['partner_name'], 'Unnamed partner');
           const phone = String(row.phone_number || '').trim();
           return (
-            <PartyCard
-              key={String(row.id)}
-              title={displayName(row, ['partner_name'], 'Unnamed partner')}
-              captions={[phone ? `📞 ${phone}` : 'No phone on file']}
-              badges={[{ label: bal.label, tone: bal.tone }]}
-              onEdit={() => {
-                setEditId(String(row.id));
-                setValues({
-                  partner_name: String(row.partner_name || ''),
-                  phone_number: String(row.phone_number || ''),
-                  legal_display_name: String(row.legal_display_name || ''),
-                  email: String(row.email || ''),
-                  address_line1: String(row.address_line1 || ''),
-                  city: String(row.city || ''),
-                  state_code: String(row.state_code || ''),
-                  pincode: String(row.pincode || ''),
-                  country: String(row.country || 'India'),
-                  gstin: String(row.gstin || ''),
-                  pan: String(row.pan || ''),
-                  payment_terms: String(row.payment_terms || ''),
-                  notes: String(row.notes || ''),
-                  location_ids: Array.isArray(row.location_ids)
-                    ? (row.location_ids as string[]).join(', ')
-                    : 'default',
-                });
-                setDialog('edit');
-              }}
-              onView={() => navigate(`/parties/delivery-partners/${row.id}`)}
-            />
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{name}</span>
+                <span className="el-customer-sub">{phone || 'No phone on file'}</span>
+              </div>
+            </div>
           );
-        })}
-      </PartyCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+        },
+      },
+      {
+        id: 'balance',
+        header: 'Balance',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => {
+          const bal = formatBalance(Number(row.current_balance ?? 0));
+          const tone =
+            bal.tone === 'red' ? 'el-due' : bal.tone === 'green' ? 'el-advance' : 'el-settled';
+          return <span className={tone}>{bal.label}</span>;
+        },
+      },
+    ],
+    [],
+  );
+
+  return (
+    <EntityListPage>
+      <EntityListHero
+        kicker="Parties"
+        title="Delivery partners"
+        count={`${filtered.length} ${filtered.length === 1 ? 'partner' : 'partners'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setValues({ location_ids: 'default', country: 'India' });
+              setEditId(null);
+              setDialog('add');
+            }}
+          >
+            Add Partner
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Balance"
+            value={filters.balance_state || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, balance_state: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'due', label: 'Due' },
+              { id: 'settled', label: 'Settled' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={PARTNER_FILTER_FIELDS}
+            filters={filters}
+            defaultFilters={DEFAULT_PARTNER_FILTERS}
+            excludeKeys={['balance_state']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_PARTNER_SORT}
+            sortOptions={[
+              { value: 'created_at', label: 'Created' },
+              { value: 'partner_name', label: 'Name' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+      {isLoading ? <EntityListLoading>Loading partners…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load partners.</ErrorText> : null}
+      {!isLoading && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No partners found.</strong>
+        </EntityListEmpty>
+      ) : null}
+      {!isLoading && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions
+              onOpen={() => navigate(`/parties/delivery-partners/${row.id}`)}
+              onEdit={() => openEdit(row)}
+            />
+          )}
+        />
+      ) : null}
+      {!isLoading && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
       <Modal
         title={dialog === 'edit' ? 'Edit Partner' : 'Add Partner'}
         open={dialog !== null}
@@ -259,7 +350,7 @@ export function DeliveryPartnersListPage() {
         {formError ? <ErrorText>{formError}</ErrorText> : null}
         <PartnerForm values={values} onChange={(n, v) => setValues((p) => ({ ...p, [n]: v }))} />
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 
@@ -397,77 +488,149 @@ export function CommissionAgentsListPage() {
     }
   }
 
-  return (
-    <div>
-      <ListToolbar
-        title="Commission agents"
-        countLabel="agents"
-        count={filtered.length}
-        primaryLabel="Add Agent"
-        onPrimary={() => {
-          setValues({ country: 'India', registration_type: 'Unregistered', location_ids: 'default' });
-          setEditId(null);
-          setDialog('add');
-        }}
-        filterFields={AGENT_FILTER_FIELDS}
-        filters={filters}
-        defaultFilters={DEFAULT_AGENT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_AGENT_SORT}
-        sortOptions={[
-          { value: 'created_at', label: 'Created' },
-          { value: 'agent_name', label: 'Agent name' },
-          { value: 'current_balance', label: 'Payable balance' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load agents.</ErrorText> : null}
-      {!isLoading && pageRows.length === 0 && <p>No agents found.</p>}
-      <PartyCardGrid>
-        {pageRows.map((row) => {
-          const bal = formatBalance(Number(row.current_balance ?? 0));
+  type AgentRow = (typeof data)[number];
+
+  function openEdit(row: AgentRow) {
+    setEditId(String(row.id));
+    setValues({
+      agent_name: String(row.agent_name || ''),
+      phone_number: String(row.phone_number || ''),
+      email: String(row.email || ''),
+      address_line1: String(row.address_line1 || ''),
+      city: String(row.city || ''),
+      state_code: String(row.state_code || ''),
+      pincode: String(row.pincode || ''),
+      country: String(row.country || 'India'),
+      gstin: String(row.gstin || ''),
+      pan: String(row.pan || ''),
+      registration_type: String(row.registration_type || 'Unregistered'),
+      notes: String(row.notes || ''),
+      location_ids: Array.isArray(row.location_ids)
+        ? (row.location_ids as string[]).join(', ')
+        : 'default',
+    });
+    setDialog('edit');
+  }
+
+  const columns: EntityListColumn<AgentRow>[] = useMemo(
+    () => [
+      {
+        id: 'agent',
+        header: 'Agent',
+        render: (row) => {
+          const name = displayName(row, ['agent_name'], 'Unnamed agent');
           const phone = String(row.phone_number || '').trim();
           return (
-            <PartyCard
-              key={String(row.id)}
-              title={displayName(row, ['agent_name'], 'Unnamed agent')}
-              captions={[phone ? `📞 ${phone}` : 'No phone on file']}
-              badges={[{ label: bal.label, tone: bal.tone }]}
-              onEdit={() => {
-                setEditId(String(row.id));
-                setValues({
-                  agent_name: String(row.agent_name || ''),
-                  phone_number: String(row.phone_number || ''),
-                  email: String(row.email || ''),
-                  address_line1: String(row.address_line1 || ''),
-                  city: String(row.city || ''),
-                  state_code: String(row.state_code || ''),
-                  pincode: String(row.pincode || ''),
-                  country: String(row.country || 'India'),
-                  gstin: String(row.gstin || ''),
-                  pan: String(row.pan || ''),
-                  registration_type: String(row.registration_type || 'Unregistered'),
-                  notes: String(row.notes || ''),
-                  location_ids: Array.isArray(row.location_ids)
-                    ? (row.location_ids as string[]).join(', ')
-                    : 'default',
-                });
-                setDialog('edit');
-              }}
-              onView={() => navigate(`/parties/commission-agents/${row.id}`)}
-            />
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{name}</span>
+                <span className="el-customer-sub">{phone || 'No phone on file'}</span>
+              </div>
+            </div>
           );
-        })}
-      </PartyCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+        },
+      },
+      {
+        id: 'balance',
+        header: 'Payable',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => {
+          const bal = formatBalance(Number(row.current_balance ?? 0));
+          const tone =
+            bal.tone === 'red' ? 'el-due' : bal.tone === 'green' ? 'el-advance' : 'el-settled';
+          return <span className={tone}>{bal.label}</span>;
+        },
+      },
+    ],
+    [],
+  );
+
+  return (
+    <EntityListPage>
+      <EntityListHero
+        kicker="Parties"
+        title="Commission agents"
+        count={`${filtered.length} ${filtered.length === 1 ? 'agent' : 'agents'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setValues({ country: 'India', registration_type: 'Unregistered', location_ids: 'default' });
+              setEditId(null);
+              setDialog('add');
+            }}
+          >
+            Add Agent
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Balance"
+            value={filters.balance_state || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, balance_state: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'payable', label: 'Payable' },
+              { id: 'advance', label: 'Advance' },
+              { id: 'settled', label: 'Settled' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={AGENT_FILTER_FIELDS}
+            filters={filters}
+            defaultFilters={DEFAULT_AGENT_FILTERS}
+            excludeKeys={['balance_state']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_AGENT_SORT}
+            sortOptions={[
+              { value: 'created_at', label: 'Created' },
+              { value: 'agent_name', label: 'Agent name' },
+              { value: 'current_balance', label: 'Payable balance' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+      {isLoading ? <EntityListLoading>Loading agents…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load agents.</ErrorText> : null}
+      {!isLoading && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No agents found.</strong>
+        </EntityListEmpty>
+      ) : null}
+      {!isLoading && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions
+              onOpen={() => navigate(`/parties/commission-agents/${row.id}`)}
+              onEdit={() => openEdit(row)}
+            />
+          )}
+        />
+      ) : null}
+      {!isLoading && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
       <Modal
         title={dialog === 'edit' ? 'Edit Agent' : 'Add Agent'}
         open={dialog !== null}
@@ -486,7 +649,7 @@ export function CommissionAgentsListPage() {
         {formError ? <ErrorText>{formError}</ErrorText> : null}
         <AgentForm values={values} onChange={(n, v) => setValues((p) => ({ ...p, [n]: v }))} />
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 

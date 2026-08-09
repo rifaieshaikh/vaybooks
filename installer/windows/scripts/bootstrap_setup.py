@@ -149,8 +149,21 @@ def run_bootstrap(setup_path: Path, data_dir: Path, app_dir: Path | None) -> Non
     business = setup.get("business") or {}
     modules = normalize_modules(list(setup.get("enabled_modules") or []))
     license_key = str(setup.get("license_key") or "").strip()
+    primary_location = setup.get("primary_location")
+    if not isinstance(primary_location, dict):
+        primary_location = {
+            "code": "MAIN",
+            "name": "Main Warehouse",
+            "location_type": "Warehouse",
+            "address": "",
+        }
+    owner_id = ""
+    if username:
+        u = access.users.get_by_username(username)
+        if u is not None:
+            owner_id = getattr(u, "id", "") or ""
 
-    print("Completing org setup (profile, modules, COA, entitlement)...")
+    print("Completing org setup (profile, modules, COA, location, entitlement)...")
     try:
         complete_org_setup(
             db,
@@ -158,6 +171,8 @@ def run_bootstrap(setup_path: Path, data_dir: Path, app_dir: Path | None) -> Non
             business=business if isinstance(business, dict) else {},
             enabled_modules=modules,
             license_key=license_key,
+            primary_location=primary_location,
+            owner_user_id=owner_id,
         )
     except Exception as exc:  # noqa: BLE001
         raise SystemExit(f"Org setup failed: {exc}") from exc

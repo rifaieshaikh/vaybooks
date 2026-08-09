@@ -34,6 +34,12 @@ Installer [`bootstrap_setup.py`](../installer/windows/scripts/bootstrap_setup.py
 
 Authenticated `/api/*` calls (except allowlisted auth/setup/license/orgs) return **403** `{ "code": "SETUP_REQUIRED" }` until setup is complete.
 
+## Modules and locations after setup
+
+- Activated modules bind **every role including Owner/admin**. Manage them under **Business Settings → Enabled modules** (same as Streamlit).
+- First-run (cloud wizard and Inno) collect a **primary location**; `complete_org_setup` creates it and assigns the owner’s `location_ids`.
+- Existing orgs manage locations under **Business → Locations** (`Warehouse` | `Retail Store`, Active toggle).
+
 ## Related
 
 - Shared helper: `vaybooks/bms/application/setup/bootstrap.py`

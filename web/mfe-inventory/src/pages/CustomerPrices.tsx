@@ -8,26 +8,31 @@ import {
 import {
   Button,
   DataTable,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
   Modal,
+  PAGE_SIZE,
+  PaginationBar,
   TextInput,
   matchesRegex,
+  pageCount,
+  paginate,
   sortRows,
-  type DataTableColumn,
+  type EntityListColumn,
+  type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 
-const PRICE_COLUMNS: DataTableColumn<Record<string, unknown>>[] = [
-  { key: 'customer_name', header: 'Customer' },
-  { key: 'sku', header: 'SKU' },
-  { key: 'product_name', header: 'Product' },
-  { key: 'customer_rate', header: 'Customer Rate' },
-  { key: 'selling_rate', header: 'List Rate' },
-  { key: 'difference', header: 'Difference' },
-  { key: 'effective_date', header: 'Effective Date' },
-];
-
+const DEFAULT_PRICE_FILTERS = { customer_name: '', product_name: '', sku: '', rate_diff: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'created_at', desc: true }];
 
 function extractError(e: unknown): string {
@@ -43,7 +48,9 @@ export function CustomerPricesPage() {
   const { data: products = [] } = useListInventoryProductsQuery({ active_only: true });
   const [createPrice, createState] = useCreateCustomerPriceMutation();
 
-  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ ...DEFAULT_PRICE_FILTERS });
   const [addOpen, setAddOpen] = useState(false);
   const [customerId, setCustomerId] = useState('');
   const [customerName, setCustomerName] = useState('');
@@ -58,16 +65,47 @@ export function CustomerPricesPage() {
     [products],
   );
 
+  const filterFields: FilterFieldDef[] = useMemo(
+    () => [
+      { key: 'customer_name', label: 'Customer', type: 'text' },
+      { key: 'product_name', label: 'Product', type: 'text' },
+      { key: 'sku', label: 'SKU', type: 'text' },
+      {
+        key: 'rate_diff',
+        label: 'Rate difference',
+        type: 'select',
+        allLabel: 'All',
+        options: [
+          { value: 'higher', label: 'Above list' },
+          { value: 'lower', label: 'Below list' },
+          { value: 'same', label: 'Same as list' },
+        ],
+      },
+    ],
+    [],
+  );
+
   const filtered = useMemo(() => {
-    let rows = data.filter(
-      (row) =>
-        matchesRegex(row.customer_name, search) ||
-        matchesRegex(row.product_name, search) ||
-        matchesRegex(row.sku, search),
-    );
-    rows = sortRows(rows, DEFAULT_SORT);
+    let rows = data.filter((row) => {
+      if (!matchesRegex(row.customer_name, filters.customer_name)) return false;
+      if (!matchesRegex(row.product_name, filters.product_name)) return false;
+      if (!matchesRegex(row.sku, filters.sku)) return false;
+      if (filters.rate_diff) {
+        const diff = Number(row.difference ?? 0);
+        if (filters.rate_diff === 'higher' && !(diff > 0)) return false;
+        if (filters.rate_diff === 'lower' && !(diff < 0)) return false;
+        if (filters.rate_diff === 'same' && diff !== 0) return false;
+      }
+      return true;
+    });
+    rows = sortRows(rows, sort);
     return rows;
-  }, [data, search]);
+  }, [data, filters, sort]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type PriceRow = (typeof data)[number];
 
   const historyQuery = useListCustomerPriceHistoryQuery(
     { customer_id: String(historyRow?.customer_id || ''), product_id: String(historyRow?.product_id || '') },
@@ -103,32 +141,134 @@ export function CustomerPricesPage() {
     }
   }
 
+  const columns: EntityListColumn<PriceRow>[] = useMemo(
+    () => [
+      {
+        id: 'customer',
+        header: 'Customer',
+        render: (row) => String(row.customer_name || row.customer_id || '—'),
+      },
+      {
+        id: 'product',
+        header: 'Product',
+        render: (row) => (
+          <div className="el-customer">
+            <div className="el-customer-meta">
+              <span className="el-customer-name">{String(row.product_name || '—')}</span>
+              <span className="el-customer-sub">SKU: {String(row.sku || '—')}</span>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: 'customer_rate',
+        header: 'Customer Rate',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => Number(row.customer_rate ?? 0),
+      },
+      {
+        id: 'selling_rate',
+        header: 'List Rate',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => Number(row.selling_rate ?? 0),
+      },
+      {
+        id: 'difference',
+        header: 'Difference',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => Number(row.difference ?? 0),
+      },
+      {
+        id: 'effective_date',
+        header: 'Effective Date',
+        render: (row) => String(row.effective_date || '—'),
+      },
+    ],
+    [],
+  );
+
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-        <div>
-          <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Customer Prices</h2>
-          <div style={{ fontSize: 13, color: '#667', marginTop: 4 }}>{filtered.length} prices</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <TextInput
-            placeholder="Search customer / product / SKU"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ width: 240 }}
-          />
+    <EntityListPage>
+      <EntityListHero
+        kicker="Inventory"
+        title="Customer Prices"
+        count={`${filtered.length} ${filtered.length === 1 ? 'price' : 'prices'}`}
+        actions={
           <Button type="button" onClick={openAdd}>
             Add Price
           </Button>
-        </div>
-      </div>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Rate difference"
+            value={filters.rate_diff || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, rate_diff: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'higher', label: 'Above list' },
+              { id: 'lower', label: 'Below list' },
+              { id: 'same', label: 'Same' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_PRICE_FILTERS}
+            excludeKeys={['rate_diff']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'created_at', label: 'Created' },
+              { value: 'customer_name', label: 'Customer' },
+              { value: 'product_name', label: 'Product' },
+              { value: 'customer_rate', label: 'Customer rate' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
 
-      {isLoading && <p>Loading…</p>}
+      {isLoading ? <EntityListLoading>Loading customer prices…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load customer prices. Is the API running?</ErrorText> : null}
-      {!isLoading && !error && filtered.length === 0 && <p>No customer prices found.</p>}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No customer prices found.</strong>
+        </EntityListEmpty>
+      ) : null}
 
-      <DataTable columns={PRICE_COLUMNS} data={filtered} rowKey={(row) => String(row.id)} onRowClick={setHistoryRow} />
-      <p style={{ fontSize: 12, color: '#667', marginTop: 6 }}>Click a row to view its price history.</p>
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions openLabel="History" onOpen={() => setHistoryRow(row)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         title="Add Customer Price"
@@ -201,6 +341,6 @@ export function CustomerPricesPage() {
           />
         )}
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }

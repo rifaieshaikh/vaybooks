@@ -13,6 +13,7 @@
     "@vaybooks/store": "*",
     "@vaybooks/theme": "*",
     "@vaybooks/ui-kit": "*",
+    "lucide-react": "^0.469.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "react-redux": "^9.0.0",

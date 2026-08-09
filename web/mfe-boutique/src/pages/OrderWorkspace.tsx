@@ -26,6 +26,7 @@ export function BoutiqueOrderWorkspacePage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const orderId = params.get('order') || '';
+  const preselectCustomerId = params.get('customer_id') || '';
   const [step, setStep] = useState<Step>(orderId ? 'Measurements' : 'Customer');
   const [error, setError] = useState('');
 
@@ -47,7 +48,7 @@ export function BoutiqueOrderWorkspacePage() {
   const [createMeas] = useCreateBoutiqueMeasurementMutation();
   const [recordAdvance] = useRecordBoutiqueAdvanceMutation();
 
-  const [pickCustomerId, setPickCustomerId] = useState('');
+  const [pickCustomerId, setPickCustomerId] = useState(preselectCustomerId);
   const [locationId, setLocationId] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -62,6 +63,12 @@ export function BoutiqueOrderWorkspacePage() {
   const [etd, setEtd] = useState('');
   const [advanceAmt, setAdvanceAmt] = useState('');
   const [advanceAccount, setAdvanceAccount] = useState('');
+
+  useEffect(() => {
+    if (!orderId && preselectCustomerId && !pickCustomerId) {
+      setPickCustomerId(preselectCustomerId);
+    }
+  }, [orderId, preselectCustomerId, pickCustomerId]);
 
   useEffect(() => {
     if (catalog.length) setRequiredMap(defaultRequiredActivities(catalog));

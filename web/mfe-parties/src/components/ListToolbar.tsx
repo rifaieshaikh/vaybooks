@@ -1,5 +1,7 @@
 export {
   ListToolbar,
+  FiltersDialog,
+  SortDialog,
   FilterInput,
   FilterSelect,
   PaginationBar,

@@ -11,26 +11,46 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
   TextInput,
+  displayName,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
 
+const TIME_STATUSES = ['Created', 'Completed'] as const;
+
 const DEFAULT_FILTERS = { worker_name: '', activity_name: '', status: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'work_date', desc: true }];
+const FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'worker_name', label: 'Worker', type: 'text' },
+  { key: 'activity_name', label: 'Activity', type: 'text' },
+  {
+    key: 'status',
+    label: 'Status',
+    type: 'select',
+    options: TIME_STATUSES.map((value) => ({ value, label: value })),
+  },
+];
 
 export function StoreTimePage() {
   const { data = [], isLoading, error, refetch } = useListStoreTimeEntriesQuery();
@@ -40,7 +60,7 @@ export function StoreTimePage() {
   const [updateEntry, updateState] = useUpdateStoreTimeEntryMutation();
   const [setStatus, statusState] = useSetStoreTimeEntryStatusMutation();
   const [completeEntry] = useCompleteStoreTimeEntryMutation();
-  const [deleteEntry, deleteState] = useDeleteStoreTimeEntryMutation();
+  const [deleteEntry] = useDeleteStoreTimeEntryMutation();
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
@@ -66,20 +86,11 @@ export function StoreTimePage() {
       : ['Created', 'Completed'];
   }, [activities, activityId]);
 
-  const filterFields: FilterFieldDef[] = useMemo(
-    () => [
-      { key: 'worker_name', label: 'Worker', type: 'text' },
-      { key: 'activity_name', label: 'Activity', type: 'text' },
-      { key: 'status', label: 'Status', type: 'text' },
-    ],
-    [],
-  );
-
   const filtered = useMemo(() => {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.worker_name, filters.worker_name)) return false;
       if (!matchesRegex(row.activity_name, filters.activity_name)) return false;
-      if (!matchesRegex(row.status, filters.status)) return false;
+      if (filters.status && String(row.status || '') !== filters.status) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -87,6 +98,62 @@ export function StoreTimePage() {
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type TimeRow = (typeof data)[number];
+
+  const columns: EntityListColumn<TimeRow>[] = useMemo(
+    () => [
+      {
+        id: 'activity_name',
+        header: 'Activity',
+        render: (row) => displayName(row, ['activity_name'], 'Unnamed'),
+      },
+      {
+        id: 'worker_name',
+        header: 'Worker',
+        render: (row) => {
+          const worker = String(row.worker_name || '').trim();
+          return <span className={worker ? undefined : 'el-muted'}>{worker || '—'}</span>;
+        },
+      },
+      {
+        id: 'work_date',
+        header: 'Date',
+        render: (row) => String(row.work_date || '').slice(0, 10) || '—',
+      },
+      {
+        id: 'time',
+        header: 'Time',
+        render: (row) => `${asCaption(row.start_time)}–${asCaption(row.end_time)}`,
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status) || '—',
+      },
+      {
+        id: 'duration',
+        header: 'Duration',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => `${Number(row.duration_minutes ?? 0)} min`,
+      },
+    ],
+    [],
+  );
+
+  function openEdit(row: TimeRow) {
+    setFormError('');
+    setEditingId(String(row.id));
+    setActivityId(String(row.activity_id ?? ''));
+    setWorkerId(String(row.worker_id ?? ''));
+    setWorkDate(String(row.work_date || '').slice(0, 10));
+    setStartTime(asCaption(row.start_time));
+    setEndTime(asCaption(row.end_time));
+    setNotes(asCaption(row.notes));
+    setStatusValue(asCaption(row.status) || 'Created');
+    setOpen(true);
+  }
 
   async function onCreate() {
     setFormError('');
@@ -164,13 +231,15 @@ export function StoreTimePage() {
     }
   }
 
-  async function onDelete() {
-    if (!editingId) return;
+  async function onDelete(id: string) {
+    if (!window.confirm('Delete this time entry?')) return;
     setFormError('');
     try {
-      await deleteEntry(editingId).unwrap();
-      setOpen(false);
-      setEditingId(null);
+      await deleteEntry(id).unwrap();
+      if (editingId === id) {
+        setOpen(false);
+        setEditingId(null);
+      }
       refetch();
     } catch (e) {
       setFormError(extractError(e));
@@ -178,77 +247,99 @@ export function StoreTimePage() {
   }
 
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Store"
         title="Business Tasks"
-        countLabel="entries"
-        count={filtered.length}
-        primaryLabel="Log time"
-        onPrimary={() => {
-          setFormError('');
-          setEditingId(null);
-          setActivityId('');
-          setWorkerId('');
-          setWorkDate('');
-          setStartTime('09:00');
-          setEndTime('11:00');
-          setNotes('');
-          setStatusValue('Created');
-          setOpen(true);
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof DEFAULT_FILTERS);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'work_date', label: 'Date' },
-          { value: 'worker_name', label: 'Worker' },
-          { value: 'status', label: 'Status' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
+        count={`${filtered.length} ${filtered.length === 1 ? 'entry' : 'entries'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setEditingId(null);
+              setActivityId('');
+              setWorkerId('');
+              setWorkDate('');
+              setStartTime('09:00');
+              setEndTime('11:00');
+              setNotes('');
+              setStatusValue('Created');
+              setOpen(true);
+            }}
+          >
+            Log time
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              ...TIME_STATUSES.map((status) => ({ id: status, label: status })),
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={FILTER_FIELDS}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof DEFAULT_FILTERS);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'work_date', label: 'Date' },
+              { value: 'worker_name', label: 'Worker' },
+              { value: 'status', label: 'Status' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
-      {isLoading && <p>Loading…</p>}
+
+      {isLoading ? <EntityListLoading>Loading business tasks…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load business tasks.</ErrorText> : null}
-      {!isLoading && !error && filtered.length === 0 ? (
-        <p style={{ color: '#667' }}>No business tasks logged yet.</p>
-      ) : (
-        <EntityCardGrid>
-          {pageRows.map((row) => (
-            <EntityCard
-              key={String(row.id)}
-              title={asCaption(row.activity_name) || String(row.id)}
-              captions={[
-                asCaption(row.worker_name),
-                String(row.work_date || '').slice(0, 10),
-                `${asCaption(row.start_time)}–${asCaption(row.end_time)}`,
-                asCaption(row.status),
-                `${Number(row.duration_minutes ?? 0)} min`,
-              ]}
-              onEdit={() => {
-                setFormError('');
-                setEditingId(String(row.id));
-                setActivityId(String(row.activity_id ?? ''));
-                setWorkerId(String(row.worker_id ?? ''));
-                setWorkDate(String(row.work_date || '').slice(0, 10));
-                setStartTime(asCaption(row.start_time));
-                setEndTime(asCaption(row.end_time));
-                setNotes(asCaption(row.notes));
-                setStatusValue(asCaption(row.status) || 'Created');
-                setOpen(true);
-              }}
+      {formError && !open ? <ErrorText>{formError}</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No business tasks logged yet.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions
+              onEdit={() => openEdit(row)}
+              onDelete={() => void onDelete(String(row.id))}
             />
-          ))}
-        </EntityCardGrid>
-      )}
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -259,17 +350,10 @@ export function StoreTimePage() {
         }}
         footer={
           <>
-            {editingId ? (
-              <>
-                {status !== 'Completed' ? (
-                  <Button type="button" variant="ghost" onClick={() => void onComplete()}>
-                    Complete
-                  </Button>
-                ) : null}
-                <Button type="button" variant="ghost" onClick={() => void onDelete()} disabled={deleteState.isLoading}>
-                  {deleteState.isLoading ? 'Deleting…' : 'Delete'}
-                </Button>
-              </>
+            {editingId && status !== 'Completed' ? (
+              <Button type="button" variant="ghost" onClick={() => void onComplete()}>
+                Complete
+              </Button>
             ) : null}
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
               Cancel
@@ -340,6 +424,6 @@ export function StoreTimePage() {
           ) : null}
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }

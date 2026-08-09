@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   useGetProjectsSettingsQuery,
@@ -7,62 +7,282 @@ import {
   useProjectsReportsCatalogQuery,
   useRunProjectsReportMutation,
 } from '@vaybooks/store';
-import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
-import { useState } from 'react';
-import { extractError } from '../utils';
+import {
+  Button,
+  DataTable,
+  EntityListEmpty,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
+  ErrorText,
+  FormRow,
+  PAGE_SIZE,
+  PaginationBar,
+  matchesRegex,
+  pageCount,
+  paginate,
+  type DataTableColumn,
+  type EntityListColumn,
+} from '@vaybooks/ui-kit';
+import { asCaption, extractError } from '../utils';
+
+const MEASUREMENT_STATUS_CHIPS = [
+  { id: 'all', label: 'All' },
+  { id: 'Draft', label: 'Draft' },
+  { id: 'Submitted', label: 'Submitted' },
+  { id: 'Customer Certified', label: 'Certified' },
+  { id: 'Disputed', label: 'Disputed' },
+] as const;
+
+const RA_BILL_STATUS_CHIPS = [
+  { id: 'all', label: 'All' },
+  { id: 'Draft', label: 'Draft' },
+  { id: 'Submitted', label: 'Submitted' },
+  { id: 'Certified', label: 'Certified' },
+  { id: 'Invoiced', label: 'Invoiced' },
+] as const;
 
 export function ProjectMeasurementsPage() {
   const { data = [], isLoading, error, refetch } = useListAllProjectMeasurementsQuery();
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+  const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState({ status: '' });
+  const [page, setPage] = useState(1);
+
+  type MeasurementRow = (typeof data)[number];
+
+  const filtered = useMemo(() => {
+    return data.filter((row) => {
+      if (filters.status && String(row.status || '') !== filters.status) return false;
+      if (!search.trim()) return true;
+      return (
+        matchesRegex(row.project_name, search) ||
+        matchesRegex(row.boq_item_id, search) ||
+        matchesRegex(row.status, search)
+      );
+    });
+  }, [data, filters, search]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  const columns: EntityListColumn<MeasurementRow>[] = useMemo(
     () => [
-      { key: 'project_name', header: 'Project' },
-      { key: 'boq_item_id', header: 'BOQ' },
-      { key: 'quantity', header: 'Qty' },
-      { key: 'status', header: 'Status' },
+      {
+        id: 'project',
+        header: 'Project',
+        render: (row) => {
+          const project = asCaption(row.project_name);
+          const boq = String(row.boq_item_id || '').trim();
+          return (
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{project}</span>
+                <span className="el-customer-sub">{boq || 'No BOQ'}</span>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'quantity',
+        header: 'Qty',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => asCaption(row.quantity),
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status),
+      },
     ],
     [],
   );
+
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Project Measurements</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <p style={{ color: '#667' }}>
-        Add measurements from a <Link to="/projects/list">project workspace</Link>.
-      </p>
-      {isLoading && <p>Loading…</p>}
+    <EntityListPage>
+      <EntityListHero
+        kicker="Projects"
+        title="Project Measurements"
+        count={`${filtered.length} ${filtered.length === 1 ? 'measurement' : 'measurements'}`}
+        actions={
+          <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+            Refresh
+          </button>
+        }
+        search={
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search project, BOQ, status…"
+            aria-label="Search measurements"
+          />
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters({ status: id === 'all' ? '' : id });
+              setPage(1);
+            }}
+            options={[...MEASUREMENT_STATUS_CHIPS]}
+          />
+        }
+        summary={
+          <p style={{ margin: 0, color: '#667' }}>
+            Add measurements from a <Link to="/projects/list">project workspace</Link>.
+          </p>
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading measurements…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load measurements.</ErrorText> : null}
-      <DataTable columns={columns} rows={data as Record<string, unknown>[]} />
-    </div>
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>{search.trim() || filters.status ? 'No matching measurements' : 'No measurements yet'}</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+    </EntityListPage>
   );
 }
 
 export function ProjectRaBillsPage() {
   const { data = [], isLoading, error, refetch } = useListAllProjectRaBillsQuery();
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+  const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState({ status: '' });
+  const [page, setPage] = useState(1);
+
+  type RaBillRow = (typeof data)[number];
+
+  const filtered = useMemo(() => {
+    return data.filter((row) => {
+      if (filters.status && String(row.status || '') !== filters.status) return false;
+      if (!search.trim()) return true;
+      return (
+        matchesRegex(row.project_name, search) ||
+        matchesRegex(row.status, search) ||
+        matchesRegex(row.description, search)
+      );
+    });
+  }, [data, filters, search]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  const columns: EntityListColumn<RaBillRow>[] = useMemo(
     () => [
-      { key: 'project_name', header: 'Project' },
-      { key: 'claim_amount', header: 'Claim' },
-      { key: 'status', header: 'Status' },
-      { key: 'description', header: 'Description' },
+      {
+        id: 'project',
+        header: 'Project',
+        render: (row) => {
+          const project = asCaption(row.project_name);
+          const description = String(row.description || '').trim();
+          return (
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{project}</span>
+                <span className="el-customer-sub">{description || 'No description'}</span>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'claim',
+        header: 'Claim',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => {
+          const value = row.claim_amount;
+          if (value == null || value === '') return <span className="el-muted">—</span>;
+          return asCaption(value);
+        },
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status),
+      },
     ],
     [],
   );
+
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>RA Bills</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      {isLoading && <p>Loading…</p>}
+    <EntityListPage>
+      <EntityListHero
+        kicker="Projects"
+        title="RA Bills"
+        count={`${filtered.length} ${filtered.length === 1 ? 'bill' : 'bills'}`}
+        actions={
+          <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+            Refresh
+          </button>
+        }
+        search={
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search project, status, description…"
+            aria-label="Search RA bills"
+          />
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters({ status: id === 'all' ? '' : id });
+              setPage(1);
+            }}
+            options={[...RA_BILL_STATUS_CHIPS]}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading RA bills…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load RA bills.</ErrorText> : null}
-      <DataTable columns={columns} rows={data as Record<string, unknown>[]} />
-    </div>
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>{search.trim() || filters.status ? 'No matching RA bills' : 'No RA bills yet'}</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+    </EntityListPage>
   );
 }
 
@@ -116,7 +336,11 @@ export function ProjectsReportsPage() {
         </Button>
       </div>
       {runError ? <ErrorText>{runError}</ErrorText> : null}
-      <DataTable columns={columns} rows={rows} />
+      <DataTable
+        columns={columns}
+        data={rows}
+        rowKey={(row) => String(row.id ?? JSON.stringify(row))}
+      />
     </div>
   );
 }

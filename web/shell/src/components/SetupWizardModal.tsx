@@ -111,6 +111,10 @@ export function SetupWizardModal({ orgId, onCompleted }: Props) {
   const [email, setEmail] = useState('');
   const [gstin, setGstin] = useState('');
   const [stateCode, setStateCode] = useState('');
+  const [locCode, setLocCode] = useState('MAIN');
+  const [locName, setLocName] = useState('Main Warehouse');
+  const [locType, setLocType] = useState('Warehouse');
+  const [locAddress, setLocAddress] = useState('');
   const [bundleId, setBundleId] = useState('trade');
   const [modules, setModules] = useState<string[]>(() => [...BUNDLES.find((b) => b.id === 'trade')!.modules]);
   const [licenseKey, setLicenseKey] = useState('');
@@ -120,13 +124,11 @@ export function SetupWizardModal({ orgId, onCompleted }: Props) {
   const selectedBundle = useMemo(() => BUNDLES.find((b) => b.id === bundleId), [bundleId]);
   const crmWarning = useMemo(() => {
     if (!modules.includes('crm')) return null;
-    const missing = (selectedBundle?.warn_without || ['sales']).filter((m) => !modules.includes(m));
-    if (!missing.length && modules.includes('sales')) return null;
     if (!modules.includes('sales')) {
       return 'CRM works best with Sales enabled for enquiry-to-order flows.';
     }
     return null;
-  }, [modules, selectedBundle]);
+  }, [modules]);
 
   function applyBundle(id: string) {
     setBundleId(id);
@@ -147,6 +149,11 @@ export function SetupWizardModal({ orgId, onCompleted }: Props) {
       setStep(0);
       return;
     }
+    if (!locCode.trim() || !locName.trim()) {
+      setError('Primary location code and name are required.');
+      setStep(1);
+      return;
+    }
     try {
       await complete({
         business: {
@@ -160,6 +167,12 @@ export function SetupWizardModal({ orgId, onCompleted }: Props) {
         },
         enabled_modules: modules,
         license_key: licenseKey.trim() || undefined,
+        primary_location: {
+          code: locCode.trim(),
+          name: locName.trim(),
+          location_type: locType,
+          address: locAddress.trim(),
+        },
       }).unwrap();
       onCompleted();
     } catch (err) {
@@ -198,7 +211,7 @@ export function SetupWizardModal({ orgId, onCompleted }: Props) {
           Set up your organization
         </h1>
         <p style={{ margin: '0 0 16px', color: '#556', fontSize: 14 }}>
-          Org <code>{orgId}</code> · step {step + 1} of 3
+          Org <code>{orgId}</code> · step {step + 1} of 4
         </p>
 
         {step === 0 && (
@@ -231,6 +244,45 @@ export function SetupWizardModal({ orgId, onCompleted }: Props) {
 
         {step === 1 && (
           <div style={{ display: 'grid', gap: 12 }}>
+            <p style={{ margin: 0, fontSize: 13, color: '#667' }}>
+              Primary location used for stock and working location after setup.
+            </p>
+            <FormRow label="Location code">
+              <TextInput value={locCode} onChange={(e) => setLocCode(e.target.value)} />
+            </FormRow>
+            <FormRow label="Location name">
+              <TextInput value={locName} onChange={(e) => setLocName(e.target.value)} />
+            </FormRow>
+            <FormRow label="Type">
+              <select
+                value={locType}
+                onChange={(e) => setLocType(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #ccd' }}
+              >
+                <option value="Warehouse">Warehouse</option>
+                <option value="Retail Store">Retail Store</option>
+              </select>
+            </FormRow>
+            <FormRow label="Address">
+              <TextInput value={locAddress} onChange={(e) => setLocAddress(e.target.value)} />
+            </FormRow>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+              <Button type="button" variant="ghost" onClick={() => setStep(0)}>
+                Back
+              </Button>
+              <Button
+                type="button"
+                onClick={() => setStep(2)}
+                disabled={!locCode.trim() || !locName.trim()}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div style={{ display: 'grid', gap: 12 }}>
             <FormRow label="Business type preset">
               <select
                 value={bundleId}
@@ -260,27 +312,27 @@ export function SetupWizardModal({ orgId, onCompleted }: Props) {
             </div>
             {crmWarning && <p style={{ margin: 0, fontSize: 13, color: '#a65c00' }}>{crmWarning}</p>}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-              <Button type="button" variant="ghost" onClick={() => setStep(0)}>
+              <Button type="button" variant="ghost" onClick={() => setStep(1)}>
                 Back
               </Button>
-              <Button type="button" onClick={() => setStep(2)}>
+              <Button type="button" onClick={() => setStep(3)}>
                 Next
               </Button>
             </div>
           </div>
         )}
 
-        {step === 2 && (
+        {step === 3 && (
           <form onSubmit={onFinish} style={{ display: 'grid', gap: 12 }}>
             <FormRow label="License key (optional)">
               <TextInput value={licenseKey} onChange={(e) => setLicenseKey(e.target.value)} />
             </FormRow>
             <p style={{ margin: 0, fontSize: 13, color: '#667' }}>
-              Finishing seeds finance defaults for this organization and unlocks the app.
+              Finishing seeds finance defaults, creates your primary location, and unlocks the app.
             </p>
             {error && <ErrorText>{error}</ErrorText>}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-              <Button type="button" variant="ghost" onClick={() => setStep(1)}>
+              <Button type="button" variant="ghost" onClick={() => setStep(2)}>
                 Back
               </Button>
               <Button type="submit" disabled={completeState.isLoading}>

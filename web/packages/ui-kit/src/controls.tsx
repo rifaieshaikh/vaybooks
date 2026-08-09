@@ -1,21 +1,40 @@
-import { createElement, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react';
+import {
+  createElement,
+  type ButtonHTMLAttributes,
+  type FormEvent,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
+} from 'react';
+
+function cx(...parts: Array<string | undefined | false>): string {
+  return parts.filter(Boolean).join(' ');
+}
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
   variant?: 'primary' | 'ghost';
 }
 
-export function Button({ children, variant = 'primary', style, ...props }: ButtonProps) {
+export function Button({ children, variant = 'primary', style, className, ...props }: ButtonProps) {
   const base: React.CSSProperties = {
-    padding: '0.45rem 0.9rem',
-    borderRadius: 6,
-    border: variant === 'ghost' ? '1px solid #ccc' : 'none',
+    padding: '0.5rem 0.95rem',
+    borderRadius: 'var(--vb-control-radius, 8px)',
+    border: variant === 'ghost' ? '1px solid var(--vb-color-control-border, #c5d4ce)' : 'none',
     background: variant === 'primary' ? 'var(--vb-color-primary, #185c4c)' : 'transparent',
-    color: variant === 'primary' ? '#fff' : 'inherit',
+    color: variant === 'primary' ? 'var(--vb-color-on-primary, #fff)' : 'inherit',
     cursor: 'pointer',
+    fontFamily: 'inherit',
+    fontSize: 'var(--vb-control-font-size, 0.925rem)',
+    lineHeight: 1.3,
     ...style,
   };
-  return createElement('button', { type: 'button', style: base, ...props }, children);
+  return createElement(
+    'button',
+    { type: 'button', className, style: base, ...props },
+    children,
+  );
 }
 
 export interface DataTableColumn<T> {
@@ -43,6 +62,7 @@ export function DataTable<T extends Record<string, unknown>>({
         width: '100%',
         borderCollapse: 'collapse',
         fontSize: 14,
+        fontFamily: 'inherit',
       },
     },
     createElement(
@@ -134,23 +154,34 @@ export function FormRow({
   label: string;
   children: ReactNode;
 }) {
+  return createElement('label', { className: 'vb-label' }, label, children);
+}
+
+export function TextInput({ className, style, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+  return createElement('input', {
+    ...props,
+    className: cx('vb-control', className),
+    style,
+  });
+}
+
+export function Select({ className, style, children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return createElement(
-    'label',
-    { style: { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, fontSize: 14 } },
-    label,
+    'select',
+    {
+      ...props,
+      className: cx('vb-control', className),
+      style,
+    },
     children,
   );
 }
 
-export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return createElement('input', {
+export function TextArea({ className, style, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return createElement('textarea', {
     ...props,
-    style: {
-      padding: '0.4rem 0.5rem',
-      border: '1px solid #ccc',
-      borderRadius: 4,
-      ...(props.style || {}),
-    },
+    className: cx('vb-control', className),
+    style: { minHeight: '5.5rem', resize: 'vertical', ...(style || {}) },
   });
 }
 
@@ -170,12 +201,13 @@ export function SimpleForm({
       },
       style: {
         display: 'grid',
-        gap: 8,
+        gap: 10,
         maxWidth: 420,
         marginBottom: 16,
         padding: 12,
-        background: '#f7faf8',
-        borderRadius: 8,
+        background: 'var(--vb-color-soft, #eef5f1)',
+        borderRadius: 'var(--vb-control-radius, 8px)',
+        fontFamily: 'inherit',
       },
     },
     children,
@@ -190,8 +222,9 @@ export function StatusBanner({ children }: { children: ReactNode }) {
         padding: '0.75rem 1rem',
         background: '#fff7e6',
         border: '1px solid #f0c36d',
-        borderRadius: 6,
+        borderRadius: 'var(--vb-control-radius, 8px)',
         marginBottom: 12,
+        fontFamily: 'inherit',
       },
     },
     children,
@@ -199,5 +232,5 @@ export function StatusBanner({ children }: { children: ReactNode }) {
 }
 
 export function ErrorText({ children }: { children: ReactNode }) {
-  return createElement('p', { style: { color: '#b00020' } }, children);
+  return createElement('p', { style: { color: '#b00020', fontFamily: 'inherit' } }, children);
 }

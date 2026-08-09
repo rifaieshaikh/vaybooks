@@ -8,3 +8,4 @@ export {
 } from './Analytics';
 export { ProductionReportsPage, ProductionScheduledReportsPage } from './Reports';
 export { ProductionSettingsPage } from './Settings';
+export { ProductionCalendarPage } from './Calendar';

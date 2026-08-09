@@ -50,6 +50,12 @@ export function LoginPage() {
           displayName: res.user.display_name || res.user.username,
           accessToken: res.access_token,
           workingLocationId: res.user.working_location_id || null,
+          permissions: Array.isArray(res.user.permissions)
+            ? res.user.permissions.map(String)
+            : [],
+          enabledModules: Array.isArray((res.user as { enabled_modules?: unknown }).enabled_modules)
+            ? ((res.user as { enabled_modules: unknown[] }).enabled_modules).map(String)
+            : [],
         }),
       );
       const lic = await verifyLicense().unwrap();

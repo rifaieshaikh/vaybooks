@@ -28,6 +28,10 @@ var
   EmailEdit: TNewEdit;
   StateEdit: TNewEdit;
   FyMonthEdit: TNewEdit;
+  LocCodeEdit: TNewEdit;
+  LocNameEdit: TNewEdit;
+  LocTypeCombo: TNewComboBox;
+  LocAddressEdit: TNewEdit;
 
   BundleCombo: TNewComboBox;
   ModuleList: TNewCheckListBox;
@@ -348,6 +352,36 @@ begin
   FyMonthEdit.Left := 100;
   FyMonthEdit.Width := 40;
   FyMonthEdit.Text := '4';
+
+  L := TNewStaticText.Create(BusinessPage);
+  L.Parent := BusinessPage.Surface;
+  L.Caption := 'Primary location (code / name / type / address):';
+  L.Top := 180;
+  L.Width := BusinessPage.SurfaceWidth;
+  LocCodeEdit := TNewEdit.Create(BusinessPage);
+  LocCodeEdit.Parent := BusinessPage.Surface;
+  LocCodeEdit.Top := 200;
+  LocCodeEdit.Width := 80;
+  LocCodeEdit.Text := 'MAIN';
+  LocNameEdit := TNewEdit.Create(BusinessPage);
+  LocNameEdit.Parent := BusinessPage.Surface;
+  LocNameEdit.Top := 200;
+  LocNameEdit.Left := 90;
+  LocNameEdit.Width := 160;
+  LocNameEdit.Text := 'Main Warehouse';
+  LocTypeCombo := TNewComboBox.Create(BusinessPage);
+  LocTypeCombo.Parent := BusinessPage.Surface;
+  LocTypeCombo.Top := 200;
+  LocTypeCombo.Left := 260;
+  LocTypeCombo.Width := 120;
+  LocTypeCombo.Style := csDropDownList;
+  LocTypeCombo.Items.Add('Warehouse');
+  LocTypeCombo.Items.Add('Retail Store');
+  LocTypeCombo.ItemIndex := 0;
+  LocAddressEdit := TNewEdit.Create(BusinessPage);
+  LocAddressEdit.Parent := BusinessPage.Surface;
+  LocAddressEdit.Top := 230;
+  LocAddressEdit.Width := BusinessPage.SurfaceWidth - 8;
 end;
 
 procedure InitializeModulesPage;
@@ -635,6 +669,7 @@ begin
       '"mongo_uri":"' + JsonEscape(GetMongoUri) + '",' +
       '"db_name":"' + JsonEscape(GetDbName) + '",' +
       '"business":{"legal_name":"' + JsonEscape(ExpandConstant('{param:LEGAL_NAME|}')) + '","trade_name":"","gstin":"","phone":"","email":"","state_code":"","fy_start_month":4},' +
+      '"primary_location":{"code":"MAIN","name":"Main Warehouse","location_type":"Warehouse","address":""},' +
       '"enabled_modules":[' + ModulesJson + '],' +
       '"admin":{"username":"' + JsonEscape(ExpandConstant('{param:ADMIN_USER|owner}')) + '","display_name":"Owner","email":"","password":"' + JsonEscape(ExpandConstant('{param:ADMIN_PASS|}')) + '"},' +
       '"license_key":"' + JsonEscape(ExpandConstant('{param:LICENSE_KEY|}')) + '",' +
@@ -658,6 +693,12 @@ begin
       '"email":"' + JsonEscape(Trim(EmailEdit.Text)) + '",' +
       '"state_code":"' + JsonEscape(Trim(StateEdit.Text)) + '",' +
       '"fy_start_month":' + Trim(FyMonthEdit.Text) +
+    '},' +
+    '"primary_location":{' +
+      '"code":"' + JsonEscape(Trim(LocCodeEdit.Text)) + '",' +
+      '"name":"' + JsonEscape(Trim(LocNameEdit.Text)) + '",' +
+      '"location_type":"' + JsonEscape(LocTypeCombo.Text) + '",' +
+      '"address":"' + JsonEscape(Trim(LocAddressEdit.Text)) + '"' +
     '},' +
     '"enabled_modules":[' + ModulesJson + '],' +
     '"admin":{' +

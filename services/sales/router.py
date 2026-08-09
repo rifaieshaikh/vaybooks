@@ -8,17 +8,20 @@ import re
 from datetime import date
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from packages.services_kit.sales_container import get_sales_container
+from services.common.authz import require_permission
 from services.finance.router import is_consumer_healthy as finance_healthy
 from services.inventory.router import is_consumer_healthy as inventory_healthy
 from services.parties.serialize import entity_dict
 from services.sales.degraded import is_degraded_pending
 from vaybooks.bms.domain.shared.enums import EstimateStatus, QuotationStatus
 from vaybooks.bms.domain.shared.exceptions import ValidationError
+
+RECENT_DOC_LIMIT = 5
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
 
@@ -251,6 +254,99 @@ def overview() -> dict[str, Any]:
                 {"to": "/sales/reports", "label": "Reports"},
             ],
         }
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/customers/{customer_id}/related-summary")
+def customer_related_summary(
+    customer_id: str,
+    _: str = Depends(
+        require_permission("parties.customers.view", "sales.invoices.view")
+    ),
+) -> dict[str, Any]:
+    """Customer-scoped sales counts, recent docs, and optional outstanding."""
+    try:
+        sales = _svc()
+    except Exception:
+        return {"available": False}
+    if sales is None:
+        return {"available": False}
+
+    try:
+        customer_account_id = ""
+        accounting = None
+        try:
+            from packages.services_kit.finance_container import get_finance_container
+
+            accounting = get_finance_container().accounting
+            acct = accounting.get_customer_account(customer_id) if accounting else None
+            customer_account_id = acct.id if acct else ""
+        except Exception:
+            accounting = None
+            customer_account_id = ""
+
+        counts = sales.related_document_counts(
+            customer_id, customer_account_id=customer_account_id
+        )
+
+        recent: list[dict[str, Any]] = []
+        try:
+            orders = [
+                o
+                for o in (sales.list_sales_orders() or [])
+                if str(getattr(o, "customer_id", "") or "") == customer_id
+            ]
+            orders.sort(
+                key=lambda o: getattr(o, "order_date", None) or date.min,
+                reverse=True,
+            )
+            for order in orders[:RECENT_DOC_LIMIT]:
+                row = _doc_dict(order, include_lines=False)
+                row["doc_type"] = "sales_order"
+                recent.append(row)
+        except Exception:
+            recent = []
+
+        payload: dict[str, Any] = {
+            "available": True,
+            "counts": counts,
+            "recent": recent,
+        }
+
+        if accounting and customer_account_id:
+            try:
+                open_rows = accounting.list_open_sales_invoices_for_customer(
+                    customer_account_id
+                )
+                payload["outstanding"] = round(
+                    sum(float(r.get("outstanding") or 0) for r in (open_rows or [])),
+                    2,
+                )
+            except Exception:
+                pass
+
+        return payload
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/customers/{customer_id}/product-history")
+def customer_product_history(
+    customer_id: str,
+    _: str = Depends(
+        require_permission("parties.customers.view", "sales.invoices.view")
+    ),
+) -> list[dict[str, Any]]:
+    """Sales-invoice product lines for one customer (newest first, capped)."""
+    try:
+        sales = _svc()
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    if sales is None:
+        raise HTTPException(status_code=503, detail="Sales service unavailable")
+    try:
+        return sales.customer_product_history(customer_id, limit=200)
     except Exception as exc:
         raise _http_err(exc) from exc
 

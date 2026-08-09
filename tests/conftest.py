@@ -254,7 +254,16 @@ class FakeOrderRepository:
             "active_count": sum(
                 1 for o in orders if o.order_status.value not in inactive
             ),
+            "delivered_count": sum(
+                1 for o in orders if o.order_status.value == "Delivered"
+            ),
+            "completed_count": sum(
+                1 for o in orders if o.order_status.value == "Completed"
+            ),
             "total_invoiced": 0.0,
+            "total_margin": 0.0,
+            "total_hours": 0.0,
+            "avg_mph": None,
         }
 
     def update_order_activity(self, order_id, order_activity_id, updates):

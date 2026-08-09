@@ -1,0 +1,553 @@
+@keyframes el-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.el-page {
+  --el-primary: var(--vb-color-primary, #185c4c);
+  --el-ink: #14241f;
+  --el-muted: #5c736a;
+  --el-line: #d5e3dc;
+  --el-soft: #eef5f1;
+  --el-danger: #a12828;
+  --el-ok: #0f6b4c;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 0 2.5rem;
+  color: var(--el-ink);
+  font-family: var(--vb-font-sans, system-ui, sans-serif);
+}
+
+.el-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  padding: 1.25rem 1.4rem 1.15rem;
+  margin-bottom: 1rem;
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(24, 92, 76, 0.14), transparent 55%),
+    linear-gradient(145deg, #f4faf7 0%, #e8f2ed 48%, #f7faf8 100%);
+  border: 1px solid var(--el-line);
+  animation: el-fade-up 0.45s ease-out both;
+}
+
+.el-hero::after {
+  content: '';
+  position: absolute;
+  right: -40px;
+  top: -50px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: rgba(24, 92, 76, 0.07);
+  pointer-events: none;
+}
+
+.el-hero-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.85rem 1.25rem;
+  position: relative;
+  z-index: 1;
+  margin-bottom: 0.95rem;
+}
+
+.el-kicker {
+  margin: 0 0 0.25rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--el-muted);
+}
+
+.el-title {
+  margin: 0;
+  font-size: clamp(1.55rem, 2.4vw, 2rem);
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--el-primary);
+}
+
+.el-count {
+  margin: 0.3rem 0 0;
+  font-size: 0.9rem;
+  color: var(--el-muted);
+}
+
+.el-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.el-btn-ghost {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--el-muted);
+  border-radius: 8px;
+  padding: 0.4rem 0.65rem;
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.el-btn-ghost:hover {
+  color: var(--el-primary);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.el-search {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  margin-bottom: 0.85rem;
+}
+
+.el-search input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 12px;
+  min-height: 2.75rem;
+  font-size: 1rem;
+}
+
+.el-hero-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  position: relative;
+  z-index: 1;
+}
+
+.el-hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.el-hero-tools-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 640px) {
+  .el-hero-chips {
+    width: 100%;
+  }
+
+  .el-hero-tools-end {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+.el-seg {
+  display: inline-flex;
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--el-line);
+}
+
+.el-seg button {
+  border: none;
+  background: transparent;
+  color: var(--el-muted);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.el-seg button:hover {
+  color: var(--el-primary);
+}
+
+.el-seg button[aria-pressed='true'] {
+  background: #fff;
+  color: var(--el-primary);
+  font-weight: 650;
+  box-shadow: 0 1px 3px rgba(20, 36, 31, 0.08);
+}
+
+.el-tool-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.el-tool-link {
+  border: none;
+  background: transparent;
+  color: var(--el-muted);
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+  padding: 0.3rem 0.45rem;
+  border-radius: 6px;
+}
+
+.el-tool-link:hover {
+  color: var(--el-primary);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.el-tool-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  margin-left: 0.25rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--el-primary);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.el-pulse {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  margin: 0 0 0.85rem;
+  padding: 0 0.15rem;
+  font-size: 0.9rem;
+  color: var(--el-muted);
+  animation: el-fade-up 0.5s ease-out 0.05s both;
+}
+
+.el-pulse strong {
+  color: var(--el-ink);
+  font-weight: 650;
+}
+
+.el-pulse-due strong {
+  color: var(--el-danger);
+}
+
+.el-status {
+  min-height: 8rem;
+  display: grid;
+  place-items: center;
+  gap: 0.5rem;
+  padding: 2rem 1rem;
+  margin: 0.5rem 0 1rem;
+  border: 1px dashed var(--el-line);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--el-soft), #fff);
+  color: var(--el-muted);
+  text-align: center;
+  animation: el-fade-up 0.4s ease-out both;
+}
+
+.el-status strong {
+  color: var(--el-ink);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.el-status p {
+  margin: 0;
+  max-width: 28rem;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.el-loading {
+  width: min(12rem, 60%);
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--el-line);
+  overflow: hidden;
+  position: relative;
+}
+
+.el-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--el-primary);
+  animation: el-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes el-slide {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(280%);
+  }
+}
+
+.el-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow: auto;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--el-line);
+  animation: el-fade-up 0.5s ease-out 0.08s both;
+  max-height: min(68vh, 720px);
+}
+
+.el-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.92rem;
+}
+
+.el-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f3f8f5;
+  color: var(--el-muted);
+  font-weight: 650;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--el-line);
+  white-space: nowrap;
+}
+
+.el-table thead th.el-col-num {
+  text-align: right;
+}
+
+.el-table tbody td {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid rgba(213, 227, 220, 0.75);
+  vertical-align: middle;
+  color: var(--el-ink);
+}
+
+.el-table tbody tr {
+  transition: background 0.14s ease;
+}
+
+.el-table tbody tr:hover {
+  background: rgba(238, 245, 241, 0.55);
+}
+
+.el-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.el-actions-cell {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.el-action-btn {
+  appearance: none;
+  border: 1px solid var(--el-line);
+  background: #fff;
+  color: var(--el-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.el-action-btn:hover {
+  background: var(--el-soft);
+  border-color: rgba(15, 81, 50, 0.28);
+}
+
+.el-action-btn:focus-visible {
+  outline: 2px solid var(--el-primary);
+  outline-offset: 1px;
+}
+
+.el-action-btn--danger {
+  color: var(--el-danger);
+  border-color: rgba(176, 42, 55, 0.28);
+}
+
+.el-action-btn--danger:hover {
+  background: rgba(176, 42, 55, 0.06);
+  border-color: rgba(176, 42, 55, 0.45);
+}
+
+.el-col-actions {
+  text-align: right;
+}
+
+.el-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.el-customer {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.el-avatar {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--el-line);
+  background: transparent;
+  color: var(--el-primary);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.el-customer-meta {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.el-customer-name {
+  font-weight: 650;
+  font-size: 0.98rem;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.el-customer-sub {
+  font-size: 0.82rem;
+  color: var(--el-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.el-customer-flag {
+  font-size: 0.72rem;
+  color: var(--el-danger);
+  font-weight: 650;
+}
+
+.el-num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.el-due {
+  color: var(--el-danger);
+  font-weight: 700;
+}
+
+.el-advance {
+  color: var(--el-ok);
+  font-weight: 650;
+}
+
+.el-settled {
+  color: var(--el-muted);
+  font-weight: 500;
+}
+
+.el-muted {
+  color: var(--el-muted);
+}
+
+.el-gstin {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--vb-font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+  color: var(--el-muted);
+}
+
+.el-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-top: 0.85rem;
+  padding: 0 0.1rem;
+}
+
+.el-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.84rem;
+  color: var(--el-muted);
+}
+
+.el-page-size select {
+  width: auto;
+  min-width: 4.5rem;
+  min-height: 2.1rem;
+}
+
+.el-foot-pager {
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.el-foot-pager > div {
+  margin-top: 0 !important;
+}
+
+.el-refreshing {
+  margin: 0.4rem 0 0;
+  font-size: 0.75rem;
+  color: var(--el-muted);
+}
+
+@media (max-width: 640px) {
+  .el-hero {
+    padding: 1.05rem 1rem 1rem;
+    border-radius: 14px;
+  }
+
+  .el-table thead th,
+  .el-table tbody td {
+    padding: 0.7rem 0.75rem;
+  }
+}

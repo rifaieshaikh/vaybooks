@@ -8,11 +8,17 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -22,11 +28,11 @@ import {
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { ACCOUNT_TYPES, asCaption, extractError, formatMoney } from '../utils';
-
 
 type AccountForm = {
   account_name: string;
@@ -103,6 +109,8 @@ export function AccountsListPage() {
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
 
+  type AccountRow = (typeof data)[number];
+
   function openAdd() {
     setFormError('');
     setEditId(null);
@@ -110,7 +118,7 @@ export function AccountsListPage() {
     setDialog('add');
   }
 
-  function openEdit(row: Record<string, unknown>) {
+  function openEdit(row: AccountRow) {
     setFormError('');
     setEditId(String(row.id));
     setForm({
@@ -161,60 +169,132 @@ export function AccountsListPage() {
     }
   }
 
+  const columns: EntityListColumn<AccountRow>[] = useMemo(
+    () => [
+      {
+        id: 'account',
+        header: 'Account',
+        render: (row) => {
+          const name = displayName(row, ['account_name', 'name'], 'Account');
+          const type = String(row.account_type || '').trim();
+          return (
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{name}</span>
+                <span className="el-customer-sub">{type || 'No type'}</span>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'balance',
+        header: 'Balance',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => formatMoney(Number(row.balance ?? row.current_balance ?? 0)),
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => {
+          const inactive = row.is_active === false;
+          return (
+            <span className={inactive ? 'el-muted' : undefined}>
+              {[
+                row.is_store_account ? 'Store' : null,
+                inactive ? 'Inactive' : 'Active',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          );
+        },
+      },
+    ],
+    [],
+  );
+
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Finance"
         title="Accounts"
-        countLabel="accounts"
-        count={filtered.length}
-        primaryLabel="Add Account"
-        onPrimary={openAdd}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'account_name', label: 'Name' },
-          { value: 'account_type', label: 'Type' },
-          { value: 'balance', label: 'Balance' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
+        count={`${filtered.length} ${filtered.length === 1 ? 'account' : 'accounts'}`}
+        actions={
+          <Button type="button" onClick={openAdd}>
+            Add Account
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.active_only || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, active_only: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'yes', label: 'Active' },
+              { id: 'no', label: 'Inactive' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['active_only']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'account_name', label: 'Name' },
+              { value: 'account_type', label: 'Type' },
+              { value: 'balance', label: 'Balance' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
 
-      {isLoading && <p>Loading…</p>}
+      {isLoading ? <EntityListLoading>Loading accounts…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load accounts.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No accounts found.</p>}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No accounts found.</strong>
+        </EntityListEmpty>
+      ) : null}
 
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={displayName(row, ['account_name', 'name'], 'Account')}
-            captions={[
-              String(row.account_type || ''),
-              formatMoney(Number(row.balance ?? row.current_balance ?? 0)),
-            ]}
-            badges={[
-              ...(row.is_store_account ? [{ label: 'Store', tone: 'blue' as const }] : []),
-              {
-                label: row.is_active === false ? 'Inactive' : 'Active',
-                tone: row.is_active === false ? ('gray' as const) : ('green' as const),
-              },
-            ]}
-            onEdit={() => openEdit(row)}
-            onView={() => navigate(`/finance/accounts/${row.id}`)}
-          />
-        ))}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions
+              onOpen={() => navigate(`/finance/accounts/${row.id}`)}
+              onEdit={() => openEdit(row)}
+            />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         title={dialog === 'edit' ? 'Edit Account' : 'Add Account'}
@@ -288,7 +368,7 @@ export function AccountsListPage() {
           </label>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 

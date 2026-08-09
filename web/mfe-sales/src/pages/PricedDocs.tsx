@@ -19,9 +19,17 @@ import {
   Button,
   EntityCard,
   EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -30,6 +38,7 @@ import {
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
@@ -37,6 +46,16 @@ import { asCaption, extractError, formatMoney } from '../utils';
 
 const DEFAULT_FILTERS = { number: '', customer_name: '', status: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'created_at', desc: true }];
+const STATUS_CHIPS = [
+  { id: 'all', label: 'All' },
+  { id: 'Draft', label: 'Draft' },
+  { id: 'Sent', label: 'Sent' },
+  { id: 'Accepted', label: 'Accepted' },
+  { id: 'Rejected', label: 'Rejected' },
+  { id: 'Expired', label: 'Expired' },
+  { id: 'Converted', label: 'Converted' },
+  { id: 'Cancelled', label: 'Cancelled' },
+];
 
 function CreatePricedModal({
   open,
@@ -172,7 +191,7 @@ export function EstimatesListPage() {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.estimate_number, filters.number)) return false;
       if (!matchesRegex(row.customer_name, filters.customer_name)) return false;
-      if (!matchesRegex(row.status, filters.status)) return false;
+      if (filters.status && String(row.status) !== filters.status) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -181,54 +200,120 @@ export function EstimatesListPage() {
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
 
+  type EstimateRow = (typeof data)[number];
+
+  const columns: EntityListColumn<EstimateRow>[] = useMemo(
+    () => [
+      {
+        id: 'number',
+        header: '#',
+        render: (row) => (
+          <span className="el-customer-name">
+            {asCaption(row.estimate_number) || String(row.id)}
+          </span>
+        ),
+      },
+      {
+        id: 'customer',
+        header: 'Customer',
+        render: (row) => asCaption(row.customer_name) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'amount',
+        header: 'Amount',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
+      },
+    ],
+    [],
+  );
+
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Sales"
         title="Estimates"
-        countLabel="estimates"
-        count={filtered.length}
-        primaryLabel="New estimate"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'created_at', label: 'Created' },
-          { value: 'estimate_number', label: '#' },
-          { value: 'status', label: 'Status' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load estimates.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No estimates found.</p>}
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={asCaption(row.estimate_number) || String(row.id)}
-            captions={[
-              asCaption(row.customer_name),
-              asCaption(row.status),
-              formatMoney(Number(row.total_amount ?? 0)),
-            ]}
-            onView={() => navigate(`/sales/estimates/${row.id}`)}
+        count={`${filtered.length} ${filtered.length === 1 ? 'estimate' : 'estimates'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setOpen(true);
+            }}
+          >
+            New estimate
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={STATUS_CHIPS}
           />
-        ))}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'created_at', label: 'Created' },
+              { value: 'estimate_number', label: '#' },
+              { value: 'status', label: 'Status' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading estimates…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load estimates.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No estimates found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/sales/estimates/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+
       <CreatePricedModal
         open={open}
         title="New estimate"
@@ -245,7 +330,7 @@ export function EstimatesListPage() {
           }
         }}
       />
-    </div>
+    </EntityListPage>
   );
 }
 
@@ -272,7 +357,7 @@ export function QuotationsListPage() {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.quotation_number, filters.number)) return false;
       if (!matchesRegex(row.customer_name, filters.customer_name)) return false;
-      if (!matchesRegex(row.status, filters.status)) return false;
+      if (filters.status && String(row.status) !== filters.status) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -281,54 +366,120 @@ export function QuotationsListPage() {
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
 
+  type QuotationRow = (typeof data)[number];
+
+  const columns: EntityListColumn<QuotationRow>[] = useMemo(
+    () => [
+      {
+        id: 'number',
+        header: '#',
+        render: (row) => (
+          <span className="el-customer-name">
+            {asCaption(row.quotation_number) || String(row.id)}
+          </span>
+        ),
+      },
+      {
+        id: 'customer',
+        header: 'Customer',
+        render: (row) => asCaption(row.customer_name) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'amount',
+        header: 'Amount',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
+      },
+    ],
+    [],
+  );
+
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Sales"
         title="Quotations"
-        countLabel="quotations"
-        count={filtered.length}
-        primaryLabel="New quotation"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'created_at', label: 'Created' },
-          { value: 'quotation_number', label: '#' },
-          { value: 'status', label: 'Status' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load quotations.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No quotations found.</p>}
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={asCaption(row.quotation_number) || String(row.id)}
-            captions={[
-              asCaption(row.customer_name),
-              asCaption(row.status),
-              formatMoney(Number(row.total_amount ?? 0)),
-            ]}
-            onView={() => navigate(`/sales/quotations/${row.id}`)}
+        count={`${filtered.length} ${filtered.length === 1 ? 'quotation' : 'quotations'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setOpen(true);
+            }}
+          >
+            New quotation
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={STATUS_CHIPS}
           />
-        ))}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'created_at', label: 'Created' },
+              { value: 'quotation_number', label: '#' },
+              { value: 'status', label: 'Status' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading quotations…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load quotations.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No quotations found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/sales/quotations/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+
       <CreatePricedModal
         open={open}
         title="New quotation"
@@ -345,7 +496,7 @@ export function QuotationsListPage() {
           }
         }}
       />
-    </div>
+    </EntityListPage>
   );
 }
 

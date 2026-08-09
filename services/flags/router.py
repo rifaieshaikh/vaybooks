@@ -1,4 +1,4 @@
-"""Feature flags API (behind gateway)."""
+"""Feature flags API (behind gateway). Proxies modules from org entitlement."""
 
 from __future__ import annotations
 
@@ -31,12 +31,34 @@ class ModulesUpdateRequest(BaseModel):
     modules: List[str] = Field(default_factory=list)
 
 
+def _entitlement_modules() -> List[str] | None:
+    try:
+        from packages.services_kit.access_container import get_access_container
+
+        ent = get_access_container().plans.get_org_entitlement()
+        if ent is None:
+            return None
+        return list(ent.enabled_modules or [])
+    except Exception:
+        return None
+
+
 @router.get("/modules", response_model=ModulesResponse)
 def get_modules() -> ModulesResponse:
+    mods = _entitlement_modules()
+    if mods is not None:
+        return ModulesResponse(modules=mods)
     return ModulesResponse(modules=flags_service.get_enabled_modules())
 
 
 @router.post("/modules", response_model=ModulesResponse)
 def set_modules(body: ModulesUpdateRequest) -> ModulesResponse:
-    flags_service.set_enabled_modules(body.modules)
-    return ModulesResponse(modules=flags_service.get_enabled_modules())
+    try:
+        from packages.services_kit.access_container import get_access_container
+
+        ent = get_access_container().plans.set_enabled_modules(body.modules)
+        flags_service.set_enabled_modules(list(ent.enabled_modules or []))
+        return ModulesResponse(modules=list(ent.enabled_modules or []))
+    except Exception:
+        flags_service.set_enabled_modules(body.modules)
+        return ModulesResponse(modules=flags_service.get_enabled_modules())

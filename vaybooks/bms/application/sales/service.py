@@ -2451,6 +2451,63 @@ class SalesAppService:
                 )
         return rows
 
+    def customer_product_history(
+        self, customer_id: str, *, limit: int = 200
+    ) -> list[dict]:
+        """Flatten sales-invoice product lines for one customer (newest first)."""
+        if not (customer_id or "").strip():
+            return []
+        account = self._accounting.get_customer_account(customer_id)
+        if not account:
+            return []
+        account_id = account.id
+        rows: list[dict] = []
+        for voucher in self._accounting.list_vouchers_by_type(VoucherType.SALES_INVOICE):
+            if not self._accounting._voucher_touches_account(voucher, account_id):
+                continue
+            sale_date = voucher.voucher_date
+            if hasattr(sale_date, "date") and callable(sale_date.date):
+                sale_date = sale_date.date()
+            description = voucher.description or ""
+            items, _, _ = parse_sales_line_items_note(description)
+            if not items:
+                continue
+            store_number = parse_store_invoice_number(description)
+            doc_number = (
+                store_number
+                or getattr(voucher, "voucher_number", None)
+                or ""
+            )
+            for item in items:
+                qty = float(item.get("qty") or 0)
+                rate = float(item.get("rate") or 0)
+                line_total = item.get("line_total")
+                if line_total is None:
+                    amount = round(qty * rate, 2)
+                else:
+                    amount = round(float(line_total), 2)
+                rows.append(
+                    {
+                        "date": sale_date.isoformat()
+                        if hasattr(sale_date, "isoformat")
+                        else str(sale_date or ""),
+                        "doc_type": "sales_invoice",
+                        "doc_number": doc_number,
+                        "product_id": str(item.get("product_id") or ""),
+                        "product_name": str(
+                            item.get("item_name")
+                            or item.get("description")
+                            or ""
+                        ),
+                        "sku": str(item.get("sku") or ""),
+                        "qty": qty,
+                        "rate": rate,
+                        "amount": amount,
+                    }
+                )
+        rows.sort(key=lambda r: (r.get("date") or "", r.get("doc_number") or ""), reverse=True)
+        return rows[: max(int(limit or 200), 0)]
+
     def related_document_counts(
         self, customer_id: str, *, customer_account_id: str = ""
     ) -> dict:
@@ -2732,6 +2789,53 @@ class SalesAppService:
             return []
         return self._customer_price_repo.list_for_pair(
             customer_id, product_id, limit=limit
+        )
+
+    def create_customer_price(
+        self,
+        *,
+        customer_id: str,
+        product_id: str,
+        rate: float,
+        effective_date: Optional[date] = None,
+        customer_name: str = "",
+        sku: str = "",
+        product_name: str = "",
+    ) -> CustomerPriceEntry:
+        """Manually record a customer-specific rate (web / inventory UI)."""
+        if not self._customer_price_repo:
+            raise ValueError("Customer price repository is not configured")
+        customer_id = (customer_id or "").strip()
+        product_id = (product_id or "").strip()
+        if not customer_id or not product_id:
+            raise ValueError("customer_id and product_id are required")
+        rate = round(float(rate or 0), 2)
+        if rate <= 0:
+            raise ValueError("rate must be greater than zero")
+        effective = effective_date or date.today()
+        if isinstance(effective, datetime):
+            effective = effective.date()
+        name = (customer_name or "").strip()
+        if not name and self._customer_service:
+            detail = self._customer_service.get_customer_detail(customer_id)
+            if detail is not None:
+                name = getattr(detail, "customer_name", "") or ""
+        product_sku = (sku or "").strip()
+        product_label = (product_name or "").strip()
+        product = self._inventory.get_product(product_id) if self._inventory else None
+        if product is not None:
+            product_sku = product_sku or (getattr(product, "sku", "") or "")
+            product_label = product_label or (getattr(product, "name", "") or "")
+        return self._customer_price_repo.save(
+            CustomerPriceEntry(
+                customer_id=customer_id,
+                customer_name=name,
+                product_id=product_id,
+                sku=product_sku,
+                product_name=product_label,
+                rate=rate,
+                effective_date=effective,
+            )
         )
 
     def _record_customer_prices_from_invoice(

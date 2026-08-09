@@ -7,6 +7,8 @@ export {
   useLogoutMutation,
   useGetSetupStatusQuery,
   useCompleteSetupMutation,
+  useGetOrgEntitlementQuery,
+  useSetOrgModulesMutation,
   useMeQuery,
   useGetWorkingLocationQuery,
   useSetWorkingLocationMutation,
@@ -53,6 +55,10 @@ export {
   useBlacklistCustomerMutation,
   useGetCustomerSummaryQuery,
   useSettleCustomerMutation,
+  useGetSalesCustomerRelatedSummaryQuery,
+  useGetSalesCustomerProductHistoryQuery,
+  useGetBoutiqueCustomerRelatedSummaryQuery,
+  useGetProjectsCustomerRelatedSummaryQuery,
   useListVendorsQuery,
   useCreateVendorMutation,
   useGetVendorQuery,
@@ -376,7 +382,21 @@ export {
   useSetAccessFeatureFlagMutation,
   useListAccessAuditLogsQuery,
 } from './api';
-export { setSession, setWorkingLocationId, clearSession } from './sessionSlice';
+export {
+  setSession,
+  setPermissions,
+  setEnabledModules,
+  setWorkingLocationId,
+  clearSession,
+} from './sessionSlice';
 export type { SessionState } from './sessionSlice';
+export {
+  canPermission,
+  moduleEnabled,
+  useCan,
+  useModuleEnabled,
+  usePermissions,
+  useEnabledModules,
+} from './permissions';
 export { setLicenseStatus } from './licenseSlice';
 export type { LicenseState, LicenseStatus } from './licenseSlice';

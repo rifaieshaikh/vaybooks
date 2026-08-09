@@ -87,7 +87,18 @@ PERMISSIONS: Tuple[str, ...] = tuple(
         "core.dashboard.view",
         "core.mtd.view",
         # Parties
-        *_expand("parties.customers", ("view", "create", "edit")),
+        *_expand(
+            "parties.customers",
+            (
+                "view",
+                "create",
+                "edit",
+                "blacklist",
+                "finance.view",
+                "finance.settle",
+                "insights.view",
+            ),
+        ),
         *_expand("parties.vendors", ("view", "create", "edit")),
         *_expand("parties.delivery_partners", ("view", "create", "edit")),
         *_expand("parties.commission_agents", ("view", "create", "edit")),
@@ -565,6 +576,7 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
         "permission_keys": _role_perms(
             "core.*",
             "parties.customers.view",
+            "parties.customers.insights.view",
             "projects.enquiries.*",
             "projects.projects.view",
             "projects.projects.create",
@@ -585,6 +597,7 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
         "permission_keys": _role_perms(
             "core.*",
             "parties.customers.view",
+            "parties.customers.insights.view",
             "projects.enquiries.view",
             "projects.projects.view",
             "projects.ra_bills.view",
@@ -604,6 +617,7 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
         "permission_keys": _role_perms(
             "core.*",
             "parties.customers.view",
+            "parties.customers.insights.view",
             "parties.vendors.view",
             "parties.delivery_partners.view",
             "parties.employees.view",
@@ -856,6 +870,8 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
             "parties.customers.view",
             "parties.customers.create",
             "parties.customers.edit",
+            "parties.customers.insights.view",
+            "parties.customers.finance.view",
             "crm.dashboard.view",
             "crm.leads.view",
             "crm.leads.create",
@@ -924,6 +940,8 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
         "permission_keys": _role_perms(
             "core.dashboard.view",
             "parties.customers.view",
+            "parties.customers.finance.view",
+            "parties.customers.finance.settle",
             "crm.dashboard.view",
             "crm.records.view_all",
             "crm.activities.*",

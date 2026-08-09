@@ -1,10 +1,17 @@
 import { FormRow, TextInput } from '@vaybooks/ui-kit';
+import type { CSSProperties } from 'react';
 import {
   LocationIdsField,
   PartyAddressTaxFields,
   parseLocationIds,
   type PartyFormValues,
 } from './PartyFields';
+
+const responsiveRow: CSSProperties = {
+  display: 'grid',
+  gap: 10,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+};
 
 export function CustomerFormFields({
   values,
@@ -20,68 +27,94 @@ export function CustomerFormFields({
     .map((s) => s.trim())
     .filter(Boolean);
 
+  function toggleSegment(id: string) {
+    const set = new Set(selectedSegments);
+    if (set.has(id)) set.delete(id);
+    else set.add(id);
+    onChange('segment_ids', Array.from(set).join(','));
+  }
+
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <FormRow label="Customer Name *">
-          <TextInput
-            value={values.customer_name || ''}
-            onChange={(e) => onChange('customer_name', e.target.value)}
-            required
-          />
-        </FormRow>
-        <FormRow label="Contact Person">
-          <TextInput
-            value={values.contact_person || ''}
-            onChange={(e) => onChange('contact_person', e.target.value)}
-          />
-        </FormRow>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-        <FormRow label="Phone Number *">
-          <TextInput
-            value={values.phone_number || ''}
-            placeholder="10-digit mobile"
-            onChange={(e) => onChange('phone_number', e.target.value)}
-            required
-          />
-        </FormRow>
-        <FormRow label="Alternate Phone">
-          <TextInput
-            value={values.alternate_phone_number || ''}
-            onChange={(e) => onChange('alternate_phone_number', e.target.value)}
-          />
-        </FormRow>
-        <FormRow label="Email">
-          <TextInput value={values.email || ''} onChange={(e) => onChange('email', e.target.value)} />
-        </FormRow>
-      </div>
+    <div style={{ display: 'grid', gap: 14 }}>
+      <section style={{ display: 'grid', gap: 10 }}>
+        <div style={{ fontWeight: 600, color: '#185c4c' }}>Identity</div>
+        <div style={responsiveRow}>
+          <FormRow label="Customer Name *">
+            <TextInput
+              value={values.customer_name || ''}
+              onChange={(e) => onChange('customer_name', e.target.value)}
+              required
+            />
+          </FormRow>
+          <FormRow label="Contact Person">
+            <TextInput
+              value={values.contact_person || ''}
+              onChange={(e) => onChange('contact_person', e.target.value)}
+            />
+          </FormRow>
+        </div>
+      </section>
 
-      <PartyAddressTaxFields values={values} onChange={onChange} />
+      <section style={{ display: 'grid', gap: 10 }}>
+        <div style={{ fontWeight: 600, color: '#185c4c' }}>Contact</div>
+        <div style={responsiveRow}>
+          <FormRow label="Phone Number *">
+            <TextInput
+              value={values.phone_number || ''}
+              placeholder="10-digit mobile"
+              onChange={(e) => onChange('phone_number', e.target.value)}
+              required
+            />
+          </FormRow>
+          <FormRow label="Alternate Phone">
+            <TextInput
+              value={values.alternate_phone_number || ''}
+              onChange={(e) => onChange('alternate_phone_number', e.target.value)}
+            />
+          </FormRow>
+          <FormRow label="Email">
+            <TextInput value={values.email || ''} onChange={(e) => onChange('email', e.target.value)} />
+          </FormRow>
+        </div>
+      </section>
 
-      <FormRow label="Segments">
+      <section style={{ display: 'grid', gap: 10 }}>
+        <div style={{ fontWeight: 600, color: '#185c4c' }}>Address & tax</div>
+        <PartyAddressTaxFields values={values} onChange={onChange} />
+      </section>
+
+      <section style={{ display: 'grid', gap: 10 }}>
+        <div style={{ fontWeight: 600, color: '#185c4c' }}>Segments</div>
         {segmentOptions.length === 0 ? (
           <div style={{ fontSize: 13, color: '#667' }}>
             No party segments defined yet. Add them under Parties → Segments.
           </div>
         ) : (
-          <select
-            multiple
-            value={selectedSegments}
-            onChange={(e) => {
-              const ids = Array.from(e.target.selectedOptions).map((o) => o.value);
-              onChange('segment_ids', ids.join(','));
-            }}
-            style={{ minHeight: 88, padding: 6, borderRadius: 4, border: '1px solid #ccc' }}
-          >
-            {segmentOptions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {segmentOptions.map((s) => {
+              const on = selectedSegments.includes(s.id);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => toggleSegment(s.id)}
+                  style={{
+                    border: `1px solid ${on ? '#185c4c' : '#c5d4ce'}`,
+                    background: on ? '#eef6f2' : '#fff',
+                    color: '#185c4c',
+                    borderRadius: 999,
+                    padding: '0.25rem 0.7rem',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {s.name}
+                </button>
+              );
+            })}
+          </div>
         )}
-      </FormRow>
+      </section>
 
       <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14 }}>
         <input
@@ -107,14 +140,23 @@ export function CustomerFormFields({
   );
 }
 
+export function validateCustomerForm(v: PartyFormValues): string | null {
+  if (!(v.customer_name || '').trim()) return 'Customer name is required.';
+  const digits = (v.phone_number || '').replace(/\D/g, '');
+  if (digits.length < 10) return 'Enter a valid phone number (at least 10 digits).';
+  const email = (v.email || '').trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Enter a valid email address.';
+  return null;
+}
+
 export function customerBody(v: PartyFormValues) {
   const segment_ids = (v.segment_ids || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
   return {
-    customer_name: v.customer_name || '',
-    phone_number: v.phone_number || '',
+    customer_name: (v.customer_name || '').trim(),
+    phone_number: (v.phone_number || '').trim(),
     alternate_phone_number: v.alternate_phone_number || undefined,
     email: v.email || '',
     contact_person: v.contact_person || '',

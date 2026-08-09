@@ -670,7 +670,7 @@ class OrderAppService:
         return self._order_repo.list_recent_by_customer(customer_id, limit)
 
     def get_customer_summary(self, customer_id: str) -> dict:
-        """Order counts and total invoiced for one customer (aggregated)."""
+        """Order counts, invoiced total, margin, hours, and avg MPH for one customer."""
         return self._order_repo.get_customer_summary(customer_id)
 
     def order_counts_by_customer(self) -> dict:

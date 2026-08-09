@@ -309,12 +309,13 @@ class MongoOrderRepository:
         return [self._from_doc(d) for d in docs]
 
     def get_customer_summary(self, customer_id: str) -> dict:
-        """Order counts and total invoiced for one customer via aggregation.
+        """Order counts, invoiced total, and avg MPH for one customer.
 
-        Invoices only store ``order_id``, so total invoiced is computed by
-        joining orders to invoices with ``$lookup`` instead of N per-order
-        queries. ``total_invoiced`` mirrors ``Invoice.net_amount`` (gross
-        invoice amount minus discount)."""
+        Invoices only store ``order_id``, so totals are computed by joining
+        orders to invoices with ``$lookup``. ``total_invoiced`` mirrors
+        ``Invoice.net_amount`` (gross minus discount). ``avg_mph`` is
+        Σ ``margin_amount`` ÷ Σ ``total_in_house_hours`` across invoices.
+        """
         inactive = [
             OrderStatus.DELIVERED.value,
             OrderStatus.COMPLETED.value,
@@ -336,10 +337,38 @@ class MongoOrderRepository:
                             ]
                         }
                     },
+                    "delivered_count": {
+                        "$sum": {
+                            "$cond": [
+                                {
+                                    "$eq": [
+                                        "$order_status",
+                                        OrderStatus.DELIVERED.value,
+                                    ]
+                                },
+                                1,
+                                0,
+                            ]
+                        }
+                    },
+                    "completed_count": {
+                        "$sum": {
+                            "$cond": [
+                                {
+                                    "$eq": [
+                                        "$order_status",
+                                        OrderStatus.COMPLETED.value,
+                                    ]
+                                },
+                                1,
+                                0,
+                            ]
+                        }
+                    },
                 }
             },
         ]
-        count_row = next(iter(self._collection.aggregate(count_pipeline)), None)
+        count_row = next(iter(self._collection.aggregate(count_pipeline)), None) or {}
 
         invoice_pipeline = [
             {"$match": {"customer_id": customer_id}},
@@ -363,15 +392,34 @@ class MongoOrderRepository:
                             ]
                         }
                     },
+                    "total_margin": {
+                        "$sum": {"$ifNull": ["$invoices.margin_amount", 0]}
+                    },
+                    "total_hours": {
+                        "$sum": {
+                            "$ifNull": ["$invoices.total_in_house_hours", 0]
+                        }
+                    },
                 }
             },
         ]
-        invoice_row = next(iter(self._collection.aggregate(invoice_pipeline)), None)
+        invoice_row = next(iter(self._collection.aggregate(invoice_pipeline)), None) or {}
+
+        total_margin = round(float(invoice_row.get("total_margin") or 0.0), 2)
+        total_hours = round(float(invoice_row.get("total_hours") or 0.0), 2)
+        avg_mph = (
+            round(total_margin / total_hours, 2) if total_hours > 0 else None
+        )
 
         return {
-            "order_count": (count_row or {}).get("order_count", 0),
-            "active_count": (count_row or {}).get("active_count", 0),
-            "total_invoiced": round((invoice_row or {}).get("total_invoiced", 0.0), 2),
+            "order_count": int(count_row.get("order_count") or 0),
+            "active_count": int(count_row.get("active_count") or 0),
+            "delivered_count": int(count_row.get("delivered_count") or 0),
+            "completed_count": int(count_row.get("completed_count") or 0),
+            "total_invoiced": round(float(invoice_row.get("total_invoiced") or 0.0), 2),
+            "total_margin": total_margin,
+            "total_hours": total_hours,
+            "avg_mph": avg_mph,
         }
 
     def update_order_activity(

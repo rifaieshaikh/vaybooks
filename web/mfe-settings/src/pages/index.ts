@@ -1,4 +1,5 @@
 export { BusinessSettingsPage } from './Business';
+export { DiscountsSettingsPage } from './Discounts';
 export {
   PrintSettingsPage,
   KeyboardShortcutsPage,
@@ -7,7 +8,6 @@ export {
   ProjectActivitiesSettingsPage,
   MeasurementSpecsPage,
   ServicesSettingsPage,
-  DiscountsSettingsPage,
   SettingsLocationsPage,
   CrmSettingsRedirectPage,
   ProductionSettingsLinkPage,

@@ -6,26 +6,46 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
   TextInput,
+  displayName,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
 
-const DEFAULT_FILTERS = { name: '', code: '' };
+const DEFAULT_FILTERS = { name: '', code: '', active: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'name', desc: false }];
+const FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'name', label: 'Name', type: 'text' },
+  { key: 'code', label: 'Code', type: 'text' },
+  {
+    key: 'active',
+    label: 'Active',
+    type: 'select',
+    options: [
+      { value: 'yes', label: 'Active' },
+      { value: 'no', label: 'Inactive' },
+    ],
+  },
+];
 
 export function ProductionRecipesPage() {
   const { data = [], isLoading, error, refetch } = useListRecipesQuery();
@@ -41,18 +61,12 @@ export function ProductionRecipesPage() {
   const [inputId, setInputId] = useState('');
   const [outputId, setOutputId] = useState('');
 
-  const filterFields: FilterFieldDef[] = useMemo(
-    () => [
-      { key: 'name', label: 'Name', type: 'text' },
-      { key: 'code', label: 'Code', type: 'text' },
-    ],
-    [],
-  );
-
   const filtered = useMemo(() => {
     const rows = data.filter((row) => {
       if (!matchesRegex(row.name, filters.name)) return false;
       if (!matchesRegex(row.code, filters.code)) return false;
+      if (filters.active === 'yes' && row.is_active === false) return false;
+      if (filters.active === 'no' && row.is_active !== false) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -60,6 +74,43 @@ export function ProductionRecipesPage() {
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type RecipeRow = (typeof data)[number];
+
+  const columns: EntityListColumn<RecipeRow>[] = useMemo(
+    () => [
+      {
+        id: 'name',
+        header: 'Recipe',
+        render: (row) => displayName(row, ['name'], 'Unnamed'),
+      },
+      {
+        id: 'code',
+        header: 'Code',
+        render: (row) => {
+          const codeLabel = String(row.code || '').trim();
+          return <span className={codeLabel ? undefined : 'el-muted'}>{codeLabel || '—'}</span>;
+        },
+      },
+      {
+        id: 'base_quantity',
+        header: 'Base qty',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => Number(row.base_quantity ?? 1),
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => (
+          <span className={row.is_active === false ? 'el-muted' : 'el-advance'}>
+            {row.is_active === false ? 'Inactive' : 'Active'}
+          </span>
+        ),
+      },
+    ],
+    [],
+  );
 
   async function onCreate() {
     setFormError('');
@@ -85,50 +136,80 @@ export function ProductionRecipesPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Production"
         title="Recipes"
-        countLabel="recipes"
-        count={filtered.length}
-        primaryLabel="New recipe"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof DEFAULT_FILTERS);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'name', label: 'Name' },
-          { value: 'code', label: 'Code' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
-      />
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load recipes.</ErrorText> : null}
-      <EntityCardGrid>
-        {pageRows.map((row) => (
-          <EntityCard
-            key={String(row.id)}
-            title={asCaption(row.name) || String(row.id)}
-            captions={[
-              asCaption(row.code),
-              `Base qty ${Number(row.base_quantity ?? 1)}`,
-              row.is_active === false ? 'Inactive' : 'Active',
+        count={`${filtered.length} ${filtered.length === 1 ? 'recipe' : 'recipes'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setOpen(true);
+            }}
+          >
+            New recipe
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.active || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, active: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'yes', label: 'Active' },
+              { id: 'no', label: 'Inactive' },
             ]}
           />
-        ))}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPageChange={setPage} />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={FILTER_FIELDS}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['active']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof DEFAULT_FILTERS);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'name', label: 'Name' },
+              { value: 'code', label: 'Code' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading recipes…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load recipes.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No recipes found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -183,6 +264,6 @@ export function ProductionRecipesPage() {
           </FormRow>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }

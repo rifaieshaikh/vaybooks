@@ -1,4 +1,30 @@
-import { Button, ErrorText, StatusBanner } from '@vaybooks/ui-kit';
+import {
+  Button,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
+  ErrorText,
+  FormRow,
+  PAGE_SIZE,
+  PaginationBar,
+  StatusBanner,
+  TextInput,
+  displayName,
+  formatBalance,
+  matchesRegex,
+  pageCount,
+  paginate,
+  sortRows,
+  type EntityListColumn,
+  type FilterFieldDef,
+  type SortCriterion,
+} from '@vaybooks/ui-kit';
 import {
   useCreateVendorMutation,
   useGetVendorQuery,
@@ -9,7 +35,6 @@ import {
 } from '@vaybooks/store';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMemo, useState } from 'react';
-import { FormRow, TextInput } from '@vaybooks/ui-kit';
 import {
   DisabledModuleNote,
   LocationIdsField,
@@ -18,15 +43,6 @@ import {
   type PartyFormValues,
 } from '../components/PartyFields';
 import { Modal } from '../components/Modal';
-import { PartyCard, PartyCardGrid, formatBalance } from '../components/PartyCard';
-import {
-  ListToolbar,
-  PAGE_SIZE,
-  PaginationBar,
-  type FilterFieldDef,
-  type SortCriterion,
-} from '../components/ListToolbar';
-import { displayName, matchesRegex, pageCount, paginate, sortRows } from '../components/listUtils';
 
 function vendorBody(v: PartyFormValues) {
   return {
@@ -271,65 +287,153 @@ export function VendorsListPage() {
     }
   }
 
-  return (
-    <div>
-      <ListToolbar
-        title="Vendors"
-        countLabel="vendors"
-        count={filtered.length}
-        primaryLabel="Add Vendor"
-        onPrimary={() => {
-          setValues(emptyVendor());
-          setEditId(null);
-          setFormError('');
-          setDialog('add');
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_VENDOR_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_VENDOR_SORT}
-        sortOptions={[
-          { value: 'created_at', label: 'Created' },
-          { value: 'vendor_name', label: 'Vendor name' },
-          { value: 'current_balance', label: 'Payable balance' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
-      />
+  type VendorRow = (typeof data)[number];
 
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load vendors.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No vendors found.</p>}
+  function openEdit(row: VendorRow) {
+    setEditId(String(row.id));
+    setValues(vendorToForm(row));
+    setFormError('');
+    setDialog('edit');
+  }
 
-      <PartyCardGrid>
-        {pageRows.map((row) => {
-          const bal = formatBalance(Number(row.current_balance ?? 0));
+  const columns: EntityListColumn<VendorRow>[] = useMemo(
+    () => [
+      {
+        id: 'vendor',
+        header: 'Vendor',
+        render: (row) => {
+          const name = displayName(row, ['vendor_name'], 'Unnamed vendor');
           const phone = String(row.phone_number || '').trim();
           return (
-            <PartyCard
-              key={String(row.id)}
-              title={displayName(row, ['vendor_name'], 'Unnamed vendor')}
-              captions={[phone ? `📞 ${phone}` : 'No phone on file', row.gstin ? `GSTIN: ${String(row.gstin)}` : ''].filter(Boolean)}
-              badges={[{ label: bal.label, tone: bal.tone }]}
-              onEdit={() => {
-                setEditId(String(row.id));
-                setValues(vendorToForm(row));
-                setFormError('');
-                setDialog('edit');
-              }}
-              onView={() => navigate(`/parties/vendors/${row.id}`)}
-            />
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{name}</span>
+                <span className="el-customer-sub">{phone || 'No phone on file'}</span>
+              </div>
+            </div>
           );
-        })}
-      </PartyCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+        },
+      },
+      {
+        id: 'balance',
+        header: 'Payable',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => {
+          const bal = formatBalance(Number(row.current_balance ?? 0));
+          const tone =
+            bal.tone === 'red' ? 'el-due' : bal.tone === 'green' ? 'el-advance' : 'el-settled';
+          return <span className={tone}>{bal.label}</span>;
+        },
+      },
+      {
+        id: 'gstin',
+        header: 'GSTIN',
+        render: (row) => {
+          const gstin = String(row.gstin || '').trim();
+          return (
+            <span className={gstin ? 'el-gstin' : 'el-muted'} title={gstin || undefined}>
+              {gstin || '—'}
+            </span>
+          );
+        },
+      },
+    ],
+    [],
+  );
+
+  return (
+    <EntityListPage>
+      <EntityListHero
+        kicker="Parties"
+        title="Vendors"
+        count={`${filtered.length} ${filtered.length === 1 ? 'vendor' : 'vendors'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setValues(emptyVendor());
+              setEditId(null);
+              setFormError('');
+              setDialog('add');
+            }}
+          >
+            Add Vendor
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Balance"
+            value={filters.balance_state || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({
+                ...prev,
+                balance_state: id === 'all' ? '' : id,
+              }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'dr', label: 'Payable' },
+              { id: 'cr', label: 'Advance' },
+              { id: 'zero', label: 'Settled' },
+            ]}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_VENDOR_FILTERS}
+            excludeKeys={['balance_state']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_VENDOR_SORT}
+            sortOptions={[
+              { value: 'created_at', label: 'Created' },
+              { value: 'vendor_name', label: 'Vendor name' },
+              { value: 'current_balance', label: 'Payable balance' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
+      />
+
+      {isLoading ? <EntityListLoading>Loading vendors…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load vendors.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No vendors found.</strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions
+              onOpen={() => navigate(`/parties/vendors/${row.id}`)}
+              onEdit={() => openEdit(row)}
+            />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         title={dialog === 'edit' ? 'Edit Vendor' : 'Add Vendor'}
@@ -349,7 +453,7 @@ export function VendorsListPage() {
         {formError ? <ErrorText>{formError}</ErrorText> : null}
         <VendorFormFields values={values} onChange={(n, v) => setValues((p) => ({ ...p, [n]: v }))} segmentOptions={segmentOptions} />
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 

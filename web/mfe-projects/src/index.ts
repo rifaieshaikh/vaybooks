@@ -11,4 +11,5 @@ export {
   ProjectsReportsPage,
   ProjectsScheduledReportsPage,
   ProjectsSettingsPage,
+  ProjectsCalendarPage,
 } from './pages';

@@ -10,11 +10,17 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFilterSort,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
   ErrorText,
   FormRow,
-  ListToolbar,
   Modal,
   PAGE_SIZE,
   PaginationBar,
@@ -23,13 +29,24 @@ import {
   pageCount,
   paginate,
   sortRows,
+  type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError, formatMoney } from '../utils';
 
-const DEFAULT_FILTERS = { vendor_bill_number: '', vendor_name: '', voucher_number: '' };
+const DEFAULT_FILTERS = {
+  vendor_bill_number: '',
+  vendor_name: '',
+  voucher_number: '',
+  has_voucher: '',
+};
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'bill_date', desc: true }];
+const VOUCHER_CHIPS = [
+  { id: 'all', label: 'All' },
+  { id: 'yes', label: 'Has voucher' },
+  { id: 'no', label: 'No voucher' },
+];
 
 export function PurchaseBillsListPage() {
   const navigate = useNavigate();
@@ -65,6 +82,9 @@ export function PurchaseBillsListPage() {
       if (!matchesRegex(row.vendor_bill_number, filters.vendor_bill_number)) return false;
       if (!matchesRegex(row.vendor_name || row.party_name, filters.vendor_name)) return false;
       if (!matchesRegex(row.voucher_number, filters.voucher_number)) return false;
+      const hasVoucher = Boolean(String(row.voucher_number || '').trim());
+      if (filters.has_voucher === 'yes' && !hasVoucher) return false;
+      if (filters.has_voucher === 'no' && hasVoucher) return false;
       return true;
     });
     return sortRows(rows, sort);
@@ -72,6 +92,51 @@ export function PurchaseBillsListPage() {
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  type BillRow = (typeof data)[number];
+
+  const columns: EntityListColumn<BillRow>[] = useMemo(
+    () => [
+      {
+        id: 'bill',
+        header: 'Bill #',
+        render: (row) => {
+          const title =
+            asCaption(row.vendor_bill_number) || asCaption(row.voucher_number) || String(row.id);
+          const desc = asCaption(row.description || row.caption);
+          return (
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{title}</span>
+                <span className="el-customer-sub">
+                  {asCaption(row.bill_date).slice(0, 10) || '—'}
+                  {desc && desc.length <= 80 ? ` · ${desc}` : ''}
+                </span>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'vendor',
+        header: 'Vendor',
+        render: (row) => asCaption(row.vendor_name || row.party_name) || '—',
+      },
+      {
+        id: 'voucher',
+        header: 'Voucher #',
+        render: (row) => asCaption(row.voucher_number) || '—',
+      },
+      {
+        id: 'amount',
+        header: 'Amount',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => formatMoney(Number(row.total ?? row.amount ?? 0)),
+      },
+    ],
+    [],
+  );
 
   async function onCreate() {
     setFormError('');
@@ -90,60 +155,85 @@ export function PurchaseBillsListPage() {
   }
 
   return (
-    <div>
-      <ListToolbar
+    <EntityListPage>
+      <EntityListHero
+        kicker="Purchases"
         title="Purchase Bills"
-        countLabel="bills"
-        count={filtered.length}
-        primaryLabel="New bill"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-          if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-        }}
-        filterFields={filterFields}
-        filters={filters}
-        defaultFilters={DEFAULT_FILTERS}
-        onFiltersChange={(next) => {
-          setFilters(next as typeof filters);
-          setPage(1);
-        }}
-        sort={sort}
-        defaultSort={DEFAULT_SORT}
-        sortOptions={[
-          { value: 'bill_date', label: 'Date' },
-          { value: 'total', label: 'Amount' },
-          { value: 'voucher_number', label: 'Voucher #' },
-        ]}
-        onSortChange={(next) => {
-          setSort(next);
-          setPage(1);
-        }}
+        count={`${filtered.length} ${filtered.length === 1 ? 'bill' : 'bills'}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setFormError('');
+              setOpen(true);
+              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
+            }}
+          >
+            New bill
+          </Button>
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Voucher"
+            value={filters.has_voucher || 'all'}
+            onChange={(id) => {
+              setFilters((prev) => ({ ...prev, has_voucher: id === 'all' ? '' : id }));
+              setPage(1);
+            }}
+            options={VOUCHER_CHIPS}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['has_voucher']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'bill_date', label: 'Date' },
+              { value: 'total', label: 'Amount' },
+              { value: 'voucher_number', label: 'Voucher #' },
+            ]}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
+        }
       />
 
-      {isLoading && <p>Loading…</p>}
+      {isLoading ? <EntityListLoading>Loading bills…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load bills.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 && <p>No bills found.</p>}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>No bills found.</strong>
+        </EntityListEmpty>
+      ) : null}
 
-      <EntityCardGrid>
-        {pageRows.map((row) => {
-          const desc = asCaption(row.description || row.caption);
-          return (
-            <EntityCard
-              key={String(row.id)}
-              title={asCaption(row.vendor_bill_number) || asCaption(row.voucher_number) || String(row.id)}
-              captions={[
-                asCaption(row.vendor_name || row.party_name),
-                asCaption(row.bill_date).slice(0, 10),
-                formatMoney(Number(row.total ?? row.amount ?? 0)),
-                desc && desc.length <= 80 ? desc : '',
-              ].filter(Boolean)}
-              onView={() => navigate(`/purchases/bills/${row.id}`)}
-            />
-          );
-        })}
-      </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/purchases/bills/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
 
       <Modal
         open={open}
@@ -221,7 +311,7 @@ export function PurchaseBillsListPage() {
           </div>
         </div>
       </Modal>
-    </div>
+    </EntityListPage>
   );
 }
 

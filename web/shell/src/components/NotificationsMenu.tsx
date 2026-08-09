@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Bell } from 'lucide-react';
 import { useListNotificationsQuery, useMarkNotificationReadMutation } from '@vaybooks/store';
 
 export function NotificationsMenu() {
@@ -21,18 +22,24 @@ export function NotificationsMenu() {
     <div className="vb-popover" ref={ref}>
       <button
         type="button"
-        className="vb-icon-btn"
+        className="vb-icon-btn vb-notif-btn"
         title="Notifications"
+        aria-label={count ? `Notifications (${count})` : 'Notifications'}
         aria-expanded={open}
         onClick={() => {
           setOpen((v) => !v);
           refetch();
         }}
       >
-        Bell{count ? ` (${count})` : ''}
+        <Bell size={18} strokeWidth={1.75} aria-hidden />
+        {count > 0 ? <span className="vb-notif-badge">{count > 99 ? '99+' : count}</span> : null}
       </button>
       {open && (
-        <div className="vb-popover-menu vb-popover-menu-right" role="menu" style={{ minWidth: 320, maxHeight: 420, overflow: 'auto' }}>
+        <div
+          className="vb-popover-menu vb-popover-menu-right"
+          role="menu"
+          style={{ minWidth: 320, maxHeight: 420, overflow: 'auto' }}
+        >
           <div className="vb-popover-title">Notifications</div>
           {isLoading ? <div className="vb-popover-item">Loading…</div> : null}
           {error ? <div className="vb-popover-item">Failed to load.</div> : null}
@@ -46,7 +53,11 @@ export function NotificationsMenu() {
             const body = String(row.body || row.message || '');
             const projectId = String(row.project_id || '');
             return (
-              <div key={id} className="vb-popover-item" style={{ display: 'grid', gap: 4, whiteSpace: 'normal' }}>
+              <div
+                key={id}
+                className="vb-popover-item"
+                style={{ display: 'grid', gap: 4, whiteSpace: 'normal' }}
+              >
                 <strong>{title}</strong>
                 {body ? <span className="vb-muted">{body}</span> : null}
                 <div style={{ display: 'flex', gap: 8 }}>

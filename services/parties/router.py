@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from packages.events.registry import get_event
 from packages.messaging.bus import get_bus
 from packages.services_kit.parties_container import get_parties_container
+from services.common.authz import require_permission
 from services.parties.schemas import (
     BlacklistBody,
     CommissionAgentWrite,
@@ -128,7 +129,10 @@ def health() -> dict[str, str]:
 
 
 @router.get("/customers")
-def list_customers(q: str = Query(default="")) -> list[dict[str, Any]]:
+def list_customers(
+    q: str = Query(default=""),
+    _: str = Depends(require_permission("parties.customers.view")),
+) -> list[dict[str, Any]]:
     rows = _svc().customers.search_customers(q)
     balances: dict[str, float] = {}
     try:
@@ -146,7 +150,10 @@ def list_customers(q: str = Query(default="")) -> list[dict[str, Any]]:
 
 
 @router.post("/customers", status_code=201)
-def create_customer(body: CustomerWrite) -> dict[str, Any]:
+def create_customer(
+    body: CustomerWrite,
+    _: str = Depends(require_permission("parties.customers.create")),
+) -> dict[str, Any]:
     try:
         customer = _svc().customers.create_customer(_customer_input(body))
     except Exception as exc:
@@ -159,7 +166,10 @@ def create_customer(body: CustomerWrite) -> dict[str, Any]:
 
 
 @router.get("/customers/{customer_id}")
-def get_customer(customer_id: str) -> dict[str, Any]:
+def get_customer(
+    customer_id: str,
+    _: str = Depends(require_permission("parties.customers.view")),
+) -> dict[str, Any]:
     customer = _svc().customers.get_customer_detail(customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail="customer not found")
@@ -167,7 +177,11 @@ def get_customer(customer_id: str) -> dict[str, Any]:
 
 
 @router.put("/customers/{customer_id}")
-def update_customer(customer_id: str, body: CustomerWrite) -> dict[str, Any]:
+def update_customer(
+    customer_id: str,
+    body: CustomerWrite,
+    _: str = Depends(require_permission("parties.customers.edit")),
+) -> dict[str, Any]:
     try:
         customer = _svc().customers.update_customer(customer_id, _customer_input(body))
     except Exception as exc:
@@ -176,7 +190,11 @@ def update_customer(customer_id: str, body: CustomerWrite) -> dict[str, Any]:
 
 
 @router.post("/customers/{customer_id}/blacklist")
-def blacklist_customer(customer_id: str, body: BlacklistBody) -> dict[str, Any]:
+def blacklist_customer(
+    customer_id: str,
+    body: BlacklistBody,
+    _: str = Depends(require_permission("parties.customers.blacklist")),
+) -> dict[str, Any]:
     try:
         customer = _svc().customers.set_blacklisted(
             customer_id, body.blacklisted, reason=body.reason
@@ -192,7 +210,10 @@ def blacklist_customer(customer_id: str, body: BlacklistBody) -> dict[str, Any]:
 
 
 @router.get("/customers/{customer_id}/summary")
-def customer_summary(customer_id: str) -> dict[str, Any]:
+def customer_summary(
+    customer_id: str,
+    username: str = Depends(require_permission("parties.customers.view")),
+) -> dict[str, Any]:
     customer = _svc().customers.get_customer_detail(customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail="customer not found")
@@ -202,6 +223,9 @@ def customer_summary(customer_id: str) -> dict[str, Any]:
     accounting = _svc().accounting
     credit = 0.0
     receivable = 0.0
+    advance = 0.0
+    parked_settlement = 0.0
+    open_invoice_outstanding = 0.0
     if account_id and accounting:
         try:
             credit = float(accounting.customer_credit_balance(account_id))
@@ -209,17 +233,72 @@ def customer_summary(customer_id: str) -> dict[str, Any]:
         except Exception:
             credit = max(-balance, 0.0)
             receivable = max(balance, 0.0)
-    return {
+        try:
+            advance = float(accounting.get_customer_unapplied_advance(account_id) or 0.0)
+        except Exception:
+            advance = 0.0
+        try:
+            parked_settlement = float(accounting.get_customer_parked_settlement(account_id) or 0.0)
+        except Exception:
+            parked_settlement = 0.0
+        try:
+            open_invoices = accounting.list_open_sales_invoices_for_customer(account_id) or []
+            total = 0.0
+            for inv in open_invoices:
+                if isinstance(inv, dict):
+                    total += float(inv.get("outstanding", 0.0) or 0.0)
+                else:
+                    total += float(getattr(inv, "outstanding", 0.0) or 0.0)
+            open_invoice_outstanding = total
+        except Exception:
+            open_invoice_outstanding = receivable
+
+    payload: dict[str, Any] = {
         "account_id": account_id,
-        "balance": balance,
-        "credit_balance": credit,
-        "receivable_balance": receivable,
         "extras": {"is_blacklisted": bool(customer.is_blacklisted)},
     }
 
+    from services.auth.router import _access, _load_user_by_username, _perm_key, permission_cache
+    from packages.tenancy.context import DEFAULT_ORG_ID, get_org_id
+
+    user = _load_user_by_username(username)
+    oid = getattr(user, "org_id", None) or get_org_id() or DEFAULT_ORG_ID
+    cached = permission_cache.get(_perm_key(user.username, oid)) or {}
+    cached_perms = list(cached.get("permissions") or [])
+    can_finance = "*" in cached_perms or _access().authorization.can(
+        user, "parties.customers.finance.view"
+    )
+    if can_finance:
+        payload.update(
+            {
+                "balance": balance,
+                "credit_balance": credit,
+                "receivable_balance": receivable,
+                "advance": advance,
+                "parked_settlement": parked_settlement,
+                "open_invoice_outstanding": open_invoice_outstanding,
+            }
+        )
+    else:
+        payload.update(
+            {
+                "balance": None,
+                "credit_balance": None,
+                "receivable_balance": None,
+                "advance": None,
+                "parked_settlement": None,
+                "open_invoice_outstanding": None,
+            }
+        )
+    return payload
+
 
 @router.post("/customers/{customer_id}/settle")
-def settle_customer(customer_id: str, body: SettleBody) -> dict[str, Any]:
+def settle_customer(
+    customer_id: str,
+    body: SettleBody,
+    _: str = Depends(require_permission("parties.customers.finance.settle")),
+) -> dict[str, Any]:
     acct = _svc().account_repo.find_customer_account(customer_id)
     if not acct:
         raise HTTPException(status_code=404, detail="customer account not found")

@@ -1,75 +1,36 @@
-import type { CSSProperties, ReactNode } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { clearSession, setLicenseStatus, useAppDispatch, useAppSelector, useLogoutMutation, baseApi } from '@vaybooks/store';
-import { SIDEBAR_GROUPS, TOPBAR_MENUS, type NavItem } from '../navConfig';
+import { PanelLeft } from 'lucide-react';
+import {
+  clearSession,
+  setEnabledModules,
+  setLicenseStatus,
+  setPermissions,
+  useAppDispatch,
+  useAppSelector,
+  useCan,
+  useModuleEnabled,
+  useLogoutMutation,
+  useMeQuery,
+  baseApi,
+} from '@vaybooks/store';
+import { SIDEBAR_GROUPS, navItemVisible, type NavItem } from '../navConfig';
 import { WorkingLocationMenu } from './WorkingLocationMenu';
 import { NotificationsMenu } from './NotificationsMenu';
+import { GlobalSearch } from './GlobalSearch';
+import { CreateMenu, SettingsMenu } from './TopbarOverflow';
+import { NavGlyph } from './navIcons';
 import './shellChrome.css';
 
-const linkStyle = ({ isActive }: { isActive: boolean }): CSSProperties => ({
-  display: 'block',
-  padding: '0.4rem 0.65rem',
-  borderRadius: 6,
-  textDecoration: 'none',
-  color: isActive ? 'var(--vb-color-on-primary, #fff)' : 'var(--vb-color-text, #1a1a1a)',
-  background: isActive ? 'var(--vb-color-primary, #185c4c)' : 'transparent',
-  fontSize: 13,
-  fontWeight: isActive ? 600 : 400,
-});
+const RAIL_KEY = 'vb.shell.rail';
 
-function MenuPopover({
-  label,
-  title,
-  items,
-  iconOnly,
-}: {
-  label: string;
-  title: string;
-  items: NavItem[];
-  iconOnly?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onDoc(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, []);
-
-  return (
-    <div className="vb-popover" ref={ref}>
-      <button
-        type="button"
-        className={iconOnly ? 'vb-icon-btn' : 'vb-topbar-btn'}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        title={title}
-        onClick={() => setOpen((v) => !v)}
-      >
-        {label}
-      </button>
-      {open && (
-        <div className="vb-popover-menu" role="menu">
-          <div className="vb-popover-title">{title}</div>
-          {items.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              role="menuitem"
-              className="vb-popover-item"
-              onClick={() => setOpen(false)}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+function readRailPref(): boolean {
+  try {
+    return localStorage.getItem(RAIL_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
 function AccountMenu({ displayName }: { displayName: string | null }) {
@@ -90,9 +51,14 @@ function AccountMenu({ displayName }: { displayName: string | null }) {
 
   return (
     <div className="vb-popover" ref={ref}>
-      <button type="button" className="vb-account-chip" onClick={() => setOpen((v) => !v)}>
+      <button
+        type="button"
+        className="vb-account-chip"
+        aria-label={`Account: ${name}`}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
         <span className="vb-avatar">{initial}</span>
-        <span className="vb-account-name">{name}</span>
       </button>
       {open && (
         <div className="vb-popover-menu vb-popover-menu-right" role="menu">
@@ -131,78 +97,112 @@ export function AppLayout({ children }: { children?: ReactNode }) {
   const session = useAppSelector((s) => s.session);
   const license = useAppSelector((s) => s.license.status);
   const location = useLocation();
-  const [rail, setRail] = useState(false);
+  const dispatch = useAppDispatch();
+  const can = useCan();
+  const moduleEnabled = useModuleEnabled();
+  const [rail, setRail] = useState(readRailPref);
+  const me = useMeQuery(undefined, { skip: !session.accessToken });
+  const hasPermissionList = session.permissions.length > 0;
+
+  useEffect(() => {
+    const user = me.data?.user;
+    if (!user) return;
+    const perms = user.permissions;
+    if (Array.isArray(perms)) {
+      dispatch(setPermissions(perms.map(String)));
+    }
+    const mods = user.enabled_modules;
+    if (Array.isArray(mods)) {
+      dispatch(setEnabledModules(mods.map(String)));
+    }
+  }, [me.data, dispatch]);
+
+  const filterItems = useCallback(
+    (items: NavItem[]) =>
+      items.filter((navItem) =>
+        navItemVisible(navItem, { moduleEnabled, can, hasPermissionList }),
+      ),
+    [moduleEnabled, can, hasPermissionList],
+  );
+
+  const filteredGroups = SIDEBAR_GROUPS.map((group) => ({
+    ...group,
+    items: filterItems(group.items),
+  })).filter((group) => group.items.length > 0);
+
+  function toggleRail() {
+    setRail((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(RAIL_KEY, next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
 
   return (
     <div className={`vb-shell${rail ? ' vb-shell-rail' : ''}`}>
-      <aside className="vb-sidebar">
-        <div className="vb-sidebar-header">
-          {!rail && <div className="vb-logo">VayBooks</div>}
-          {rail && <div className="vb-logo-mark">V</div>}
+      <header className="vb-topbar">
+        <div className="vb-topbar-left">
           <button
             type="button"
-            className="vb-rail-toggle"
-            title={rail ? 'Expand sidebar' : 'Collapse sidebar'}
-            onClick={() => setRail((v) => !v)}
+            className="vb-icon-btn vb-rail-toggle"
+            aria-pressed={rail}
+            aria-label={rail ? 'Expand navigation' : 'Collapse navigation'}
+            title={rail ? 'Expand navigation' : 'Collapse navigation'}
+            onClick={toggleRail}
           >
-            {rail ? '»' : '«'}
+            <PanelLeft size={18} strokeWidth={1.75} aria-hidden />
           </button>
+          <Link to="/" className="vb-topbar-brand" title="VayBooks home">
+            <img src="/logo.svg" alt="VayBooks" className="vb-topbar-logo" />
+          </Link>
         </div>
-        <nav className="vb-sidebar-nav">
-          {SIDEBAR_GROUPS.map((group) => (
-            <div key={group.header || 'home'} className="vb-nav-group">
-              {group.header && !rail ? <div className="vb-nav-caption">{group.header}</div> : null}
-              {group.items.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.to === '/'}
-                  style={linkStyle}
-                  title={item.label}
-                  className={({ isActive }) => (isActive ? 'vb-nav-link active' : 'vb-nav-link')}
-                >
-                  {rail ? item.label.slice(0, 1) : item.label}
-                </NavLink>
-              ))}
-            </div>
-          ))}
-        </nav>
-        {!rail && (
-          <div className="vb-sidebar-footer">
-            <div className="vb-sidebar-version">v0.0.1</div>
-            <div className="vb-sidebar-license">License: {license}</div>
-          </div>
-        )}
-      </aside>
 
-      <div className="vb-main">
-        <header className="vb-topbar">
-          <div className="vb-topbar-search" aria-hidden="true">
-            <span className="vb-search-icon">⌕</span>
-            <input className="vb-search-input" type="text" placeholder="Search..." disabled />
-          </div>
-          <div className="vb-topbar-actions">
-            <MenuPopover label="+ New" title={TOPBAR_MENUS.business.title} items={TOPBAR_MENUS.business.items} />
-            <MenuPopover label="Export" title={TOPBAR_MENUS.migration.title} items={TOPBAR_MENUS.migration.items} />
-            <div className="vb-topbar-divider" aria-hidden="true" />
-            <WorkingLocationMenu />
-            <NotificationsMenu />
-            <MenuPopover
-              label="Sched"
-              title={TOPBAR_MENUS.schedulers.title}
-              items={TOPBAR_MENUS.schedulers.items}
-              iconOnly
-            />
-            <MenuPopover label="Apps" title={TOPBAR_MENUS.access.title} items={TOPBAR_MENUS.access.items} iconOnly />
-            <MenuPopover
-              label="Settings"
-              title={TOPBAR_MENUS.settings.title}
-              items={TOPBAR_MENUS.settings.items}
-              iconOnly
-            />
-            <AccountMenu displayName={session.displayName} />
-          </div>
-        </header>
+        <div className="vb-topbar-center">
+          <GlobalSearch filterItems={filterItems} />
+        </div>
+
+        <div className="vb-topbar-actions">
+          <CreateMenu filterItems={filterItems} />
+          <div className="vb-topbar-divider" aria-hidden="true" />
+          <WorkingLocationMenu />
+          <NotificationsMenu />
+          <SettingsMenu filterItems={filterItems} />
+          <AccountMenu displayName={session.displayName} />
+        </div>
+      </header>
+
+      <div className="vb-shell-body">
+        <aside className="vb-sidebar">
+          <nav className="vb-sidebar-nav">
+            {filteredGroups.map((group) => (
+              <div key={group.header || 'home'} className="vb-nav-group">
+                {group.header && !rail ? <div className="vb-nav-caption">{group.header}</div> : null}
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.to === '/'}
+                    title={item.label}
+                    className={({ isActive }) => (isActive ? 'vb-nav-link active' : 'vb-nav-link')}
+                  >
+                    <NavGlyph name={item.icon} size={rail ? 20 : 18} className="vb-nav-icon" />
+                    {!rail ? <span className="vb-nav-label">{item.label}</span> : null}
+                  </NavLink>
+                ))}
+              </div>
+            ))}
+          </nav>
+          {!rail && (
+            <div className="vb-sidebar-footer">
+              <span className="vb-sidebar-meta">v0.0.1 · License: {license}</span>
+            </div>
+          )}
+        </aside>
+
         <main className="vb-content" key={location.pathname}>
           {children ?? <Outlet />}
         </main>

@@ -9,4 +9,5 @@ export {
   ProductionReportsPage,
   ProductionScheduledReportsPage,
   ProductionSettingsPage,
+  ProductionCalendarPage,
 } from './pages';

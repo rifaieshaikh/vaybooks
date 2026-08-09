@@ -8,15 +8,18 @@ import uuid
 from datetime import date, timedelta
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from packages.services_kit.boutique_container import get_boutique_container
+from services.common.authz import require_permission
 from services.parties.serialize import entity_dict
 from vaybooks.bms.domain.shared.exceptions import DomainError, ValidationError
 
 router = APIRouter(prefix="/api/boutique", tags=["boutique"])
+
+RECENT_ORDER_LIMIT = 5
 
 REPORT_TYPES = [
     "Order Pipeline",
@@ -370,6 +373,62 @@ def overview() -> dict[str, Any]:
                 {"to": "/boutique/reports", "label": "Reports"},
             ],
         }
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/customers/{customer_id}/related-summary")
+def customer_related_summary(
+    customer_id: str,
+    _: str = Depends(
+        require_permission("parties.customers.view", "boutique.orders.view")
+    ),
+) -> dict[str, Any]:
+    """Customer-scoped boutique order summary and recent orders."""
+    try:
+        orders_svc = _c().orders
+    except Exception:
+        return {"available": False}
+    if orders_svc is None:
+        return {"available": False}
+
+    try:
+        summary = dict(orders_svc.get_customer_summary(customer_id) or {})
+        recent = [
+            _order_dict(o)
+            for o in orders_svc.list_recent_by_customer(
+                customer_id, RECENT_ORDER_LIMIT
+            )
+        ]
+
+        outstanding = None
+        try:
+            from packages.services_kit.finance_container import get_finance_container
+
+            accounting = get_finance_container().accounting
+            acct = accounting.get_customer_account(customer_id) if accounting else None
+            if acct:
+                open_rows = accounting.list_open_customization_invoices_for_customer(
+                    acct.id
+                )
+                outstanding = round(
+                    sum(float(r.get("outstanding") or 0) for r in (open_rows or [])),
+                    2,
+                )
+        except Exception:
+            outstanding = None
+
+        if outstanding is not None:
+            summary["outstanding"] = outstanding
+
+        payload: dict[str, Any] = {
+            "available": True,
+            "summary": summary,
+            "recent": recent,
+        }
+        if outstanding is not None:
+            payload["outstanding"] = outstanding
+        return payload
     except Exception as exc:
         raise _http_err(exc) from exc
 

@@ -11,7 +11,6 @@ from pymongo.errors import DuplicateKeyError
 from packages.tenancy.context import DEFAULT_ORG_ID, set_org_id
 from vaybooks.bms.domain.entitlements.catalog import (
     ALL_MODULES,
-    ROLE_OWNER,
     SYSTEM_ROLE_DEFINITIONS,
 )
 from vaybooks.bms.domain.entitlements.entities import OrgEntitlement
@@ -181,6 +180,75 @@ def ensure_system_roles(db: Database) -> None:
             pass
 
 
+def upsert_primary_location(
+    db: Database,
+    org_id: str,
+    primary_location: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Create or update the org primary location; return location id."""
+    from vaybooks.bms.domain.shared.enums import LocationType
+
+    oid = (org_id or DEFAULT_ORG_ID).strip() or DEFAULT_ORG_ID
+    loc = primary_location or {}
+    code = str(loc.get("code") or "MAIN").strip() or "MAIN"
+    name = str(loc.get("name") or "Main Warehouse").strip() or "Main Warehouse"
+    address = str(loc.get("address") or "").strip()
+    try:
+        loc_type = LocationType(str(loc.get("location_type") or "Warehouse"))
+    except ValueError:
+        loc_type = LocationType.WAREHOUSE
+
+    coll = db.warehouses
+    query: Dict[str, Any] = {"code": code, "org_id": oid}
+    existing = coll.find_one(query)
+    if existing is None and oid == DEFAULT_ORG_ID:
+        # Legacy unscoped MAIN
+        existing = coll.find_one(
+            {
+                "code": code,
+                "$or": [{"org_id": {"$exists": False}}, {"org_id": ""}, {"org_id": oid}],
+            }
+        )
+    now = utc_now()
+    if existing:
+        coll.update_one(
+            {"_id": existing["_id"]},
+            {
+                "$set": {
+                    "name": name,
+                    "address": address,
+                    "location_type": loc_type.value,
+                    "org_id": oid,
+                    "is_active": True,
+                    "updated_at": now,
+                }
+            },
+        )
+        return str(existing["_id"])
+
+    location_id = uuid4().hex
+    try:
+        coll.insert_one(
+            {
+                "_id": location_id,
+                "code": code,
+                "name": name,
+                "location_type": loc_type.value,
+                "address": address,
+                "org_id": oid,
+                "is_active": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+    except DuplicateKeyError:
+        again = coll.find_one({"code": code, "org_id": oid}) or coll.find_one({"code": code})
+        if again:
+            return str(again["_id"])
+        raise
+    return location_id
+
+
 def complete_org_setup(
     db: Database,
     *,
@@ -188,8 +256,10 @@ def complete_org_setup(
     business: Dict[str, Any],
     enabled_modules: List[str],
     license_key: str = "",
+    primary_location: Optional[Dict[str, Any]] = None,
+    owner_user_id: str = "",
 ) -> OrgEntitlement:
-    """Apply business profile, modules, COA seed, mark setup_completed."""
+    """Apply business profile, modules, COA seed, primary location, mark setup_completed."""
     from vaybooks.bms.application.settings.business.service import BusinessAppService
     from vaybooks.bms.infrastructure.db.indexes import ensure_indexes
     from vaybooks.bms.infrastructure.repositories.entitlements.mongo_entitlement_repository import (
@@ -237,6 +307,24 @@ def complete_org_setup(
 
     seed_org_accounting(db, oid)
     assert_org_accounting(db, oid)
+
+    loc_id = upsert_primary_location(db, oid, primary_location)
+    if owner_user_id:
+        db.users.update_one(
+            {"_id": owner_user_id},
+            {"$addToSet": {"location_ids": loc_id}},
+        )
+    else:
+        # Sole / first owner in org
+        owner = db.users.find_one(
+            {"org_id": oid, "role_ids": "role_owner"},
+            sort=[("created_at", 1)],
+        ) or db.users.find_one({"org_id": oid})
+        if owner:
+            db.users.update_one(
+                {"_id": owner["_id"]},
+                {"$addToSet": {"location_ids": loc_id}},
+            )
 
     if license_key:
         try:

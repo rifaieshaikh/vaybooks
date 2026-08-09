@@ -86,6 +86,7 @@ export const baseApi = createApi({
     'Flags',
     'License',
     'Setup',
+    'OrgEntitlement',
     'Home',
     'Reports',
     'Settings',
@@ -118,6 +119,7 @@ export const baseApi = createApi({
           location_ids?: string[];
           role_ids?: string[];
           permissions?: string[];
+          enabled_modules?: string[];
         };
       },
       { username: string; password: string; org_id?: string }
@@ -130,6 +132,30 @@ export const baseApi = createApi({
     getSetupStatus: build.query<{ setup_completed: boolean; org_id: string }, void>({
       query: () => '/setup/status',
       providesTags: ['Setup'],
+    }),
+    getOrgEntitlement: build.query<
+      {
+        id?: string;
+        plan_id?: string;
+        enabled_modules?: string[];
+        version?: number;
+        setup_completed?: boolean;
+      },
+      void
+    >({
+      query: () => '/access/org-entitlement',
+      providesTags: ['OrgEntitlement'],
+    }),
+    setOrgModules: build.mutation<
+      {
+        id?: string;
+        enabled_modules?: string[];
+        version?: number;
+      },
+      { modules: string[] }
+    >({
+      query: (body) => ({ url: '/access/org-entitlement/modules', method: 'PUT', body }),
+      invalidatesTags: ['OrgEntitlement', 'Flags', 'AccessPlan'],
     }),
     completeSetup: build.mutation<
       { setup_completed: boolean; org_id: string; idempotent?: boolean },
@@ -145,10 +171,16 @@ export const baseApi = createApi({
         };
         enabled_modules: string[];
         license_key?: string;
+        primary_location?: {
+          code?: string;
+          name?: string;
+          location_type?: string;
+          address?: string;
+        };
       }
     >({
       query: (body) => ({ url: '/setup/complete', method: 'POST', body }),
-      invalidatesTags: ['Setup', 'BusinessProfile', 'AccessPlan', 'Flags'],
+      invalidatesTags: ['Setup', 'BusinessProfile', 'AccessPlan', 'Flags', 'OrgEntitlement', 'Inventory'],
     }),
     me: build.query<{ user: Record<string, unknown> }, void>({
       query: () => '/auth/me',
@@ -317,8 +349,19 @@ export const baseApi = createApi({
       query: ({ id, body }) => ({ url: `/settings/services/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['VendorService'],
     }),
-    listDiscountRules: build.query<Record<string, unknown>[], void>({
-      query: () => '/settings/discounts',
+    listDiscountRules: build.query<
+      Record<string, unknown>[],
+      { customer_id?: string; active_only?: boolean } | void
+    >({
+      query: (args) => ({
+        url: '/settings/discounts',
+        params: args
+          ? {
+              ...(args.customer_id ? { customer_id: args.customer_id } : {}),
+              ...(args.active_only != null ? { active_only: args.active_only } : {}),
+            }
+          : undefined,
+      }),
       providesTags: ['DiscountRule'],
     }),
     createDiscountRule: build.mutation<Record<string, unknown>, Record<string, unknown>>({
@@ -380,14 +423,32 @@ export const baseApi = createApi({
     }),
     settleCustomer: build.mutation<
       Record<string, unknown>,
-      { id: string; amount: number; mode?: string; reason?: string }
+      { id: string; amount: number; mode?: string; reason?: string; voucher_date?: string }
     >({
-      query: ({ id, amount, mode, reason }) => ({
+      query: ({ id, amount, mode, reason, voucher_date }) => ({
         url: `/parties/customers/${id}/settle`,
         method: 'POST',
-        body: { amount, mode: mode || 'park', reason: reason || '' },
+        body: {
+          amount,
+          mode: mode || 'park',
+          reason: reason || '',
+          ...(voucher_date ? { voucher_date } : {}),
+        },
       }),
       invalidatesTags: ['Customer'],
+    }),
+
+    getSalesCustomerRelatedSummary: build.query<Record<string, unknown>, string>({
+      query: (id) => `/sales/customers/${id}/related-summary`,
+    }),
+    getSalesCustomerProductHistory: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/sales/customers/${id}/product-history`,
+    }),
+    getBoutiqueCustomerRelatedSummary: build.query<Record<string, unknown>, string>({
+      query: (id) => `/boutique/customers/${id}/related-summary`,
+    }),
+    getProjectsCustomerRelatedSummary: build.query<Record<string, unknown>, string>({
+      query: (id) => `/projects/customers/${id}/related-summary`,
     }),
 
     listVendors: build.query<Record<string, unknown>[], { q?: string } | void>({
@@ -929,8 +990,14 @@ export const baseApi = createApi({
       query: (args) => ({ url: '/inventory/units', params: args || undefined }),
       providesTags: ['Inventory'],
     }),
-    listCustomerPrices: build.query<Record<string, unknown>[], void>({
-      query: () => '/inventory/customer-prices',
+    listCustomerPrices: build.query<
+      Record<string, unknown>[],
+      { customer_id?: string } | void
+    >({
+      query: (args) => ({
+        url: '/inventory/customer-prices',
+        params: args?.customer_id ? { customer_id: args.customer_id } : undefined,
+      }),
       providesTags: ['Inventory'],
     }),
     createCustomerPrice: build.mutation<Record<string, unknown>, Record<string, unknown>>({
@@ -2209,6 +2276,8 @@ export const {
   useLogoutMutation,
   useGetSetupStatusQuery,
   useCompleteSetupMutation,
+  useGetOrgEntitlementQuery,
+  useSetOrgModulesMutation,
   useMeQuery,
   useGetWorkingLocationQuery,
   useSetWorkingLocationMutation,
@@ -2255,6 +2324,10 @@ export const {
   useBlacklistCustomerMutation,
   useGetCustomerSummaryQuery,
   useSettleCustomerMutation,
+  useGetSalesCustomerRelatedSummaryQuery,
+  useGetSalesCustomerProductHistoryQuery,
+  useGetBoutiqueCustomerRelatedSummaryQuery,
+  useGetProjectsCustomerRelatedSummaryQuery,
   useListVendorsQuery,
   useCreateVendorMutation,
   useGetVendorQuery,

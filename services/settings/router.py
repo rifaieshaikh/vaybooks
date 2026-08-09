@@ -5,11 +5,12 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from packages.services_kit.settings_container import get_settings_container
+from services.common.authz import require_permission
 from services.parties.serialize import entity_dict
 from vaybooks.bms.domain.sales.discount_entities import DiscountRule
 from vaybooks.bms.domain.shared.document_customization import (
@@ -507,12 +508,27 @@ def patch_vendor_service(service_id: str, body: ServicePatch) -> dict[str, Any]:
 
 
 @router.get("/discounts")
-def list_discounts(active_only: bool = False) -> list[dict[str, Any]]:
-    return [entity_dict(r) for r in _c().discounts.list_rules(active_only=active_only)]
+def list_discounts(
+    active_only: bool = False,
+    customer_id: Optional[str] = Query(default=None),
+    _: str = Depends(require_permission("settings.discounts.view")),
+) -> list[dict[str, Any]]:
+    rows = _c().discounts.list_rules(active_only=active_only)
+    cid = (customer_id or "").strip()
+    if cid:
+        rows = [
+            r
+            for r in rows
+            if cid in (getattr(r, "customer_ids", None) or [])
+        ]
+    return [entity_dict(r) for r in rows]
 
 
 @router.post("/discounts", status_code=201)
-def create_discount(body: DiscountCreate) -> dict[str, Any]:
+def create_discount(
+    body: DiscountCreate,
+    _: str = Depends(require_permission("settings.discounts.edit")),
+) -> dict[str, Any]:
     try:
         kwargs: dict[str, Any] = {
             "name": body.name,
@@ -538,7 +554,11 @@ def create_discount(body: DiscountCreate) -> dict[str, Any]:
 
 
 @router.patch("/discounts/{rule_id}")
-def patch_discount(rule_id: str, body: DiscountPatch) -> dict[str, Any]:
+def patch_discount(
+    rule_id: str,
+    body: DiscountPatch,
+    _: str = Depends(require_permission("settings.discounts.edit")),
+) -> dict[str, Any]:
     try:
         row = _c().discounts.update_rule(rule_id, **body.model_dump(exclude_unset=True))
     except Exception as exc:
@@ -547,7 +567,10 @@ def patch_discount(rule_id: str, body: DiscountPatch) -> dict[str, Any]:
 
 
 @router.delete("/discounts/{rule_id}", status_code=204)
-def delete_discount(rule_id: str) -> None:
+def delete_discount(
+    rule_id: str,
+    _: str = Depends(require_permission("settings.discounts.edit")),
+) -> None:
     try:
         _c().discounts.delete_rule(rule_id)
     except Exception as exc:

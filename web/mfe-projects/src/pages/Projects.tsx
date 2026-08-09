@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useAddProjectBudgetLineMutation,
   useCertifyProjectMeasurementMutation,
@@ -27,7 +27,27 @@ import {
   useSubmitProjectRaBillMutation,
   useUploadProjectDocumentMutation,
 } from '@vaybooks/store';
-import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
+import {
+  Button,
+  EntityListActions,
+  EntityListEmpty,
+  EntityListFoot,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  EntityListQuickFilters,
+  EntityListTable,
+  ErrorText,
+  FormRow,
+  Modal,
+  PAGE_SIZE,
+  PaginationBar,
+  displayName,
+  matchesRegex,
+  pageCount,
+  paginate,
+  type EntityListColumn,
+} from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
 
 const TABS = [
@@ -45,27 +65,118 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number];
 
+const PROJECT_STATUS_CHIPS = [
+  { id: 'all', label: 'All' },
+  { id: 'Draft', label: 'Draft' },
+  { id: 'Active', label: 'Active' },
+  { id: 'On Hold', label: 'On Hold' },
+  { id: 'Physically Completed', label: 'Completed' },
+  { id: 'Financially Closed', label: 'Closed' },
+] as const;
+
 export function ProjectsListPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const { data = [], isLoading, error, refetch } = useListProjectsQuery();
   const { data: customers = [] } = useListCustomersQuery();
   const [createProject, createState] = useCreateProjectMutation();
+  const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState({ status: '' });
+  const [page, setPage] = useState(1);
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [customerId, setCustomerId] = useState('');
+  const [customerId, setCustomerId] = useState(() => params.get('customer_id') || '');
   const [contractValue, setContractValue] = useState('0');
   const [locationId, setLocationId] = useState('loc-main');
   const [formError, setFormError] = useState('');
 
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+  type ProjectRow = (typeof data)[number];
+
+  useEffect(() => {
+    const cid = params.get('customer_id') || '';
+    if (cid) setCustomerId(cid);
+    if (params.get('new') === '1') {
+      setFormError('');
+      setName('');
+      setContractValue('0');
+      setLocationId('loc-main');
+      setOpen(true);
+    }
+  }, [params]);
+
+  const filterCustomerId = params.get('customer_id') || '';
+
+  const filtered = useMemo(() => {
+    return data.filter((row) => {
+      if (filterCustomerId && String(row.customer_id || '') !== filterCustomerId) return false;
+      if (filters.status && String(row.status || '') !== filters.status) return false;
+      if (!search.trim()) return true;
+      return (
+        matchesRegex(row.project_number, search) ||
+        matchesRegex(row.name, search) ||
+        matchesRegex(row.customer_name, search) ||
+        matchesRegex(row.status, search)
+      );
+    });
+  }, [data, filterCustomerId, filters, search]);
+
+  const pages = pageCount(filtered.length, PAGE_SIZE);
+  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+
+  const columns: EntityListColumn<ProjectRow>[] = useMemo(
     () => [
-      { key: 'project_number', header: 'No.' },
-      { key: 'name', header: 'Name' },
-      { key: 'customer_name', header: 'Customer' },
-      { key: 'contract_value', header: 'Contract' },
-      { key: 'status', header: 'Status' },
+      {
+        id: 'project',
+        header: 'Project',
+        render: (row) => {
+          const number = displayName(row, ['project_number'], String(row.id));
+          const projectName = asCaption(row.name);
+          return (
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{projectName}</span>
+                <span className="el-customer-sub">{number}</span>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'customer',
+        header: 'Customer',
+        render: (row) => {
+          const customer = String(row.customer_name || '').trim();
+          return <span className={customer ? undefined : 'el-muted'}>{customer || '—'}</span>;
+        },
+      },
+      {
+        id: 'contract',
+        header: 'Contract',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => {
+          const value = row.contract_value;
+          if (value == null || value === '') return <span className="el-muted">—</span>;
+          return asCaption(value);
+        },
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => asCaption(row.status),
+      },
     ],
     [],
   );
+
+  function openCreate() {
+    setFormError('');
+    setName('');
+    setCustomerId(params.get('customer_id') || customerId || '');
+    setContractValue('0');
+    setLocationId('loc-main');
+    setOpen(true);
+  }
 
   async function onCreate() {
     setFormError('');
@@ -76,6 +187,7 @@ export function ProjectsListPage() {
         contract_value: Number(contractValue) || 0,
         location_id: locationId,
       }).unwrap();
+      setOpen(false);
       navigate(`/projects/list/${row.id}`);
     } catch (e) {
       setFormError(extractError(e));
@@ -83,46 +195,122 @@ export function ProjectsListPage() {
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Projects</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16, alignItems: 'end' }}>
-        <FormRow label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </FormRow>
-        <FormRow label="Customer">
-          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={{ minWidth: 200 }}>
-            <option value="">Select…</option>
-            {customers.map((c) => (
-              <option key={String(c.id)} value={String(c.id)}>
-                {String(c.customer_name || c.name || c.id)}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Contract value">
-          <input value={contractValue} onChange={(e) => setContractValue(e.target.value)} />
-        </FormRow>
-        <FormRow label="Location">
-          <input value={locationId} onChange={(e) => setLocationId(e.target.value)} />
-        </FormRow>
-        <Button type="button" onClick={onCreate} disabled={!name || !customerId || createState.isLoading}>
-          Create
-        </Button>
-      </div>
-      {formError ? <ErrorText>{formError}</ErrorText> : null}
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load projects.</ErrorText> : null}
-      <DataTable
-        columns={columns}
-        rows={data as Record<string, unknown>[]}
-        onRowClick={(row) => navigate(`/projects/list/${row.id}`)}
+    <EntityListPage>
+      <EntityListHero
+        kicker="Projects"
+        title="Projects"
+        count={`${filtered.length} ${filtered.length === 1 ? 'project' : 'projects'}`}
+        actions={
+          <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
+            <Button type="button" onClick={openCreate}>
+              New project
+            </Button>
+          </>
+        }
+        search={
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search name, customer, status…"
+            aria-label="Search projects"
+          />
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(id) => {
+              setFilters({ status: id === 'all' ? '' : id });
+              setPage(1);
+            }}
+            options={[...PROJECT_STATUS_CHIPS]}
+          />
+        }
       />
-    </div>
+
+      {isLoading ? <EntityListLoading>Loading projects…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load projects.</ErrorText> : null}
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          <strong>
+            {search.trim() || filterCustomerId || filters.status ? 'No matching projects' : 'No projects yet'}
+          </strong>
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => (
+            <EntityListActions onOpen={() => navigate(`/projects/list/${row.id}`)} />
+          )}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-foot-pager">
+            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+          </div>
+        </EntityListFoot>
+      ) : null}
+
+      <Modal
+        open={open}
+        title="New project"
+        onClose={() => setOpen(false)}
+        footer={
+          <>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void onCreate()}
+              disabled={!name || !customerId || createState.isLoading}
+            >
+              {createState.isLoading ? 'Saving…' : 'Create'}
+            </Button>
+          </>
+        }
+      >
+        <div style={{ display: 'grid', gap: 10 }}>
+          {formError ? <ErrorText>{formError}</ErrorText> : null}
+          <FormRow label="Name">
+            <input value={name} onChange={(e) => setName(e.target.value)} />
+          </FormRow>
+          <FormRow label="Customer">
+            <select
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+              style={{ width: '100%', minWidth: 200 }}
+            >
+              <option value="">Select…</option>
+              {customers.map((c) => (
+                <option key={String(c.id)} value={String(c.id)}>
+                  {String(c.customer_name || c.name || c.id)}
+                </option>
+              ))}
+            </select>
+          </FormRow>
+          <FormRow label="Contract value">
+            <input value={contractValue} onChange={(e) => setContractValue(e.target.value)} />
+          </FormRow>
+          <FormRow label="Location">
+            <input value={locationId} onChange={(e) => setLocationId(e.target.value)} />
+          </FormRow>
+        </div>
+      </Modal>
+    </EntityListPage>
   );
 }
 
