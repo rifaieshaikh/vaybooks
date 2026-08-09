@@ -55,7 +55,7 @@ export function CrmReportsPage() {
         </Button>
       </div>
       {runError ? <ErrorText>{runError}</ErrorText> : null}
-      <DataTable columns={columns} rows={rows} />
+      <DataTable columns={columns} data={rows} rowKey={(row) => String(row.id || row.title)} />
     </div>
   );
 }
@@ -66,7 +66,7 @@ export function CrmScheduledReportsPage() {
       <h2 style={{ color: 'var(--vb-color-primary, #185c4c)' }}>CRM Scheduled Reports</h2>
       <p>
         Configure recurring CRM report jobs in{' '}
-        <Link to="/schedulers/crm">Schedulers → CRM</Link>.
+        <Link to="/schedulers/crm?panel=reports">Schedulers → CRM scheduled reports</Link>.
       </p>
     </div>
   );

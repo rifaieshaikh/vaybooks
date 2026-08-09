@@ -144,6 +144,16 @@ def test_recipe_batch_reports_settings() -> None:
         assert completed.status_code == 200, completed.text
         assert completed.json()["status"] == "In Progress"
 
+    cost = c.post(
+        f"/api/production/batches/{batch_id}/costs",
+        json={"cost_type": "Labour", "amount": 25, "description": "mixing"},
+    )
+    assert cost.status_code == 201, cost.text
+    cost_id = (cost.json().get("costs") or [{}])[-1].get("id")
+    if cost_id:
+        removed = c.delete(f"/api/production/batches/{batch_id}/costs/{cost_id}")
+        assert removed.status_code == 200, removed.text
+
     overview = c.get("/api/production/overview")
     assert overview.status_code == 200
     assert overview.json()["total_batches"] >= 1

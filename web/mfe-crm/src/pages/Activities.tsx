@@ -93,7 +93,8 @@ export function CrmActivitiesListPage() {
       {error ? <ErrorText>Failed to load activities.</ErrorText> : null}
       <DataTable
         columns={columns}
-        rows={data as Record<string, unknown>[]}
+        data={data as Record<string, unknown>[]}
+        rowKey={(row) => String(row.id)}
         onRowClick={(row) => navigate(`/crm/activities/${row.id}`)}
       />
     </div>

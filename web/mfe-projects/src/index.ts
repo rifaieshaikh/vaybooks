@@ -2,6 +2,8 @@ export {
   ProjectsOverviewPage,
   ProjectsListPage,
   ProjectDetailPage,
+  ProjectPortalPage,
+  ProjectSiteMobilePage,
   ProjectEnquiriesListPage,
   ProjectEnquiryDetailPage,
   ProjectMeasurementsPage,

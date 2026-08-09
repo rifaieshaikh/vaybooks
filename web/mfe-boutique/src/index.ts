@@ -2,6 +2,7 @@ export {
   BoutiqueOverviewPage,
   BoutiqueOrdersListPage,
   BoutiqueOrderDetailPage,
+  BoutiqueOrderWorkspacePage,
   BoutiqueItemsListPage,
   BoutiqueItemDetailPage,
   BoutiqueMeasurementsListPage,

@@ -11,10 +11,12 @@ import {
   useCreateBoutiqueOrderMutation,
   useGetBoutiqueOrderQuery,
   useListBoutiqueActivitiesQuery,
+  useListBoutiqueMeasurementsQuery,
   useListBoutiqueOrderDeliveriesQuery,
   useListBoutiqueOrderExpensesQuery,
   useListBoutiqueOrderInvoicesQuery,
   useListBoutiqueOrdersQuery,
+  useLazyGetBoutiqueOrderInvoicePdfQuery,
   useListCustomersQuery,
   useListFinanceAccountsQuery,
   useListInventoryLocationsQuery,
@@ -213,12 +215,7 @@ export function BoutiqueOrdersListPage() {
         countLabel="orders"
         count={filtered.length}
         primaryLabel="New order"
-        onPrimary={() => {
-          setFormError('');
-          setOpen(true);
-          if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-          if (catalog.length) setRequiredMap(defaultRequiredActivities(catalog));
-        }}
+        onPrimary={() => navigate('/boutique/orders/workspace')}
         filterFields={filterFields}
         filters={filters}
         defaultFilters={DEFAULT_FILTERS}
@@ -369,6 +366,11 @@ export function BoutiqueOrderDetailPage() {
   });
   const { data: accounts = [] } = useListFinanceAccountsQuery();
   const { data: catalog = [] } = useListBoutiqueActivitiesQuery();
+  const customerId = String(data?.customer_id || '');
+  const { data: customerMeasurements = [] } = useListBoutiqueMeasurementsQuery(
+    customerId ? { customer_id: customerId } : undefined,
+    { skip: !customerId },
+  );
   const [confirmOrder] = useConfirmBoutiqueOrderMutation();
   const [cancelOrder] = useCancelBoutiqueOrderMutation();
   const [completeOrder] = useCompleteBoutiqueOrderMutation();
@@ -380,11 +382,13 @@ export function BoutiqueOrderDetailPage() {
   const [createInvoice] = useCreateBoutiqueOrderInvoiceMutation();
   const [createDelivery] = useCreateBoutiqueOrderDeliveryMutation();
   const [patchOrder] = usePatchBoutiqueOrderMutation();
+  const [fetchInvoicePdf] = useLazyGetBoutiqueOrderInvoicePdfQuery();
 
   const [actionError, setActionError] = useState('');
   const [itemDesc, setItemDesc] = useState('');
   const [itemBill, setItemBill] = useState('');
   const [itemSpec, setItemSpec] = useState('');
+  const [itemMeasurementId, setItemMeasurementId] = useState('');
   const [requiredMap, setRequiredMap] = useState<Record<string, boolean>>({});
   const [advanceAmt, setAdvanceAmt] = useState('');
   const [advanceAccount, setAdvanceAccount] = useState('');
@@ -492,6 +496,11 @@ export function BoutiqueOrderDetailPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {status === 'Draft' ? (
+            <Button type="button" variant="ghost" onClick={() => navigate(`/boutique/orders/workspace?order=${id}`)}>
+              Resume workspace
+            </Button>
+          ) : null}
           <Button
             type="button"
             disabled={!canConfirm}
@@ -555,9 +564,27 @@ export function BoutiqueOrderDetailPage() {
         <FormRow label="Bill number">
           <TextInput
             value={itemBill}
+            disabled={Boolean(itemMeasurementId)}
             onChange={(e) => setItemBill(e.target.value)}
-            placeholder="Auto-generated if blank"
+            placeholder={itemMeasurementId ? 'Assigned from measurement' : 'Auto-generated if blank'}
           />
+        </FormRow>
+        <FormRow label="Link measurement">
+          <select
+            value={itemMeasurementId}
+            onChange={(e) => {
+              setItemMeasurementId(e.target.value);
+              if (e.target.value) setItemBill('');
+            }}
+            style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
+          >
+            <option value="">None</option>
+            {customerMeasurements.map((m) => (
+              <option key={String(m.id)} value={String(m.id)}>
+                {asCaption(m.measurement_number)} · {asCaption(m.person_type)} · {asCaption(m.wearer_name)}
+              </option>
+            ))}
+          </select>
         </FormRow>
         <FormRow label="Customer specification">
           <TextInput value={itemSpec} onChange={(e) => setItemSpec(e.target.value)} />
@@ -575,6 +602,7 @@ export function BoutiqueOrderDetailPage() {
                 body: {
                   description: itemDesc.trim(),
                   bill_number: itemBill.trim() || undefined,
+                  measurement_id: itemMeasurementId || undefined,
                   customer_specification: itemSpec,
                   required_activities: requiredMap,
                 },
@@ -582,6 +610,7 @@ export function BoutiqueOrderDetailPage() {
               setItemDesc('');
               setItemBill('');
               setItemSpec('');
+              setItemMeasurementId('');
             })
           }
         >
@@ -599,6 +628,9 @@ export function BoutiqueOrderDetailPage() {
               captions={[
                 asCaption(item.description),
                 asCaption(item.item_status),
+                item.measurement_id
+                  ? `Meas ${asCaption(item.measurement_number || item.measurement_id)}`
+                  : 'No measurement',
                 ready ? 'Ready to invoice/deliver' : 'Activities pending',
               ]}
               badges={[{ label: ready ? 'Ready' : 'In progress', tone: ready ? 'green' : 'blue' }]}
@@ -613,6 +645,21 @@ export function BoutiqueOrderDetailPage() {
         })}
       </EntityCardGrid>
       <p style={{ color: '#889', fontSize: 13 }}>View opens item detail · Edit removes the item</p>
+
+      <h3 style={{ color: 'var(--vb-color-primary, #185c4c)', marginTop: 24 }}>Customer measurements</h3>
+      {!customerMeasurements.length ? (
+        <p style={{ color: '#667' }}>No measurements for this customer.</p>
+      ) : (
+        <ul>
+          {customerMeasurements.map((m) => (
+            <li key={String(m.id)}>
+              <Link to={`/boutique/measurements/${m.id}`}>
+                {asCaption(m.measurement_number)} · {asCaption(m.person_type)} · {asCaption(m.wearer_name)}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <h3 style={{ color: 'var(--vb-color-primary, #185c4c)', marginTop: 24 }}>Activities</h3>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, maxWidth: 420, marginBottom: 12 }}>
@@ -790,9 +837,27 @@ export function BoutiqueOrderDetailPage() {
             key={String(inv.id)}
             title={asCaption(inv.invoice_number) || String(inv.id)}
             captions={[formatMoney(Number(inv.invoice_amount ?? inv.grand_total ?? 0))]}
+            onView={async () => {
+              setActionError('');
+              try {
+                const blob = await fetchInvoicePdf({
+                  orderId: id,
+                  invoiceId: String(inv.id),
+                }).unwrap();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${asCaption(inv.invoice_number) || inv.id}.pdf`;
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch (e) {
+                setActionError(extractError(e));
+              }
+            }}
           />
         ))}
       </EntityCardGrid>
+      <p style={{ color: '#889', fontSize: 13 }}>View downloads invoice PDF</p>
 
       <h3 style={{ color: 'var(--vb-color-primary, #185c4c)', marginTop: 24 }}>Deliveries</h3>
       <Button

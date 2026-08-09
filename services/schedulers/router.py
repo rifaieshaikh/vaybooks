@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from packages.services_kit import publish
@@ -33,6 +33,20 @@ class JobPatch(BaseModel):
     title: Optional[str] = None
     frequency: Optional[str] = None
     time_of_day: Optional[str] = None
+    weekday: Optional[int] = None
+    interval_days: Optional[int] = None
+
+
+class ReportPatch(BaseModel):
+    enabled: Optional[bool] = None
+    frequency: Optional[str] = None
+    time_of_day: Optional[str] = None
+    weekday: Optional[int] = None
+    interval_days: Optional[int] = None
+    filters: Optional[dict[str, Any]] = None
+    recipient_ids: Optional[list[str]] = None
+    create_notification: Optional[bool] = None
+    max_rows: Optional[int] = Field(default=None, ge=1)
 
 
 def _svc():
@@ -61,6 +75,47 @@ def _job_row(config) -> dict[str, Any]:
         "next_run_at": data.get("next_run_at"),
         "last_run_at": data.get("last_run_at"),
         "description": getattr(config, "description", "") or "",
+    }
+
+
+def _report_row(config, definition=None) -> dict[str, Any]:
+    data = entity_dict(config)
+    report_id = config.report_id
+    return {
+        "id": report_id,
+        "report_id": report_id,
+        "title": config.report_title or getattr(definition, "title", "") or report_id,
+        "domain": config.domain,
+        "module": config.domain,
+        "category": getattr(definition, "category", "") or "",
+        "enabled": bool(config.enabled),
+        "frequency": config.frequency,
+        "time_of_day": config.time_of_day,
+        "weekday": config.weekday,
+        "interval_days": config.interval_days,
+        "cron": config.cron_expression,
+        "next_run_at": data.get("next_run_at"),
+        "last_run_at": data.get("last_run_at"),
+        "last_status": config.last_status,
+        "last_error": config.last_error,
+        "last_artifact_id": config.last_artifact_id,
+        "filters": dict(config.filters or {}),
+        "recipient_ids": list(config.recipient_ids or []),
+        "create_notification": bool(config.create_notification),
+        "max_rows": config.max_rows,
+        "status": (
+            "running"
+            if _svc().is_report_running(config.domain, report_id)
+            else ("enabled" if config.enabled else "disabled")
+        ),
+    }
+
+
+def _outcome(outcome) -> dict[str, Any]:
+    return {
+        "started": list(outcome.started),
+        "skipped": list(outcome.skipped),
+        "message": outcome.message,
     }
 
 
@@ -160,6 +215,10 @@ def patch_job(job_id: str, body: JobPatch) -> dict[str, Any]:
         config.frequency = body.frequency
     if body.time_of_day is not None:
         config.time_of_day = body.time_of_day
+    if body.weekday is not None:
+        config.weekday = body.weekday
+    if body.interval_days is not None:
+        config.interval_days = body.interval_days
     return _job_row(_svc().save_config(config))
 
 
@@ -197,8 +256,66 @@ def list_runs(job_id: str, limit: int = 10) -> list[dict[str, Any]]:
 @router.get("/reports")
 def list_domain_reports(*, module: str = "", domain: str = "") -> list[dict[str, Any]]:
     pack = _normalize_module(module or domain or "crm")
-    defs = _svc().list_domain_reports(pack)
-    return [entity_dict(d) for d in defs]
+    svc = _svc()
+    return [
+        _report_row(svc.get_report_config(pack, definition.report_id), definition)
+        for definition in svc.list_domain_reports(pack)
+    ]
+
+
+@router.patch("/reports/{report_id}")
+def patch_report(report_id: str, body: ReportPatch, *, module: str = "", domain: str = "") -> dict[str, Any]:
+    pack = _normalize_module(module or domain or "crm")
+    svc = _svc()
+    config = svc.get_report_config(pack, report_id)
+    if config is None:
+        raise HTTPException(status_code=404, detail="report not found")
+    for field in (
+        "enabled",
+        "frequency",
+        "time_of_day",
+        "weekday",
+        "interval_days",
+        "filters",
+        "recipient_ids",
+        "create_notification",
+        "max_rows",
+    ):
+        value = getattr(body, field)
+        if value is not None:
+            setattr(config, field, value)
+    saved = svc.save_report_config(config)
+    definition = next((d for d in svc.list_domain_reports(pack) if d.report_id == report_id), None)
+    return _report_row(saved, definition)
+
+
+@router.post("/reports/{report_id}/run")
+def run_report(report_id: str, *, module: str = "", domain: str = "") -> dict[str, Any]:
+    pack = _normalize_module(module or domain or "crm")
+    outcome = _svc().run_report_now(pack, report_id)
+    if not outcome.started and outcome.message == "Unknown report":
+        raise HTTPException(status_code=404, detail="report not found")
+    return _outcome(outcome)
+
+
+@router.get("/reports/{report_id}/runs")
+def list_report_runs(
+    report_id: str, *, module: str = "", domain: str = "", limit: int = 20
+) -> list[dict[str, Any]]:
+    pack = _normalize_module(module or domain or "crm")
+    return [entity_dict(run) for run in _svc().list_report_runs(pack, report_id, limit=limit)]
+
+
+@router.get("/artifacts/{artifact_id}")
+def get_report_artifact(artifact_id: str) -> Response:
+    artifact = _svc().get_artifact(artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    return Response(
+        content=artifact.data,
+        media_type=artifact.content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{artifact.filename or "report.csv"}"'},
+    )
 
 
 @router.delete("/jobs/{job_id}")

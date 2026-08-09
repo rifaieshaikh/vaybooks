@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   useCreateSalesInvoiceMutation,
   useGetSalesInvoiceQuery,
+  useLazyGetSalesInvoicePdfQuery,
   useListCustomersQuery,
   useListFinanceAccountsQuery,
   useListInventoryLocationsQuery,
@@ -266,6 +267,8 @@ export function SalesInvoicesListPage() {
 export function SalesInvoiceDetailPage() {
   const { id = '' } = useParams();
   const { data, isLoading, error } = useGetSalesInvoiceQuery(id, { skip: !id });
+  const [fetchPdf] = useLazyGetSalesInvoicePdfQuery();
+  const [pdfError, setPdfError] = useState('');
 
   if (isLoading) return <p>Loading…</p>;
   if (error || !data) return <ErrorText>Sales invoice not found.</ErrorText>;
@@ -275,14 +278,39 @@ export function SalesInvoiceDetailPage() {
       <p style={{ marginBottom: 12 }}>
         <Link to="/sales/invoices">← Invoices</Link>
       </p>
-      <h2 style={{ margin: '0 0 8px', color: 'var(--vb-color-primary, #185c4c)' }}>
-        {asCaption(data.store_invoice_number) || asCaption(data.voucher_number) || id}
-      </h2>
-      <div style={{ color: '#667', marginBottom: 16 }}>
-        {asCaption(data.customer_name || data.party_name)} ·{' '}
-        {asCaption(data.sale_date || data.voucher_date).slice(0, 10)} ·{' '}
-        {formatMoney(Number(data.net ?? data.gross ?? data.total ?? 0))}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h2 style={{ margin: '0 0 8px', color: 'var(--vb-color-primary, #185c4c)' }}>
+            {asCaption(data.store_invoice_number) || asCaption(data.voucher_number) || id}
+          </h2>
+          <div style={{ color: '#667', marginBottom: 16 }}>
+            {asCaption(data.customer_name || data.party_name)} ·{' '}
+            {asCaption(data.sale_date || data.voucher_date).slice(0, 10)} ·{' '}
+            {formatMoney(Number(data.net ?? data.gross ?? data.total ?? 0))}
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={async () => {
+            setPdfError('');
+            try {
+              const blob = await fetchPdf(id).unwrap();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `${asCaption(data.store_invoice_number) || id}.pdf`;
+              a.click();
+              URL.revokeObjectURL(url);
+            } catch (e) {
+              setPdfError(extractError(e));
+            }
+          }}
+        >
+          Download PDF
+        </Button>
       </div>
+      {pdfError ? <ErrorText>{pdfError}</ErrorText> : null}
       <p>{asCaption(data.description)}</p>
     </div>
   );

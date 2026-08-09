@@ -82,7 +82,7 @@ export function SystemSettingsPage() {
         </Button>
       </div>
       {formError ? <ErrorText>{formError}</ErrorText> : null}
-      <DataTable columns={columns} rows={data as Record<string, unknown>[]} />
+      <DataTable columns={columns} data={data as Record<string, unknown>[]} rowKey={(row) => String(row.id)} />
     </div>
   );
 }
@@ -90,6 +90,16 @@ export function SystemSettingsPage() {
 export function SystemUpdatesPage() {
   const { data, isLoading, error, refetch } = useSystemUpdatesQuery();
   const [check, checkState] = useCheckSystemUpdatesMutation();
+  const [msg, setMsg] = useState('');
+  const rows = data ? Object.entries(data).map(([key, value]) => ({
+    id: key,
+    key,
+    value: typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—'),
+  })) : [];
+  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
+    () => [{ key: 'key', header: 'Property' }, { key: 'value', header: 'Value' }],
+    [],
+  );
 
   return (
     <div>
@@ -97,27 +107,26 @@ export function SystemUpdatesPage() {
       <Link to="/system">← System</Link>
       {isLoading && <p>Loading…</p>}
       {error ? <ErrorText>{extractError(error)}</ErrorText> : null}
-      {data && (
-        <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
-          <div>Current: {String(data.current_version)}</div>
-          <div>Channel: {String(data.channel)}</div>
-          <div>Update available: {String(data.update_available)}</div>
-          <div>Latest: {String(data.latest_version || '—')}</div>
-          <div>Notes: {String(data.notes || '—')}</div>
-        </div>
-      )}
+      <p>Latest check: {String(data?.checked_at || data?.last_checked_at || 'not yet checked')}</p>
+      <DataTable columns={columns} data={rows} rowKey={(row) => String(row.id)} />
       <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
         <Button
           type="button"
           onClick={async () => {
-            await check();
-            refetch();
+            setMsg('');
+            try {
+              await check().unwrap();
+              setMsg('Update check completed.');
+              refetch();
+            } catch (e) { setMsg(extractError(e)); }
           }}
           disabled={checkState.isLoading}
         >
           {checkState.isLoading ? 'Checking…' : 'Check for updates'}
         </Button>
+        <Button type="button" variant="ghost" onClick={() => refetch()}>Refresh status</Button>
       </div>
+      {msg ? <p>{msg}</p> : null}
     </div>
   );
 }
@@ -146,7 +155,7 @@ export function SystemLogsPage() {
       {isLoading && <p>Loading…</p>}
       {error ? <ErrorText>{extractError(error)}</ErrorText> : null}
       <div style={{ marginTop: 16 }}>
-        <DataTable columns={columns} rows={data as Record<string, unknown>[]} />
+        <DataTable columns={columns} data={data as Record<string, unknown>[]} rowKey={(row) => String(row.id)} />
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   useProductionDayBookQuery,
   useProductionMarginsQuery,
@@ -12,11 +12,13 @@ function SimpleTable({
   rows,
   loading,
   error,
+  toolbar,
 }: {
   title: string;
   rows: Record<string, unknown>[];
   loading: boolean;
   error: unknown;
+  toolbar?: ReactNode;
 }) {
   const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(() => {
     if (rows.length === 0) return [];
@@ -26,6 +28,7 @@ function SimpleTable({
   return (
     <div>
       <h2 style={{ margin: '0 0 16px', color: 'var(--vb-color-primary, #185c4c)' }}>{title}</h2>
+      {toolbar}
       {loading && <p>Loading…</p>}
       {error ? <ErrorText>Failed to load {title.toLowerCase()}.</ErrorText> : null}
       {!loading && !error && rows.length === 0 ? (
@@ -39,7 +42,12 @@ function SimpleTable({
 }
 
 export function ProductionDayBookPage() {
-  const { data = [], isLoading, error } = useProductionDayBookQuery();
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const { data = [], isLoading, error } = useProductionDayBookQuery({
+    start_date: startDate || undefined,
+    end_date: endDate || undefined,
+  });
   const rows = useMemo(
     () =>
       data.map((row) => ({
@@ -50,7 +58,36 @@ export function ProductionDayBookPage() {
       })),
     [data],
   );
-  return <SimpleTable title="Production Day Book" rows={rows} loading={isLoading} error={error} />;
+  return (
+    <SimpleTable
+      title="Production Day Book"
+      rows={rows}
+      loading={isLoading}
+      error={error}
+      toolbar={
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+          <label>
+            From
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              style={{ display: 'block', marginTop: 4, padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
+            />
+          </label>
+          <label>
+            To
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              style={{ display: 'block', marginTop: 4, padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
+            />
+          </label>
+        </div>
+      }
+    />
+  );
 }
 
 export function ProductionMarginsPage() {

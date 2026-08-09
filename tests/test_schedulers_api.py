@@ -48,6 +48,36 @@ def test_list_filter_create_run_crm_jobs() -> None:
     assert "run" in ran.json()
 
 
+def test_job_and_scheduled_report_configuration_endpoints() -> None:
+    jobs = c.get("/api/schedulers/jobs", params={"module": "crm"}).json()
+    job_id = jobs[0]["id"]
+    patched_job = c.patch(
+        f"/api/schedulers/jobs/{job_id}",
+        json={"enabled": False, "frequency": "weekly", "time_of_day": "09:30", "weekday": 2},
+    )
+    assert patched_job.status_code == 200, patched_job.text
+    assert patched_job.json()["enabled"] is False
+    assert patched_job.json()["frequency"] == "weekly"
+    assert patched_job.json()["cron"] == "30 9 * * 3"
+    assert c.get(f"/api/schedulers/jobs/{job_id}/runs").status_code == 200
+
+    reports = c.get("/api/schedulers/reports", params={"module": "crm"})
+    assert reports.status_code == 200, reports.text
+    assert reports.json()
+    report_id = reports.json()[0]["id"]
+    patched_report = c.patch(
+        f"/api/schedulers/reports/{report_id}",
+        params={"module": "crm"},
+        json={"enabled": True, "frequency": "daily", "time_of_day": "07:15"},
+    )
+    assert patched_report.status_code == 200, patched_report.text
+    assert patched_report.json()["enabled"] is True
+    assert patched_report.json()["cron"] == "15 7 * * *"
+    assert c.get(
+        f"/api/schedulers/reports/{report_id}/runs", params={"module": "crm"}
+    ).status_code == 200
+
+
 def test_module_packs() -> None:
     for module in ("sales", "purchases", "inventory", "production", "boutique", "projects"):
         r = c.get("/api/schedulers/jobs", params={"module": module})

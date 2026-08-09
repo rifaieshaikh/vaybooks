@@ -128,6 +128,10 @@ def test_po_grn_bill_return_flow() -> None:
     assert detail.status_code == 200
     assert len(detail.json()["lines"]) == 1
 
+    pdf = c.get(f"/api/purchases/orders/{po_id}/pdf")
+    assert pdf.status_code == 200, pdf.text
+    assert "pdf" in pdf.headers.get("content-type", "").lower() or pdf.content[:4] == b"%PDF"
+
     grn = c.post(
         "/api/purchases/goods-receipts",
         json={

@@ -41,6 +41,7 @@ def test_store_activity_and_time_entry_flow() -> None:
             "activity_name": _uniq("Shelf"),
             "activity_category": "In House Service",
             "default_hourly_expense": 120,
+            "custom_statuses": ["In Progress"],
         },
     )
     assert activity.status_code == 201, activity.text
@@ -59,6 +60,7 @@ def test_store_activity_and_time_entry_flow() -> None:
             "activity_category": "In House Service",
             "default_hourly_expense": 150,
             "is_active": True,
+            "custom_statuses": ["In Progress"],
         },
     )
     assert patched.status_code == 200, patched.text
@@ -106,6 +108,13 @@ def test_store_activity_and_time_entry_flow() -> None:
     assert updated.status_code == 200, updated.text
     assert updated.json()["duration_minutes"] == 150
 
+    in_progress = c.post(
+        f"/api/store/time-entries/{entry_id}/status",
+        json={"status": "In Progress"},
+    )
+    assert in_progress.status_code == 200, in_progress.text
+    assert in_progress.json()["status"] == "In Progress"
+
     completed = c.post(f"/api/store/time-entries/{entry_id}/complete")
     assert completed.status_code == 200, completed.text
     assert completed.json()["status"] == "Completed"
@@ -114,6 +123,10 @@ def test_store_activity_and_time_entry_flow() -> None:
     assert overview.status_code == 200
     assert overview.json()["active_activities"] >= 1
     assert overview.json()["total_time_entries"] >= 1
+
+    deactivated = c.post(f"/api/store/activities/{activity_id}/deactivate")
+    assert deactivated.status_code == 200, deactivated.text
+    assert deactivated.json()["is_active"] is False
 
     deleted = c.delete(f"/api/store/time-entries/{entry_id}")
     assert deleted.status_code == 200

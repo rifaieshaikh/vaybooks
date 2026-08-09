@@ -553,3 +553,145 @@ def site_mobile(project_id: str) -> dict[str, Any]:
         raise
     except Exception as exc:
         raise _http_err(exc) from exc
+
+
+class BudgetLineCreate(BaseModel):
+    cost_category: str = "General"
+    amount: float = Field(gt=0)
+    boq_item_id: str = ""
+    activity_id: str = ""
+    notes: str = ""
+
+
+class MeasurementActionBody(BaseModel):
+    actor: str = ""
+
+
+class EnquiryStatusBody(BaseModel):
+    status: str = Field(min_length=1)
+
+
+@router.get("/{project_id}/budget")
+def list_budget(project_id: str) -> dict[str, Any]:
+    try:
+        return {
+            "summary": _c().budget.budget_summary(project_id),
+            "lines": [entity_dict(line) for line in _c().budget.list_lines(project_id)],
+        }
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/{project_id}/budget/lines", status_code=201)
+def add_budget_line(project_id: str, body: BudgetLineCreate) -> dict[str, Any]:
+    try:
+        return entity_dict(
+            _c().budget.add_line(
+                project_id,
+                body.cost_category,
+                body.amount,
+                boq_item_id=body.boq_item_id,
+                activity_id=body.activity_id,
+                notes=body.notes,
+            )
+        )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/{project_id}/measurements/{measurement_id}/submit")
+def submit_measurement(project_id: str, measurement_id: str) -> dict[str, Any]:
+    try:
+        return entity_dict(_c().measurements.submit(measurement_id))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/{project_id}/measurements/{measurement_id}/verify")
+def verify_measurement(
+    project_id: str, measurement_id: str, body: Optional[MeasurementActionBody] = None
+) -> dict[str, Any]:
+    try:
+        actor = (body.actor if body else "") or ""
+        return entity_dict(_c().measurements.verify(measurement_id, verified_by=actor))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/{project_id}/measurements/{measurement_id}/certify")
+def certify_measurement(
+    project_id: str, measurement_id: str, body: Optional[MeasurementActionBody] = None
+) -> dict[str, Any]:
+    try:
+        actor = (body.actor if body else "") or ""
+        return entity_dict(_c().measurements.certify(measurement_id, certified_by=actor))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/{project_id}/ra-bills/{ra_id}/submit")
+def submit_ra_bill(project_id: str, ra_id: str) -> dict[str, Any]:
+    try:
+        return entity_dict(_c().billing.submit_ra(ra_id))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/{project_id}/ra-bills/{ra_id}/certify")
+def certify_ra_bill(project_id: str, ra_id: str) -> dict[str, Any]:
+    try:
+        return entity_dict(_c().billing.certify_ra(ra_id))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/{project_id}/ra-bills/{ra_id}/approve")
+def approve_ra_bill(project_id: str, ra_id: str) -> dict[str, Any]:
+    try:
+        return entity_dict(_c().billing.approve_ra(ra_id))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/{project_id}/documents", status_code=201)
+def upload_document(project_id: str, body: DocumentMeta) -> dict[str, Any]:
+    try:
+        import base64
+
+        raw = base64.b64decode(body.data_base64) if body.data_base64 else b""
+        return entity_dict(
+            _c().documents.upload(
+                project_id,
+                body.category,
+                body.name,
+                body.content_type,
+                raw,
+            )
+        )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.patch("/enquiries/{enquiry_id}/status")
+def patch_enquiry_status(enquiry_id: str, body: EnquiryStatusBody) -> dict[str, Any]:
+    try:
+        return entity_dict(_c().enquiries.update_status(enquiry_id, body.status))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/enquiries/{enquiry_id}/start-estimation")
+def start_enquiry_estimation(enquiry_id: str) -> dict[str, Any]:
+    try:
+        project = _c().enquiries.start_estimation(enquiry_id)
+        return entity_dict(project)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/enquiries/{enquiry_id}/mark-won")
+def mark_enquiry_won(enquiry_id: str) -> dict[str, Any]:
+    try:
+        return entity_dict(_c().enquiries.mark_won(enquiry_id))
+    except Exception as exc:
+        raise _http_err(exc) from exc

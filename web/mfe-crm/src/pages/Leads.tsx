@@ -1,13 +1,29 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
+  useAssignCrmLeadMutation,
+  useConvertCrmLeadMutation,
   useCreateCrmLeadMutation,
   useGetCrmLeadQuery,
+  useGetCrmLeadTimelineQuery,
   useListCrmLeadsQuery,
+  useMarkCrmLeadLostMutation,
+  useReopenCrmLeadMutation,
+  useSetCrmLeadStatusMutation,
   useUpdateCrmLeadMutation,
 } from '@vaybooks/store';
 import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
+
+const LEAD_STATUSES = [
+  'New',
+  'Contacted',
+  'Qualified',
+  'Follow-up Required',
+  'Interested',
+  'Not Interested',
+  'On Hold',
+];
 
 export function CrmLeadsListPage() {
   const navigate = useNavigate();
@@ -74,7 +90,8 @@ export function CrmLeadsListPage() {
       {error ? <ErrorText>Failed to load leads.</ErrorText> : null}
       <DataTable
         columns={columns}
-        rows={data as Record<string, unknown>[]}
+        data={data as Record<string, unknown>[]}
+        rowKey={(row) => String(row.id)}
         onRowClick={(row) => navigate(`/crm/leads/${row.id}`)}
       />
     </div>
@@ -84,16 +101,88 @@ export function CrmLeadsListPage() {
 export function CrmLeadDetailPage() {
   const { id = '' } = useParams();
   const { data, isLoading, error, refetch } = useGetCrmLeadQuery(id, { skip: !id });
+  const { data: timeline = [], refetch: refetchTimeline } = useGetCrmLeadTimelineQuery(id, {
+    skip: !id,
+  });
   const [updateLead, updateState] = useUpdateCrmLeadMutation();
+  const [assignLead, assignState] = useAssignCrmLeadMutation();
+  const [setStatus, statusState] = useSetCrmLeadStatusMutation();
+  const [markLost, lostState] = useMarkCrmLeadLostMutation();
+  const [reopenLead, reopenState] = useReopenCrmLeadMutation();
+  const [convertLead, convertState] = useConvertCrmLeadMutation();
   const [notes, setNotes] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [assigneeName, setAssigneeName] = useState('');
+  const [status, setStatusValue] = useState('');
+  const [lostReason, setLostReason] = useState('');
   const [msg, setMsg] = useState('');
+
+  async function refresh() {
+    refetch();
+    refetchTimeline();
+  }
 
   async function onSave() {
     setMsg('');
     try {
       await updateLead({ id, body: { notes } }).unwrap();
       setMsg('Saved');
-      refetch();
+      refresh();
+    } catch (e) {
+      setMsg(extractError(e));
+    }
+  }
+
+  async function onAssign() {
+    setMsg('');
+    try {
+      await assignLead({ id, assigned_user_id: assigneeId, assigned_user_name: assigneeName }).unwrap();
+      setMsg('Assigned');
+      refresh();
+    } catch (e) {
+      setMsg(extractError(e));
+    }
+  }
+
+  async function onStatus() {
+    setMsg('');
+    try {
+      await setStatus({ id, status }).unwrap();
+      setMsg('Status updated');
+      refresh();
+    } catch (e) {
+      setMsg(extractError(e));
+    }
+  }
+
+  async function onMarkLost() {
+    setMsg('');
+    try {
+      await markLost({ id, reason: lostReason }).unwrap();
+      setMsg('Marked lost');
+      refresh();
+    } catch (e) {
+      setMsg(extractError(e));
+    }
+  }
+
+  async function onReopen() {
+    setMsg('');
+    try {
+      await reopenLead(id).unwrap();
+      setMsg('Reopened');
+      refresh();
+    } catch (e) {
+      setMsg(extractError(e));
+    }
+  }
+
+  async function onConvert() {
+    setMsg('');
+    try {
+      await convertLead({ id }).unwrap();
+      setMsg('Converted to customer');
+      refresh();
     } catch (e) {
       setMsg(extractError(e));
     }
@@ -101,6 +190,9 @@ export function CrmLeadDetailPage() {
 
   if (isLoading) return <p>Loading…</p>;
   if (error || !data) return <ErrorText>Lead not found.</ErrorText>;
+
+  const isLost = data.status === 'Lost';
+  const isConverted = data.status === 'Converted';
 
   return (
     <div>
@@ -111,6 +203,56 @@ export function CrmLeadDetailPage() {
       <p>
         {asCaption(data.lead_number)} · {asCaption(data.status)} · {asCaption(data.phone)}
       </p>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end', marginBottom: 20 }}>
+        <FormRow label="Assign user ID">
+          <input
+            value={assigneeId}
+            onChange={(e) => setAssigneeId(e.target.value)}
+            placeholder={String(data.assigned_user_id || '')}
+          />
+        </FormRow>
+        <FormRow label="User name">
+          <input
+            value={assigneeName}
+            onChange={(e) => setAssigneeName(e.target.value)}
+            placeholder={String(data.assigned_user_name || '')}
+          />
+        </FormRow>
+        <Button type="button" onClick={onAssign} disabled={!assigneeId || assignState.isLoading}>
+          Assign
+        </Button>
+        <FormRow label="Status">
+          <select value={status} onChange={(e) => setStatusValue(e.target.value)}>
+            <option value="">Select status…</option>
+            {LEAD_STATUSES.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </FormRow>
+        <Button type="button" onClick={onStatus} disabled={!status || statusState.isLoading || isConverted}>
+          Update status
+        </Button>
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end', marginBottom: 20 }}>
+        <FormRow label="Lost reason">
+          <input value={lostReason} onChange={(e) => setLostReason(e.target.value)} />
+        </FormRow>
+        <Button type="button" onClick={onMarkLost} disabled={lostState.isLoading || isConverted}>
+          Mark lost
+        </Button>
+        {isLost ? (
+          <Button type="button" onClick={onReopen} disabled={reopenState.isLoading}>
+            Reopen
+          </Button>
+        ) : null}
+        {!isConverted ? (
+          <Button type="button" onClick={onConvert} disabled={convertState.isLoading}>
+            Convert to customer
+          </Button>
+        ) : null}
+      </div>
       <FormRow label="Notes">
         <textarea
           value={notes || String(data.notes || '')}
@@ -123,6 +265,19 @@ export function CrmLeadDetailPage() {
         Save notes
       </Button>
       {msg ? <p>{msg}</p> : null}
+      <section style={{ marginTop: 28 }}>
+        <h3>Timeline</h3>
+        {timeline.length === 0 ? <p>No activity yet.</p> : null}
+        <ol>
+          {timeline.map((item) => (
+            <li key={String(item.id)}>
+              <strong>{asCaption(item.activity_type)}</strong> · {asCaption(item.status)} ·{' '}
+              {asCaption(item.scheduled_at || item.activity_at)}
+              {item.notes ? ` — ${asCaption(item.notes)}` : ''}
+            </li>
+          ))}
+        </ol>
+      </section>
     </div>
   );
 }

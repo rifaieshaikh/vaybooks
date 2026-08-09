@@ -1,14 +1,17 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
+  useAddBatchCostMutation,
   useCancelBatchMutation,
   useCompleteBatchMutation,
+  useCompleteBatchStageMutation,
   useCreateBatchMutation,
   useGetBatchQuery,
   useListBatchesQuery,
   useListInventoryLocationsQuery,
   useListRecipesQuery,
   usePostBatchMutation,
+  useRemoveBatchCostMutation,
 } from '@vaybooks/store';
 import {
   Button,
@@ -139,7 +142,7 @@ export function ProductionBatchesListPage() {
           />
         ))}
       </EntityCardGrid>
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPageChange={setPage} />
+      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
 
       <Modal
         open={open}
@@ -203,9 +206,16 @@ export function ProductionBatchDetailPage() {
   const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useGetBatchQuery(id, { skip: !id });
   const [completeBatch, completeState] = useCompleteBatchMutation();
+  const [completeStage, completeStageState] = useCompleteBatchStageMutation();
   const [postBatch, postState] = usePostBatchMutation();
   const [cancelBatch, cancelState] = useCancelBatchMutation();
+  const [addCost, addCostState] = useAddBatchCostMutation();
+  const [removeCost, removeCostState] = useRemoveBatchCostMutation();
   const [actionError, setActionError] = useState('');
+  const [costOpen, setCostOpen] = useState(false);
+  const [costType, setCostType] = useState('');
+  const [costAmount, setCostAmount] = useState('');
+  const [costDescription, setCostDescription] = useState('');
 
   async function run(action: 'complete' | 'post' | 'cancel') {
     setActionError('');
@@ -213,6 +223,51 @@ export function ProductionBatchDetailPage() {
       if (action === 'complete') await completeBatch({ id }).unwrap();
       if (action === 'post') await postBatch({ id }).unwrap();
       if (action === 'cancel') await cancelBatch(id).unwrap();
+      refetch();
+    } catch (e) {
+      setActionError(extractError(e));
+    }
+  }
+
+  async function onCompleteStage(stageId: string) {
+    setActionError('');
+    try {
+      await completeStage({ batchId: id, stage_id: stageId }).unwrap();
+      refetch();
+    } catch (e) {
+      setActionError(extractError(e));
+    }
+  }
+
+  async function onAddCost() {
+    setActionError('');
+    if (!costType.trim() || Number(costAmount) < 0 || !costAmount.trim()) {
+      setActionError('Cost type and a valid amount are required');
+      return;
+    }
+    try {
+      await addCost({
+        batchId: id,
+        body: {
+          cost_type: costType.trim(),
+          amount: Number(costAmount),
+          description: costDescription.trim() || undefined,
+        },
+      }).unwrap();
+      setCostOpen(false);
+      setCostType('');
+      setCostAmount('');
+      setCostDescription('');
+      refetch();
+    } catch (e) {
+      setActionError(extractError(e));
+    }
+  }
+
+  async function onRemoveCost(costId: string) {
+    setActionError('');
+    try {
+      await removeCost({ batchId: id, costId }).unwrap();
       refetch();
     } catch (e) {
       setActionError(extractError(e));
@@ -232,7 +287,14 @@ export function ProductionBatchDetailPage() {
   }
 
   const stages = Array.isArray(data.stages) ? (data.stages as Record<string, unknown>[]) : [];
-  const busy = completeState.isLoading || postState.isLoading || cancelState.isLoading;
+  const costs = Array.isArray(data.costs) ? (data.costs as Record<string, unknown>[]) : [];
+  const busy =
+    completeState.isLoading ||
+    completeStageState.isLoading ||
+    postState.isLoading ||
+    cancelState.isLoading ||
+    addCostState.isLoading ||
+    removeCostState.isLoading;
 
   return (
     <div>
@@ -273,12 +335,74 @@ export function ProductionBatchDetailPage() {
       ) : (
         <ul>
           {stages.map((s) => (
-            <li key={String(s.id)}>
-              {asCaption(s.name)} — {s.completed ? 'Done' : 'Open'}
+            <li key={String(s.id)} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <span>
+                {asCaption(s.name)} — {s.completed ? 'Done' : 'Open'}
+              </span>
+              {!s.completed ? (
+                <Button type="button" variant="ghost" onClick={() => void onCompleteStage(String(s.id))} disabled={busy}>
+                  Complete stage
+                </Button>
+              ) : null}
             </li>
           ))}
         </ul>
       )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginTop: 28 }}>
+        <h3 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Costs</h3>
+        <Button type="button" variant="ghost" onClick={() => setCostOpen(true)} disabled={busy}>
+          Add cost
+        </Button>
+      </div>
+      {costs.length === 0 ? (
+        <p style={{ color: '#667' }}>No additional costs recorded.</p>
+      ) : (
+        <ul>
+          {costs.map((cost) => (
+            <li key={String(cost.id)} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <span>
+                {asCaption(cost.cost_type)} — {formatMoney(Number(cost.amount ?? 0))}
+                {cost.description ? ` · ${asCaption(cost.description)}` : ''}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => void onRemoveCost(String(cost.id))}
+                disabled={busy}
+              >
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Modal
+        open={costOpen}
+        title="Add batch cost"
+        onClose={() => setCostOpen(false)}
+        footer={
+          <>
+            <Button type="button" variant="ghost" onClick={() => setCostOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void onAddCost()} disabled={busy}>
+              {addCostState.isLoading ? 'Saving…' : 'Add cost'}
+            </Button>
+          </>
+        }
+      >
+        <div style={{ display: 'grid', gap: 10 }}>
+          <FormRow label="Cost type *">
+            <TextInput value={costType} onChange={(e) => setCostType(e.target.value)} />
+          </FormRow>
+          <FormRow label="Amount *">
+            <TextInput type="number" min="0" value={costAmount} onChange={(e) => setCostAmount(e.target.value)} />
+          </FormRow>
+          <FormRow label="Description">
+            <TextInput value={costDescription} onChange={(e) => setCostDescription(e.target.value)} />
+          </FormRow>
+        </div>
+      </Modal>
     </div>
   );
 }

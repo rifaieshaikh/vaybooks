@@ -127,3 +127,76 @@ def test_project_enquiry_boq_measurement_ra_overview() -> None:
     assert c.get("/api/projects/settings").status_code == 200
     assert c.get("/api/projects/measurements").status_code == 200
     assert c.get("/api/projects/ra-bills").status_code == 200
+
+
+def test_boq_measurement_certify_ra_budget_expense() -> None:
+    customer_id = _seed_customer()
+    project = c.post(
+        "/api/projects",
+        json={
+            "name": _uniq("Depth"),
+            "customer_id": customer_id,
+            "contract_value": 50000,
+            "location_id": "loc-test",
+        },
+    )
+    assert project.status_code == 201, project.text
+    project_id = project.json()["id"]
+
+    boq = c.post(
+        f"/api/projects/{project_id}/boq",
+        json={"code": "M1", "description": "Masonry", "qty": 5, "rate": 200},
+    )
+    assert boq.status_code == 201, boq.text
+    boq_id = boq.json()["id"]
+
+    meas = c.post(
+        f"/api/projects/{project_id}/measurements",
+        json={"boq_item_id": boq_id, "quantity": 1},
+    )
+    assert meas.status_code == 201, meas.text
+    meas_id = meas.json()["id"]
+
+    submitted = c.post(f"/api/projects/{project_id}/measurements/{meas_id}/submit")
+    assert submitted.status_code == 200, submitted.text
+
+    certified = c.post(
+        f"/api/projects/{project_id}/measurements/{meas_id}/certify",
+        json={"actor": "tester"},
+    )
+    assert certified.status_code == 200, certified.text
+
+    ra = c.post(
+        f"/api/projects/{project_id}/ra-bills",
+        json={"claim_amount": 500, "description": "from meas", "measurement_ids": [meas_id]},
+    )
+    assert ra.status_code == 201, ra.text
+    ra_id = ra.json()["id"]
+    assert c.post(f"/api/projects/{project_id}/ra-bills/{ra_id}/submit").status_code == 200
+
+    budget = c.get(f"/api/projects/{project_id}/budget")
+    assert budget.status_code == 200, budget.text
+    assert "summary" in budget.json()
+
+    line = c.post(
+        f"/api/projects/{project_id}/budget/lines",
+        json={"cost_category": "Labour", "amount": 1500},
+    )
+    assert line.status_code == 201, line.text
+
+    expense = c.post(
+        f"/api/projects/{project_id}/expenses",
+        json={"amount": 75, "category": "Material", "description": "nails"},
+    )
+    assert expense.status_code == 201, expense.text
+
+    doc = c.post(
+        f"/api/projects/{project_id}/documents",
+        json={
+            "name": "note.txt",
+            "category": "Other",
+            "content_type": "text/plain",
+            "data_base64": "bm90ZQ==",
+        },
+    )
+    assert doc.status_code == 201, doc.text

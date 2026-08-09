@@ -147,6 +147,10 @@ def test_so_invoice_return_and_priced_docs() -> None:
     assert bills.status_code == 200
     assert any(row["id"] == invoice_id for row in bills.json())
 
+    pdf = c.get(f"/api/sales/invoices/{invoice_id}/pdf")
+    assert pdf.status_code == 200, pdf.text
+    assert "pdf" in pdf.headers.get("content-type", "").lower() or pdf.content[:4] == b"%PDF"
+
     ret = c.post(
         "/api/sales/returns",
         json={

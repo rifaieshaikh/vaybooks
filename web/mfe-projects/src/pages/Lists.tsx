@@ -126,7 +126,7 @@ export function ProjectsScheduledReportsPage() {
     <div>
       <h2 style={{ color: 'var(--vb-color-primary, #185c4c)' }}>Projects Scheduled Reports</h2>
       <p>
-        Configure jobs in <Link to="/schedulers/projects">Schedulers → Projects</Link>.
+        Configure reports in <Link to="/schedulers/projects?panel=reports">Schedulers → Projects scheduled reports</Link>.
       </p>
     </div>
   );

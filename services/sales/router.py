@@ -629,6 +629,41 @@ def get_invoice(invoice_id: str) -> dict[str, Any]:
     return _invoice_dict(row)
 
 
+@router.get("/invoices/{invoice_id}/pdf")
+def invoice_pdf(invoice_id: str):
+    try:
+        from fastapi.responses import Response
+
+        from packages.services_kit.mongo_env import mongo_db_name, mongo_uri
+        from pymongo import MongoClient
+        from vaybooks.bms.application.settings.business.service import BusinessAppService
+        from vaybooks.bms.infrastructure.pdf.sales_doc_pdf import generate_sales_document_pdf
+        from vaybooks.bms.infrastructure.repositories.shared.mongo_business_profile_repository import (
+            MongoBusinessProfileRepository,
+        )
+
+        row = _svc().get_sales_invoice(invoice_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Sales invoice not found")
+        document = _invoice_dict(row)
+        if "items" not in document and document.get("lines"):
+            document["items"] = document["lines"]
+        client = MongoClient(mongo_uri(), serverSelectionTimeoutMS=5000)
+        db = client[mongo_db_name()]
+        business = BusinessAppService(MongoBusinessProfileRepository(db)).get_profile()
+        pdf_bytes = generate_sales_document_pdf("sales_invoice", document, business)
+        filename = f"{document.get('store_invoice_number') or document.get('voucher_number') or invoice_id}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
 # ---- Returns ----
 
 

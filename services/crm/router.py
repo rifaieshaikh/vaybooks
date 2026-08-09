@@ -51,6 +51,23 @@ class LeadPatch(BaseModel):
     assigned_user_name: Optional[str] = None
 
 
+class LeadAssignBody(BaseModel):
+    assigned_user_id: str = Field(min_length=1)
+    assigned_user_name: str = ""
+
+
+class LeadStatusBody(BaseModel):
+    status: str = Field(min_length=1)
+
+
+class LeadLostBody(BaseModel):
+    reason: str = ""
+
+
+class LeadConvertBody(BaseModel):
+    force_new: bool = False
+
+
 class EnquiryCreate(BaseModel):
     lead_id: str = ""
     customer_id: str = ""
@@ -221,6 +238,62 @@ def update_lead(lead_id: str, body: LeadPatch) -> dict[str, Any]:
     try:
         fields = {k: v for k, v in body.model_dump().items() if v is not None}
         return entity_dict(_c().leads.update_lead(lead_id, **fields))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/leads/{lead_id}/assign")
+def assign_lead(lead_id: str, body: LeadAssignBody) -> dict[str, Any]:
+    try:
+        return entity_dict(
+            _c().leads.assign_lead(
+                lead_id,
+                body.assigned_user_id,
+                body.assigned_user_name,
+            )
+        )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/leads/{lead_id}/status")
+def set_lead_status(lead_id: str, body: LeadStatusBody) -> dict[str, Any]:
+    try:
+        return entity_dict(_c().leads.update_status(lead_id, body.status))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/leads/{lead_id}/mark-lost")
+def mark_lead_lost(lead_id: str, body: LeadLostBody) -> dict[str, Any]:
+    try:
+        return entity_dict(_c().leads.mark_lost(lead_id, body.reason))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/leads/{lead_id}/reopen")
+def reopen_lead(lead_id: str) -> dict[str, Any]:
+    try:
+        return entity_dict(_c().leads.reopen_lead(lead_id))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/leads/{lead_id}/convert")
+def convert_lead(lead_id: str, body: LeadConvertBody) -> dict[str, Any]:
+    try:
+        return entity_dict(_c().leads.convert_to_customer(lead_id, force_new=body.force_new))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/leads/{lead_id}/timeline")
+def lead_timeline(lead_id: str) -> list[dict[str, Any]]:
+    try:
+        _c().leads.get_lead(lead_id)
+        rows = _c().activities.list_timeline(lead_id=lead_id, limit=200)
+        return [entity_dict(row) for row in rows]
     except Exception as exc:
         raise _http_err(exc) from exc
 

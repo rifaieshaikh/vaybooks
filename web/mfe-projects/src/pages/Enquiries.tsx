@@ -5,6 +5,9 @@ import {
   useGetProjectEnquiryQuery,
   useListCustomersQuery,
   useListProjectEnquiriesQuery,
+  useMarkProjectEnquiryWonMutation,
+  useStartProjectEnquiryEstimationMutation,
+  useUpdateProjectEnquiryStatusMutation,
 } from '@vaybooks/store';
 import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
@@ -81,10 +84,27 @@ export function ProjectEnquiriesListPage() {
 
 export function ProjectEnquiryDetailPage() {
   const { id = '' } = useParams();
-  const { data, isLoading, error } = useGetProjectEnquiryQuery(id, { skip: !id });
+  const navigate = useNavigate();
+  const { data, isLoading, error, refetch } = useGetProjectEnquiryQuery(id, { skip: !id });
+  const [updateStatus] = useUpdateProjectEnquiryStatusMutation();
+  const [startEstimation] = useStartProjectEnquiryEstimationMutation();
+  const [markWon] = useMarkProjectEnquiryWonMutation();
+  const [actionError, setActionError] = useState('');
+  const [status, setStatus] = useState('');
 
   if (isLoading) return <p>Loading…</p>;
   if (error || !data) return <ErrorText>Enquiry not found.</ErrorText>;
+
+  async function run(fn: () => Promise<unknown>) {
+    setActionError('');
+    try {
+      const result = await fn();
+      await refetch();
+      return result;
+    } catch (e) {
+      setActionError(extractError(e));
+    }
+  }
 
   return (
     <div>
@@ -96,7 +116,40 @@ export function ProjectEnquiryDetailPage() {
         {asCaption(data.customer_name)} · {asCaption(data.status)}
       </p>
       <p>{asCaption(data.requirement)}</p>
-      <p style={{ color: '#667' }}>Enquiry workspace — assessments and conversion available via API.</p>
+      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'end' }}>
+        <FormRow label="Status">
+          <input
+            value={status || String(data.status || '')}
+            onChange={(e) => setStatus(e.target.value)}
+            placeholder="e.g. Estimating"
+          />
+        </FormRow>
+        <Button
+          type="button"
+          onClick={() =>
+            run(() =>
+              updateStatus({ id, status: status || String(data.status || 'Open') }).unwrap(),
+            )
+          }
+        >
+          Update status
+        </Button>
+        <Button
+          type="button"
+          onClick={async () => {
+            const project = await run(() => startEstimation(id).unwrap());
+            if (project && typeof project === 'object' && 'id' in project) {
+              navigate(`/projects/list/${String((project as { id: string }).id)}`);
+            }
+          }}
+        >
+          Start estimation
+        </Button>
+        <Button type="button" variant="ghost" onClick={() => run(() => markWon(id).unwrap())}>
+          Mark won
+        </Button>
+      </div>
     </div>
   );
 }

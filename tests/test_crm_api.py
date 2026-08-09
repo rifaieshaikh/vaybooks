@@ -59,6 +59,26 @@ def test_lead_enquiry_activity_overview_reports() -> None:
     assert patched.status_code == 200, patched.text
     assert patched.json()["notes"] == "follow up"
 
+    assigned = c.post(
+        f"/api/crm/leads/{lead_id}/assign",
+        json={"assigned_user_id": "sales-1", "assigned_user_name": "Sales One"},
+    )
+    assert assigned.status_code == 200, assigned.text
+    assert assigned.json()["assigned_user_id"] == "sales-1"
+
+    status = c.post(f"/api/crm/leads/{lead_id}/status", json={"status": "Contacted"})
+    assert status.status_code == 200, status.text
+    assert status.json()["status"] == "Contacted"
+
+    lost = c.post(f"/api/crm/leads/{lead_id}/mark-lost", json={"reason": "Budget"})
+    assert lost.status_code == 200, lost.text
+    assert lost.json()["status"] == "Lost"
+    assert lost.json()["lost_reason"] == "Budget"
+
+    reopened = c.post(f"/api/crm/leads/{lead_id}/reopen", json={})
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["status"] == "Follow-up Required"
+
     enquiry = c.post(
         "/api/crm/enquiries",
         json={"lead_id": lead_id, "description": "Need quote", "product_interest": "Fabric"},
@@ -77,6 +97,10 @@ def test_lead_enquiry_activity_overview_reports() -> None:
     )
     assert activity.status_code == 201, activity.text
     activity_id = activity.json()["id"]
+
+    timeline = c.get(f"/api/crm/leads/{lead_id}/timeline")
+    assert timeline.status_code == 200, timeline.text
+    assert any(row.get("id") == activity_id for row in timeline.json())
 
     cal = c.get("/api/crm/calendar")
     assert cal.status_code == 200
@@ -102,3 +126,8 @@ def test_lead_enquiry_activity_overview_reports() -> None:
 
     assert c.get(f"/api/crm/enquiries/{enquiry_id}").status_code == 200
     assert c.get(f"/api/crm/activities/{activity_id}").status_code == 200
+
+    converted = c.post(f"/api/crm/leads/{lead_id}/convert", json={})
+    assert converted.status_code == 200, converted.text
+    assert converted.json()["status"] == "Converted"
+    assert converted.json()["customer_id"]

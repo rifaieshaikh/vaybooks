@@ -32,7 +32,7 @@ def test_migration_health_and_entities() -> None:
     assert "customers" in ents.json()["entities"]
 
 
-def test_profiles_parse_preview_batch() -> None:
+def test_profiles_parse_preview_run_happy_path() -> None:
     name = f"profile-{uuid.uuid4().hex[:8]}"
     saved = c.post(
         "/api/migration/profiles",
@@ -49,7 +49,8 @@ def test_profiles_parse_preview_batch() -> None:
     assert listed.status_code == 200
     assert any(p.get("id") == profile_id for p in listed.json())
 
-    csv_text = "Phone,Name\n9000000001,Test Customer\n"
+    phone = f"9{uuid.uuid4().int % 1_000_000_000:09d}"
+    csv_text = f"Phone,Name\n{phone},Test Customer\n"
     parsed = c.post(
         "/api/migration/parse",
         json={
@@ -61,16 +62,37 @@ def test_profiles_parse_preview_batch() -> None:
     upload_id = parsed.json()["upload_id"]
     assert "Phone" in parsed.json()["columns"]
 
+    suggested = c.post(
+        "/api/migration/suggest-mapping",
+        params={"entity": "customers", "upload_id": upload_id},
+    )
+    assert suggested.status_code == 200, suggested.text
+    assert suggested.json()["mapping"]["phone_number"] == "Phone"
+
+    mapping = {"phone_number": "Phone", "customer_name": "Name"}
     preview = c.post(
         "/api/migration/preview",
         json={
             "upload_id": upload_id,
             "entity": "customers",
-            "mapping": {"phone_number": "Phone", "customer_name": "Name"},
+            "mapping": mapping,
         },
     )
     assert preview.status_code == 200, preview.text
-    assert "total_rows" in preview.json()
+    assert preview.json()["total_rows"] == 1
+    assert preview.json()["can_import"] is True
+
+    imported = c.post(
+        "/api/migration/run",
+        json={
+            "upload_id": upload_id,
+            "entity": "customers",
+            "mapping": mapping,
+            "duplicate_policy": "skip",
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    assert imported.json()["created"] == 1
 
     batch = c.post(
         "/api/migration/batches",
@@ -78,7 +100,7 @@ def test_profiles_parse_preview_batch() -> None:
             "source": "csv",
             "entity": "customers",
             "upload_id": upload_id,
-            "mapping": {"phone_number": "Phone", "customer_name": "Name"},
+            "mapping": mapping,
         },
     )
     assert batch.status_code == 201, batch.text

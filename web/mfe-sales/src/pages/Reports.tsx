@@ -93,7 +93,7 @@ export function SalesScheduledReportsPage() {
         and pick a sales report type.
       </p>
       <Link
-        to="/schedulers/sales"
+        to="/schedulers/sales?panel=reports"
         style={{
           display: 'inline-block',
           marginTop: 8,

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   useCreateBoutiqueMeasurementMutation,
   useDeleteBoutiqueMeasurementMutation,
   useGetBoutiqueMeasurementQuery,
+  useLazyGetBoutiqueMeasurementPdfQuery,
   useListBoutiqueMeasurementSpecsQuery,
   useListBoutiqueMeasurementsQuery,
   useListCustomersQuery,
@@ -19,7 +20,6 @@ import {
   Modal,
   PAGE_SIZE,
   PaginationBar,
-  TextInput,
   matchesRegex,
   pageCount,
   paginate,
@@ -27,23 +27,15 @@ import {
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
+import {
+  MeasurementForm,
+  type MeasurementFormValue,
+  measurementFormMissingRequired,
+} from '../MeasurementForm';
 import { asCaption, extractError } from '../utils';
 
 const DEFAULT_FILTERS = { measurement_number: '', wearer_name: '', person_type: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'measurement_number', desc: true }];
-
-function specApplies(spec: Record<string, unknown>, personType: string): boolean {
-  const types = Array.isArray(spec.person_types) ? (spec.person_types as string[]) : [];
-  if (types.length === 0) return true;
-  return types.includes(personType);
-}
-
-function requiredSpecsFor(
-  specs: Record<string, unknown>[],
-  personType: string,
-): Record<string, unknown>[] {
-  return specs.filter((s) => Boolean(s.required) && Boolean(s.is_active !== false) && specApplies(s, personType));
-}
 
 export function BoutiqueMeasurementsListPage() {
   const navigate = useNavigate();
@@ -57,26 +49,7 @@ export function BoutiqueMeasurementsListPage() {
   const [open, setOpen] = useState(false);
   const [formError, setFormError] = useState('');
   const [customerId, setCustomerId] = useState('');
-  const [personType, setPersonType] = useState('Men');
-  const [wearerName, setWearerName] = useState('');
-  const [notes, setNotes] = useState('');
-  const [values, setValues] = useState<Record<string, string>>({});
-
-  const requiredSpecs = useMemo(
-    () => requiredSpecsFor(specs, personType),
-    [specs, personType],
-  );
-
-  useEffect(() => {
-    setValues((prev) => {
-      const next: Record<string, string> = {};
-      for (const s of requiredSpecs) {
-        const key = String(s.key);
-        next[key] = prev[key] ?? '';
-      }
-      return next;
-    });
-  }, [requiredSpecs]);
+  const [form, setForm] = useState<MeasurementFormValue | null>(null);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
@@ -106,23 +79,19 @@ export function BoutiqueMeasurementsListPage() {
       setFormError('Customer is required');
       return;
     }
-    const missing = requiredSpecs.filter((s) => !String(values[String(s.key)] || '').trim());
+    if (!form) {
+      setFormError('Fill in measurement fields');
+      return;
+    }
+    const missing = measurementFormMissingRequired(specs, form.person_type, form.values);
     if (missing.length) {
-      setFormError(
-        `Missing required measurements: ${missing.map((s) => asCaption(s.label || s.key)).join(', ')}`,
-      );
+      setFormError(`Missing required: ${missing.join(', ')}`);
       return;
     }
     try {
       const created = await createMeas({
         customer_id: customerId,
-        person_type: personType,
-        wearer_name: wearerName,
-        notes,
-        values: requiredSpecs.map((s) => ({
-          key: String(s.key),
-          value: String(values[String(s.key)] || '').trim(),
-        })),
+        ...form,
       }).unwrap();
       setOpen(false);
       navigate(`/boutique/measurements/${created.id}`);
@@ -140,6 +109,7 @@ export function BoutiqueMeasurementsListPage() {
         primaryLabel="New measurement"
         onPrimary={() => {
           setFormError('');
+          setForm(null);
           setOpen(true);
         }}
         filterFields={filterFields}
@@ -210,40 +180,7 @@ export function BoutiqueMeasurementsListPage() {
               ))}
             </select>
           </FormRow>
-          <FormRow label="Person type">
-            <select
-              value={personType}
-              onChange={(e) => setPersonType(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              {['Men', 'Women', 'Boy Child', 'Girl Child', 'Infant'].map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Wearer name">
-            <TextInput value={wearerName} onChange={(e) => setWearerName(e.target.value)} />
-          </FormRow>
-          <FormRow label="Notes">
-            <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </FormRow>
-          <h4 style={{ margin: '8px 0 0' }}>Required measurements</h4>
-          {requiredSpecs.length === 0 ? (
-            <p style={{ color: '#667' }}>No required specs for this person type.</p>
-          ) : (
-            requiredSpecs.map((s) => (
-              <FormRow key={String(s.key)} label={`${asCaption(s.label || s.key)} *`}>
-                <TextInput
-                  value={values[String(s.key)] || ''}
-                  onChange={(e) =>
-                    setValues((prev) => ({ ...prev, [String(s.key)]: e.target.value }))
-                  }
-                />
-              </FormRow>
-            ))
-          )}
+          <MeasurementForm onChange={setForm} />
         </div>
       </Modal>
     </div>
@@ -257,32 +194,27 @@ export function BoutiqueMeasurementDetailPage() {
   const { data: specs = [] } = useListBoutiqueMeasurementSpecsQuery();
   const [updateMeas] = useUpdateBoutiqueMeasurementMutation();
   const [deleteMeas] = useDeleteBoutiqueMeasurementMutation();
-  const [wearerName, setWearerName] = useState('');
-  const [notes, setNotes] = useState('');
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [fetchPdf] = useLazyGetBoutiqueMeasurementPdfQuery();
+  const [form, setForm] = useState<MeasurementFormValue | null>(null);
   const [actionError, setActionError] = useState('');
 
-  const personType = asCaption(data?.person_type) || 'Men';
-  const requiredSpecs = useMemo(
-    () => requiredSpecsFor(specs, personType),
-    [specs, personType],
-  );
-
-  useEffect(() => {
-    if (!data) return;
-    setWearerName(String(data.wearer_name || ''));
-    setNotes(String(data.notes || ''));
-    const existing = Array.isArray(data.values) ? (data.values as Record<string, unknown>[]) : [];
-    const map: Record<string, string> = {};
-    for (const row of existing) {
-      map[String(row.field_key || row.key)] = String(row.value ?? '');
-    }
-    for (const s of requiredSpecs) {
-      const key = String(s.key);
-      if (!(key in map)) map[key] = '';
-    }
-    setValues(map);
-  }, [data, requiredSpecs]);
+  const initial = useMemo(() => {
+    if (!data) return undefined;
+    return {
+      person_type: String(data.person_type || 'Men'),
+      wearer_name: String(data.wearer_name || ''),
+      wearer_age: String(data.wearer_age || ''),
+      wearer_height: String(data.wearer_height || ''),
+      wearer_weight: String(data.wearer_weight || ''),
+      fit_preference: String(data.fit_preference || 'Regular'),
+      unit: String(data.unit || 'inch'),
+      measured_by: String(data.measured_by || ''),
+      measured_at: String(data.measured_at || ''),
+      notes: String(data.notes || ''),
+      print_notes: String(data.print_notes || ''),
+      values: Array.isArray(data.values) ? (data.values as Record<string, unknown>[]) : [],
+    };
+  }, [data]);
 
   if (isLoading) return <p>Loading…</p>;
   if (error || !data) return <ErrorText>Measurement not found.</ErrorText>;
@@ -292,45 +224,52 @@ export function BoutiqueMeasurementDetailPage() {
       <p style={{ marginBottom: 12 }}>
         <Link to="/boutique/measurements">← Measurements</Link>
       </p>
-      <h2 style={{ margin: '0 0 8px', color: 'var(--vb-color-primary, #185c4c)' }}>
-        {asCaption(data.measurement_number) || id}
-      </h2>
-      <p style={{ color: '#667', marginBottom: 16 }}>
-        {personType} · Customer {asCaption(data.customer_id)}
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h2 style={{ margin: '0 0 8px', color: 'var(--vb-color-primary, #185c4c)' }}>
+            {asCaption(data.measurement_number) || id}
+          </h2>
+          <p style={{ color: '#667', marginBottom: 16 }}>
+            {asCaption(data.person_type)} · Customer {asCaption(data.customer_id)}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={async () => {
+            setActionError('');
+            try {
+              const blob = await fetchPdf(id).unwrap();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `${asCaption(data.measurement_number) || id}.pdf`;
+              a.click();
+              URL.revokeObjectURL(url);
+            } catch (e) {
+              setActionError(extractError(e));
+            }
+          }}
+        >
+          Download PDF
+        </Button>
+      </div>
       {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-      <div style={{ display: 'grid', gap: 10, maxWidth: 480 }}>
-        <FormRow label="Wearer name">
-          <TextInput value={wearerName} onChange={(e) => setWearerName(e.target.value)} />
-        </FormRow>
-        <FormRow label="Notes">
-          <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </FormRow>
-        <h4 style={{ margin: '8px 0 0' }}>Measurements</h4>
-        {requiredSpecs.map((s) => (
-          <FormRow key={String(s.key)} label={`${asCaption(s.label || s.key)} *`}>
-            <TextInput
-              value={values[String(s.key)] || ''}
-              onChange={(e) =>
-                setValues((prev) => ({ ...prev, [String(s.key)]: e.target.value }))
-              }
-            />
-          </FormRow>
-        ))}
-        <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ maxWidth: 640 }}>
+        <MeasurementForm key={id} initial={initial} onChange={setForm} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
           <Button
             type="button"
             onClick={async () => {
               setActionError('');
+              if (!form) return;
+              const missing = measurementFormMissingRequired(specs, form.person_type, form.values);
+              if (missing.length) {
+                setActionError(`Missing required: ${missing.join(', ')}`);
+                return;
+              }
               try {
-                await updateMeas({
-                  id,
-                  body: {
-                    wearer_name: wearerName,
-                    notes,
-                    values: Object.entries(values).map(([key, value]) => ({ key, value })),
-                  },
-                }).unwrap();
+                await updateMeas({ id, body: form }).unwrap();
                 refetch();
               } catch (e) {
                 setActionError(extractError(e));

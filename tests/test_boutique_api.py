@@ -224,3 +224,70 @@ def test_activities_seed_and_material_complete_without_time() -> None:
         json={"completed_by": "test", "add_expense": False},
     )
     assert done.status_code == 200, done.text
+
+
+def test_draft_measurement_link_pdf_and_delete_guard() -> None:
+    """Workspace path: draft → measurement → item(measurement_id) → advance; PDF; linked delete blocked."""
+    customer_id = _seed_customer()
+    activity = get_boutique_container().activities.create_activity(
+        _uniq("Cut"),
+        "In House Service",
+        default_hourly_expense=50,
+    )
+
+    draft = c.post("/api/boutique/orders", json={"customer_id": customer_id, "notes": "ws"})
+    assert draft.status_code == 201, draft.text
+    order_id = draft.json()["id"]
+
+    specs = c.get("/api/boutique/measurement-specs").json()
+    values = [
+        {"key": s["key"], "value": "12"}
+        for s in specs
+        if s.get("required") and "Women" in (s.get("person_types") or [])
+    ]
+    if not values:
+        values = [{"key": s["key"], "value": "12"} for s in specs if s.get("required")][:3]
+
+    sections = c.get("/api/boutique/measurement-sections")
+    assert sections.status_code == 200
+
+    meas = c.post(
+        "/api/boutique/measurements",
+        json={
+            "customer_id": customer_id,
+            "person_type": "Women",
+            "order_id": order_id,
+            "wearer_name": "Priya",
+            "fit_preference": "Regular",
+            "values": values,
+        },
+    )
+    assert meas.status_code == 201, meas.text
+    meas_id = meas.json()["id"]
+
+    pdf = c.get(f"/api/boutique/measurements/{meas_id}/pdf")
+    assert pdf.status_code == 200, pdf.text
+    assert "pdf" in pdf.headers.get("content-type", "").lower() or pdf.content[:4] == b"%PDF"
+
+    item = c.post(
+        f"/api/boutique/orders/{order_id}/items",
+        json={
+            "description": "Blouse",
+            "measurement_id": meas_id,
+            "required_activities": {activity.activity_name: True},
+        },
+    )
+    assert item.status_code == 201, item.text
+    linked = item.json().get("item") or item.json()
+    assert linked.get("measurement_id") == meas_id
+    assert linked.get("bill_number")
+
+    etd = (date.today() + timedelta(days=7)).isoformat()
+    patched = c.patch(
+        f"/api/boutique/orders/{order_id}",
+        json={"expected_delivery_date": etd},
+    )
+    assert patched.status_code == 200, patched.text
+
+    blocked = c.delete(f"/api/boutique/measurements/{meas_id}")
+    assert blocked.status_code == 400, blocked.text

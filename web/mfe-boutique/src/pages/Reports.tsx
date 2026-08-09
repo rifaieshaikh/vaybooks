@@ -95,7 +95,7 @@ export function BoutiqueScheduledReportsPage() {
         scheduled job there and pick a boutique report type.
       </p>
       <Link
-        to="/schedulers/boutique"
+        to="/schedulers/boutique?panel=reports"
         style={{
           display: 'inline-block',
           marginTop: 8,

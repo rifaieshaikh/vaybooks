@@ -140,7 +140,7 @@ export function InventoryScheduledReportsPage() {
         scheduler module rather than here. Create or manage a scheduled job there and pick an inventory report type.
       </p>
       <Link
-        to="/schedulers/inventory"
+        to="/schedulers/inventory?panel=reports"
         style={{
           display: 'inline-block',
           marginTop: 8,

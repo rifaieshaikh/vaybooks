@@ -99,7 +99,7 @@ export function ProductionScheduledReportsPage() {
         a scheduled job there and pick a production report type.
       </p>
       <Link
-        to="/schedulers/production"
+        to="/schedulers/production?panel=reports"
         style={{
           display: 'inline-block',
           marginTop: 12,

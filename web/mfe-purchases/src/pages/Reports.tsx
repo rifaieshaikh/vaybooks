@@ -99,7 +99,7 @@ export function PurchasesScheduledReportsPage() {
         there and pick a purchases report type.
       </p>
       <Link
-        to="/schedulers/purchases"
+        to="/schedulers/purchases?panel=reports"
         style={{
           display: 'inline-block',
           marginTop: 8,

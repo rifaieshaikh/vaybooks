@@ -1,5 +1,6 @@
 export { BoutiqueOverviewPage } from './Overview';
 export { BoutiqueOrdersListPage, BoutiqueOrderDetailPage } from './Orders';
+export { BoutiqueOrderWorkspacePage } from './OrderWorkspace';
 export { BoutiqueItemsListPage, BoutiqueItemDetailPage } from './Items';
 export {
   BoutiqueMeasurementsListPage,

@@ -3,6 +3,7 @@ import {
   useCreateStoreActivityMutation,
   useDeactivateStoreActivityMutation,
   useListStoreActivitiesQuery,
+  useUpdateStoreActivityMutation,
 } from '@vaybooks/store';
 import {
   Button,
@@ -39,7 +40,8 @@ export function StoreActivitiesPage() {
     active_only: false,
   });
   const [createActivity, createState] = useCreateStoreActivityMutation();
-  const [deactivate] = useDeactivateStoreActivityMutation();
+  const [updateActivity, updateState] = useUpdateStoreActivityMutation();
+  const [deactivate, deactivateState] = useDeactivateStoreActivityMutation();
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
@@ -48,6 +50,8 @@ export function StoreActivitiesPage() {
   const [name, setName] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [rate, setRate] = useState('100');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isActive, setIsActive] = useState(true);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
@@ -89,6 +93,47 @@ export function StoreActivitiesPage() {
     }
   }
 
+  async function onSave() {
+    if (!editingId) {
+      await onCreate();
+      return;
+    }
+    setFormError('');
+    if (!name.trim()) {
+      setFormError('Activity name is required');
+      return;
+    }
+    try {
+      await updateActivity({
+        id: editingId,
+        body: {
+          activity_name: name.trim(),
+          activity_category: category,
+          default_hourly_expense: Number(rate) || 0,
+          is_active: isActive,
+        },
+      }).unwrap();
+      setOpen(false);
+      setEditingId(null);
+      refetch();
+    } catch (e) {
+      setFormError(extractError(e));
+    }
+  }
+
+  async function onDeactivate() {
+    if (!editingId) return;
+    setFormError('');
+    try {
+      await deactivate(editingId).unwrap();
+      setOpen(false);
+      setEditingId(null);
+      refetch();
+    } catch (e) {
+      setFormError(extractError(e));
+    }
+  }
+
   return (
     <div>
       <ListToolbar
@@ -98,6 +143,11 @@ export function StoreActivitiesPage() {
         primaryLabel="New activity"
         onPrimary={() => {
           setFormError('');
+          setEditingId(null);
+          setName('');
+          setCategory(CATEGORIES[0]);
+          setRate('100');
+          setIsActive(true);
           setOpen(true);
         }}
         filterFields={filterFields}
@@ -133,32 +183,40 @@ export function StoreActivitiesPage() {
                 row.is_active === false ? 'Inactive' : 'Active',
                 `₹${Number(row.default_hourly_expense ?? 0)}/hr`,
               ]}
-              onEdit={
-                row.is_active === false
-                  ? undefined
-                  : () => {
-                      if (window.confirm('Deactivate this activity?')) {
-                        void deactivate(String(row.id)).then(() => refetch());
-                      }
-                    }
-              }
+              onEdit={() => {
+                setFormError('');
+                setEditingId(String(row.id));
+                setName(asCaption(row.activity_name));
+                setCategory(asCaption(row.activity_category) || CATEGORIES[0]);
+                setRate(String(row.default_hourly_expense ?? 0));
+                setIsActive(row.is_active !== false);
+                setOpen(true);
+              }}
             />
           ))}
         </EntityCardGrid>
       )}
-      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPageChange={setPage} />
+      <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
 
       <Modal
         open={open}
-        title="New store activity"
-        onClose={() => setOpen(false)}
+        title={editingId ? 'Edit store activity' : 'New store activity'}
+        onClose={() => {
+          setOpen(false);
+          setEditingId(null);
+        }}
         footer={
           <>
+            {editingId && isActive ? (
+              <Button type="button" variant="ghost" onClick={() => void onDeactivate()} disabled={deactivateState.isLoading}>
+                {deactivateState.isLoading ? 'Deactivating…' : 'Deactivate'}
+              </Button>
+            ) : null}
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" onClick={() => void onCreate()} disabled={createState.isLoading}>
-              {createState.isLoading ? 'Saving…' : 'Create'}
+            <Button type="button" onClick={() => void onSave()} disabled={createState.isLoading || updateState.isLoading}>
+              {createState.isLoading || updateState.isLoading ? 'Saving…' : editingId ? 'Save' : 'Create'}
             </Button>
           </>
         }

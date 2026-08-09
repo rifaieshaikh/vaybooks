@@ -4,6 +4,7 @@ import {
   useCreateAccessRoleMutation,
   useGetAccessRoleQuery,
   useListAccessRolesQuery,
+  useUpdateAccessRoleMutation,
 } from '@vaybooks/store';
 import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
@@ -61,7 +62,8 @@ export function AccessRolesListPage() {
       {error ? <ErrorText>Failed to load roles.</ErrorText> : null}
       <DataTable
         columns={columns}
-        rows={data as Record<string, unknown>[]}
+        data={data as Record<string, unknown>[]}
+        rowKey={(row) => String(row.id)}
         onRowClick={(row) => navigate(`/access/roles/${row.id}`)}
       />
     </div>
@@ -70,7 +72,23 @@ export function AccessRolesListPage() {
 
 export function AccessRoleDetailPage() {
   const { id = '' } = useParams();
-  const { data, isLoading, error } = useGetAccessRoleQuery(id, { skip: !id });
+  const { data, isLoading, error, refetch } = useGetAccessRoleQuery(id, { skip: !id });
+  const [update, updateState] = useUpdateAccessRoleMutation();
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [keysText, setKeysText] = useState('');
+  const [msg, setMsg] = useState('');
+  async function onSave() {
+    try {
+      await update({ id, body: {
+        name: name || String(data?.name || ''),
+        description: description || String(data?.description || ''),
+        permission_keys: (keysText || (Array.isArray(data?.permission_keys) ? data.permission_keys.join('\n') : '')).split(/\n|,/).map((key) => key.trim()).filter(Boolean),
+      } }).unwrap();
+      setMsg('Saved');
+      refetch();
+    } catch (e) { setMsg(extractError(e)); }
+  }
   if (isLoading) return <p>Loading…</p>;
   if (error || !data) return <ErrorText>Role not found.</ErrorText>;
   const keys = Array.isArray(data.permission_keys) ? data.permission_keys : [];
@@ -82,6 +100,13 @@ export function AccessRoleDetailPage() {
       <h2 style={{ color: 'var(--vb-color-primary, #185c4c)' }}>{asCaption(data.name)}</h2>
       <p>{asCaption(data.description)}</p>
       <p>System role: {String(data.is_system)}</p>
+      {!data.is_system ? <div style={{ display: 'grid', gap: 12, maxWidth: 640, marginBottom: 20 }}>
+        <FormRow label="Role name"><input value={name || String(data.name || '')} onChange={(e) => setName(e.target.value)} /></FormRow>
+        <FormRow label="Description"><input value={description || String(data.description || '')} onChange={(e) => setDescription(e.target.value)} /></FormRow>
+        <FormRow label="Permission keys (one per line)"><textarea rows={8} value={keysText || (Array.isArray(data.permission_keys) ? data.permission_keys.join('\n') : '')} onChange={(e) => setKeysText(e.target.value)} /></FormRow>
+        <Button type="button" onClick={onSave} disabled={updateState.isLoading}>{updateState.isLoading ? 'Saving…' : 'Save role'}</Button>
+        {msg ? <p>{msg}</p> : null}
+      </div> : <p>System roles cannot be edited.</p>}
       <h3>Permissions ({keys.length})</h3>
       <ul>
         {keys.slice(0, 50).map((key) => (

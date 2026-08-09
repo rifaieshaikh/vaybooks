@@ -5,6 +5,7 @@ import {
   useClosePurchaseOrderMutation,
   useCreatePurchaseOrderMutation,
   useGetPurchaseOrderQuery,
+  useLazyGetPurchaseOrderPdfQuery,
   useListInventoryLocationsQuery,
   useListInventoryProductsQuery,
   useListPurchaseOrdersQuery,
@@ -268,6 +269,7 @@ export function PurchaseOrderDetailPage() {
   const [sendPo] = useSendPurchaseOrderMutation();
   const [cancelPo] = useCancelPurchaseOrderMutation();
   const [closePo] = useClosePurchaseOrderMutation();
+  const [fetchPdf] = useLazyGetPurchaseOrderPdfQuery();
   const [actionError, setActionError] = useState('');
 
   const lines = useMemo(
@@ -306,6 +308,26 @@ export function PurchaseOrderDetailPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={async () => {
+              setActionError('');
+              try {
+                const blob = await fetchPdf(id).unwrap();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${asCaption(data.po_number) || id}.pdf`;
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch (e) {
+                setActionError(extractError(e));
+              }
+            }}
+          >
+            Download PDF
+          </Button>
           <Button type="button" variant="ghost" onClick={() => run('send')}>
             Send
           </Button>

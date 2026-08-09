@@ -4,6 +4,7 @@ import {
   useCreateAccessUserMutation,
   useGetAccessUserQuery,
   useListAccessRolesQuery,
+  useSetAccessUserPasswordMutation,
   useListAccessUsersQuery,
   useUpdateAccessUserMutation,
 } from '@vaybooks/store';
@@ -89,7 +90,8 @@ export function AccessUsersListPage() {
       {error ? <ErrorText>Failed to load users.</ErrorText> : null}
       <DataTable
         columns={columns}
-        rows={data as Record<string, unknown>[]}
+        data={data as Record<string, unknown>[]}
+        rowKey={(row) => String(row.id)}
         onRowClick={(row) => navigate(`/access/users/${row.id}`)}
       />
     </div>
@@ -100,13 +102,26 @@ export function AccessUserDetailPage() {
   const { id = '' } = useParams();
   const { data, isLoading, error, refetch } = useGetAccessUserQuery(id, { skip: !id });
   const [updateUser, updateState] = useUpdateAccessUserMutation();
+  const [setPassword, passwordState] = useSetAccessUserPasswordMutation();
+  const rolesQ = useListAccessRolesQuery();
   const [displayName, setDisplayName] = useState('');
+  const [roleIds, setRoleIds] = useState<string[]>([]);
+  const [locationIds, setLocationIds] = useState('');
+  const [active, setActive] = useState<boolean | null>(null);
+  const [password, setPasswordValue] = useState('');
   const [msg, setMsg] = useState('');
 
   async function onSave() {
     setMsg('');
     try {
-      await updateUser({ id, body: { display_name: displayName || undefined } }).unwrap();
+      await updateUser({ id, body: {
+        display_name: displayName || String(data?.display_name || ''),
+        role_ids: roleIds.length ? roleIds : (Array.isArray(data?.role_ids) ? data.role_ids : []),
+        location_ids: locationIds ? locationIds.split(',').map((value) => value.trim()).filter(Boolean) : (Array.isArray(data?.location_ids) ? data.location_ids : []),
+        active: active ?? Boolean(data?.active),
+      } }).unwrap();
+      if (password) await setPassword({ id, password }).unwrap();
+      setPasswordValue('');
       setMsg('Saved');
       refetch();
     } catch (e) {
@@ -130,7 +145,15 @@ export function AccessUserDetailPage() {
           onChange={(e) => setDisplayName(e.target.value)}
         />
       </FormRow>
-      <Button type="button" onClick={onSave} disabled={updateState.isLoading}>
+      <FormRow label="Roles">
+        <select multiple value={roleIds.length ? roleIds : (Array.isArray(data.role_ids) ? data.role_ids.map(String) : [])} onChange={(e) => setRoleIds(Array.from(e.target.selectedOptions, (option) => option.value))}>
+          {(rolesQ.data || []).map((role) => <option key={String(role.id)} value={String(role.id)}>{asCaption(role.name)}</option>)}
+        </select>
+      </FormRow>
+      <FormRow label="Location IDs (comma separated)"><input value={locationIds || (Array.isArray(data.location_ids) ? data.location_ids.join(', ') : '')} onChange={(e) => setLocationIds(e.target.value)} /></FormRow>
+      <label><input type="checkbox" checked={active ?? Boolean(data.active)} onChange={(e) => setActive(e.target.checked)} /> Active</label>
+      <FormRow label="New password (leave blank to keep)"><input type="password" value={password} onChange={(e) => setPasswordValue(e.target.value)} /></FormRow>
+      <Button type="button" onClick={onSave} disabled={updateState.isLoading || passwordState.isLoading || (password.length > 0 && password.length < 4)}>
         Save
       </Button>
       {msg ? <p>{msg}</p> : null}

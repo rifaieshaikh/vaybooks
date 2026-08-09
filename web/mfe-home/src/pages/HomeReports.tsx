@@ -3,7 +3,13 @@ import { Link } from 'react-router-dom';
 import { useHomeDashboardQuery, useHomeMtdQuery, useReportsCatalogQuery } from '@vaybooks/store';
 import { Button, DataTable, ErrorText, type DataTableColumn } from '@vaybooks/ui-kit';
 
-function Kpi({ label, value }: { label: string; value: string }) {
+function Kpi({ label, value, to }: { label: string; value: string; to?: string }) {
+  const content = (
+    <>
+      <div style={{ fontSize: 13, color: '#667' }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--vb-color-primary, #185c4c)' }}>{value}</div>
+    </>
+  );
   return (
     <div
       style={{
@@ -15,8 +21,7 @@ function Kpi({ label, value }: { label: string; value: string }) {
         gap: 6,
       }}
     >
-      <div style={{ fontSize: 13, color: '#667' }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--vb-color-primary, #185c4c)' }}>{value}</div>
+      {to ? <Link to={to} style={{ color: 'inherit', textDecoration: 'none' }}>{content}</Link> : content}
     </div>
   );
 }
@@ -46,14 +51,14 @@ export function HomeDashboardPage() {
             gap: 12,
           }}
         >
-          <Kpi label="Active orders" value={String(metrics.active_orders ?? 0)} />
-          <Kpi label="MTD invoices" value={String(metrics.total_invoice_this_month ?? 0)} />
-          <Kpi label="MTD advances" value={String(metrics.total_advance_this_month ?? 0)} />
-          <Kpi label="Pending activities" value={String(metrics.total_pending_activities ?? 0)} />
-          <Kpi label="Low stock" value={String(metrics.inventory_low_stock_count ?? 0)} />
-          <Kpi label="CRM leads" value={String(metrics.crm_active_leads ?? 0)} />
-          <Kpi label="Sales orders" value={String(metrics.sales_orders ?? 0)} />
-          <Kpi label="Purchase orders" value={String(metrics.purchase_orders ?? 0)} />
+          <Kpi label="Active orders" value={String(metrics.active_orders ?? 0)} to="/boutique/orders" />
+          <Kpi label="MTD invoices" value={String(metrics.total_invoice_this_month ?? 0)} to="/sales/invoices" />
+          <Kpi label="MTD advances" value={String(metrics.total_advance_this_month ?? 0)} to="/boutique/orders" />
+          <Kpi label="Pending activities" value={String(metrics.total_pending_activities ?? 0)} to="/boutique/time" />
+          <Kpi label="Low stock" value={String(metrics.inventory_low_stock_count ?? 0)} to="/inventory/stock" />
+          <Kpi label="CRM leads" value={String(metrics.crm_active_leads ?? 0)} to="/crm/leads" />
+          <Kpi label="Sales orders" value={String(metrics.sales_orders ?? 0)} to="/sales/orders" />
+          <Kpi label="Purchase orders" value={String(metrics.purchase_orders ?? 0)} to="/purchases/orders" />
         </div>
       )}
     </div>
@@ -85,11 +90,11 @@ export function MtdDashboardPage() {
             gap: 12,
           }}
         >
-          <Kpi label="Delivered this month" value={String(metrics.delivered_this_month ?? 0)} />
-          <Kpi label="Invoice total" value={String(metrics.total_invoice_this_month ?? 0)} />
-          <Kpi label="Advance total" value={String(metrics.total_advance_this_month ?? 0)} />
-          <Kpi label="Stock movements" value={String(metrics.inventory_movements_this_month ?? 0)} />
-          <Kpi label="Revenue" value={String(metrics.revenue ?? 0)} />
+          <Kpi label="Delivered this month" value={String(metrics.delivered_this_month ?? 0)} to="/sales/delivery-notes" />
+          <Kpi label="Invoice total" value={String(metrics.total_invoice_this_month ?? 0)} to="/sales/invoices" />
+          <Kpi label="Advance total" value={String(metrics.total_advance_this_month ?? 0)} to="/boutique/orders" />
+          <Kpi label="Stock movements" value={String(metrics.inventory_movements_this_month ?? 0)} to="/inventory/movements" />
+          <Kpi label="Revenue" value={String(metrics.revenue ?? 0)} to="/finance/reports" />
         </div>
       )}
     </div>
@@ -145,7 +150,7 @@ export function ReportsCatalogPage() {
         ))}
       </ul>
       <div style={{ marginTop: 24 }}>
-        <DataTable columns={columns} rows={rows} />
+        <DataTable columns={columns} data={rows} rowKey={(row) => String(row.id)} />
       </div>
     </div>
   );

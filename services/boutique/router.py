@@ -645,6 +645,46 @@ def generate_invoice(order_id: str, body: InvoiceWrite) -> dict[str, Any]:
         raise _http_err(exc) from exc
 
 
+@router.get("/orders/{order_id}/invoices/{invoice_id}/pdf")
+def order_invoice_pdf(order_id: str, invoice_id: str):
+    try:
+        from fastapi.responses import Response
+
+        from packages.services_kit.mongo_env import mongo_db_name, mongo_uri
+        from packages.services_kit.parties_container import get_parties_container
+        from pymongo import MongoClient
+        from vaybooks.bms.application.settings.business.service import BusinessAppService
+        from vaybooks.bms.infrastructure.pdf.boutique_pdf import generate_customization_invoice_pdf
+        from vaybooks.bms.infrastructure.repositories.shared.mongo_business_profile_repository import (
+            MongoBusinessProfileRepository,
+        )
+
+        order = _c().orders.get_order_detail(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        invoices = _c().invoices._invoice_repo.list_by_order(order_id)  # noqa: SLF001
+        invoice = next((i for i in invoices if str(getattr(i, "id", "")) == invoice_id), None)
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        customer = get_parties_container().customers.get_customer_detail(
+            getattr(order, "customer_id", "") or ""
+        )
+        client = MongoClient(mongo_uri(), serverSelectionTimeoutMS=5000)
+        db = client[mongo_db_name()]
+        business = BusinessAppService(MongoBusinessProfileRepository(db)).get_profile()
+        pdf_bytes = generate_customization_invoice_pdf(invoice, order, customer, business)
+        filename = f"{getattr(invoice, 'invoice_number', invoice_id)}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
 @router.get("/orders/{order_id}/deliveries")
 def list_order_deliveries(order_id: str) -> list[dict[str, Any]]:
     try:
@@ -762,6 +802,15 @@ def list_measurement_specs(*, active_only: bool = True) -> list[dict[str, Any]]:
         raise _http_err(exc) from exc
 
 
+@router.get("/measurement-sections")
+def list_measurement_sections(*, active_only: bool = True) -> list[dict[str, Any]]:
+    try:
+        rows = _c().measurements.list_sections(active_only=active_only)
+        return [entity_dict(r) for r in rows]
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
 @router.get("/measurements")
 def list_measurements(*, customer_id: Optional[str] = None) -> list[dict[str, Any]]:
     try:
@@ -806,6 +855,42 @@ def get_measurement(record_id: str) -> dict[str, Any]:
     return _meas_dict(record)
 
 
+@router.get("/measurements/{record_id}/pdf")
+def measurement_pdf(record_id: str):
+    try:
+        from fastapi.responses import Response
+
+        from packages.services_kit.parties_container import get_parties_container
+        from vaybooks.bms.application.settings.business.service import BusinessAppService
+        from vaybooks.bms.infrastructure.pdf.boutique_pdf import generate_measurement_sheet_pdf
+        from vaybooks.bms.infrastructure.repositories.shared.mongo_business_profile_repository import (
+            MongoBusinessProfileRepository,
+        )
+        from packages.services_kit.mongo_env import mongo_db_name, mongo_uri
+        from pymongo import MongoClient
+
+        record = _c().measurements.get_record(record_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="Measurement not found")
+        customer = get_parties_container().customers.get_customer_detail(record.customer_id)
+        if not customer:
+            raise ValidationError("Customer not found for measurement")
+        client = MongoClient(mongo_uri(), serverSelectionTimeoutMS=5000)
+        db = client[mongo_db_name()]
+        business = BusinessAppService(MongoBusinessProfileRepository(db)).get_profile()
+        pdf_bytes = generate_measurement_sheet_pdf(record, customer, business)
+        filename = f"{getattr(record, 'measurement_number', record_id)}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
 @router.patch("/measurements/{record_id}")
 def update_measurement(record_id: str, body: MeasurementUpdate) -> dict[str, Any]:
     try:
@@ -830,9 +915,26 @@ def update_measurement(record_id: str, body: MeasurementUpdate) -> dict[str, Any
         raise _http_err(exc) from exc
 
 
+def _linked_order_labels(record_id: str) -> list[str]:
+    labels: list[str] = []
+    for order in _c().orders.search_customization_orders(""):
+        for item in getattr(order, "customization_items", None) or []:
+            mid = getattr(item, "measurement_id", "") or ""
+            if mid == record_id:
+                bill = getattr(item, "bill_number", "") or getattr(item, "item_id", "")
+                labels.append(f"{getattr(order, 'order_number', order.id)} / {bill}")
+    return labels
+
+
 @router.delete("/measurements/{record_id}")
 def delete_measurement(record_id: str) -> dict[str, str]:
     try:
+        linked = _linked_order_labels(record_id)
+        if linked:
+            raise ValidationError(
+                "This measurement is linked to customization items and cannot be removed: "
+                + "; ".join(linked[:5])
+            )
         _c().measurements.delete_record(record_id)
         return {"status": "deleted", "id": record_id}
     except Exception as exc:

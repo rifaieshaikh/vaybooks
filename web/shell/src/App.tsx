@@ -3,6 +3,7 @@ import { useAppSelector } from '@vaybooks/store';
 import { AppLayout } from './components/AppLayout';
 import { LicenseBlockedPage } from './components/LicenseBlockedPage';
 import { LoginPage } from './components/LoginPage';
+import { useShellKeyboardShortcuts } from './useShellKeyboardShortcuts';
 import {
   AccessAuditLogsPage,
   AccessFeatureFlagsPage,
@@ -61,7 +62,9 @@ import {
   ProjectEnquiriesListPage,
   ProjectEnquiryDetailPage,
   ProjectMeasurementsPage,
+  ProjectPortalPage,
   ProjectRaBillsPage,
+  ProjectSiteMobilePage,
   ProjectsListPage,
   ProjectsOverviewPage,
   ProjectsReportsPage,
@@ -87,6 +90,7 @@ import {
   BoutiqueMeasurementDetailPage,
   BoutiqueMeasurementsListPage,
   BoutiqueOrderDetailPage,
+  BoutiqueOrderWorkspacePage,
   BoutiqueOrdersListPage,
   BoutiqueOverviewPage,
   BoutiqueReportsPage,
@@ -168,6 +172,7 @@ import {
 export default function App() {
   const accessToken = useAppSelector((s) => s.session.accessToken);
   const licenseStatus = useAppSelector((s) => s.license.status);
+  useShellKeyboardShortcuts(Boolean(accessToken) && licenseStatus !== 'expired');
 
   if (!accessToken) {
     return <LoginPage />;
@@ -210,6 +215,7 @@ export default function App() {
         <Route path="crm/scheduled-reports" element={<CrmScheduledReportsPage />} />
         <Route path="boutique" element={<BoutiqueOverviewPage />} />
         <Route path="boutique/orders" element={<BoutiqueOrdersListPage />} />
+        <Route path="boutique/orders/workspace" element={<BoutiqueOrderWorkspacePage />} />
         <Route path="boutique/orders/:id" element={<BoutiqueOrderDetailPage />} />
         <Route path="boutique/items" element={<BoutiqueItemsListPage />} />
         <Route path="boutique/items/:id" element={<BoutiqueItemDetailPage />} />
@@ -222,6 +228,8 @@ export default function App() {
         <Route path="projects" element={<ProjectsOverviewPage />} />
         <Route path="projects/list" element={<ProjectsListPage />} />
         <Route path="projects/list/:id" element={<ProjectDetailPage />} />
+        <Route path="projects/portal/:id" element={<ProjectPortalPage />} />
+        <Route path="projects/site-mobile/:id" element={<ProjectSiteMobilePage />} />
         <Route path="projects/enquiries" element={<ProjectEnquiriesListPage />} />
         <Route path="projects/enquiries/:id" element={<ProjectEnquiryDetailPage />} />
         <Route path="projects/measurements" element={<ProjectMeasurementsPage />} />

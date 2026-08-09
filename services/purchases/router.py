@@ -305,6 +305,44 @@ def get_order(order_id: str) -> dict[str, Any]:
     return _po_dict(po)
 
 
+@router.get("/orders/{order_id}/pdf")
+def purchase_order_pdf(order_id: str):
+    try:
+        from fastapi.responses import Response
+
+        from packages.services_kit.mongo_env import mongo_db_name, mongo_uri
+        from packages.services_kit.parties_container import get_parties_container
+        from pymongo import MongoClient
+        from vaybooks.bms.application.settings.business.service import BusinessAppService
+        from vaybooks.bms.infrastructure.pdf.purchase_order_pdf import generate_purchase_order_pdf
+        from vaybooks.bms.infrastructure.repositories.shared.mongo_business_profile_repository import (
+            MongoBusinessProfileRepository,
+        )
+
+        po = _svc().get_purchase_order(order_id)
+        if not po:
+            raise HTTPException(status_code=404, detail="Purchase order not found")
+        vendor = None
+        try:
+            vendor = get_parties_container().vendors.get_vendor_detail(getattr(po, "vendor_id", "") or "")
+        except Exception:
+            vendor = None
+        client = MongoClient(mongo_uri(), serverSelectionTimeoutMS=5000)
+        db = client[mongo_db_name()]
+        business = BusinessAppService(MongoBusinessProfileRepository(db)).get_profile()
+        pdf_bytes = generate_purchase_order_pdf(po, business=business, vendor=vendor)
+        filename = f"{getattr(po, 'po_number', None) or order_id}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
 @router.put("/orders/{order_id}")
 def update_order(order_id: str, body: PurchaseOrderWrite) -> dict[str, Any]:
     try:
