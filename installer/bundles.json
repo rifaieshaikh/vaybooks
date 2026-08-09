@@ -32,6 +32,12 @@
       "modules": ["core", "parties", "projects", "finance", "settings"]
     },
     {
+      "id": "production",
+      "name": "Production",
+      "description": "Core plus inventory, production batches/recipes, and finance.",
+      "modules": ["core", "parties", "inventory", "production", "finance", "settings"]
+    },
+    {
       "id": "full",
       "name": "Full",
       "description": "All modules including production, schedulers, migration, and system admin.",

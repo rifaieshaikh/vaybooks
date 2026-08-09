@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from packages.auth_cache.memory import InProcessPermissionCache
 from packages.services_kit.access_container import get_access_container
 from packages.services_kit.inventory_container import get_inventory_container
+from packages.tenancy.context import DEFAULT_ORG_ID, get_org_id, set_org_id
 from vaybooks.bms.domain.entitlements.catalog import ROLE_OWNER, SYSTEM_ROLE_DEFINITIONS
 from vaybooks.bms.domain.identity.location_access import (
     ALL_LOCATIONS,
@@ -36,6 +37,7 @@ DEFAULT_ADMIN_PASSWORD = os.getenv("VAYBOOKS_SEED_ADMIN_PASSWORD", "admin")
 class LoginRequest(BaseModel):
     username: str
     password: str
+    org_id: str = DEFAULT_ORG_ID
 
 
 class LoginResponse(BaseModel):
@@ -52,19 +54,32 @@ class WorkingLocationBody(BaseModel):
     working_location_id: str = Field(min_length=1)
 
 
-def _perm_key(username: str) -> str:
-    return f"perm:{username}"
+def _perm_key(username: str, org_id: str | None = None) -> str:
+    oid = (org_id or get_org_id() or DEFAULT_ORG_ID).strip() or DEFAULT_ORG_ID
+    return f"perm:{oid}:{username}"
 
 
-def _create_access_token(username: str, user_id: str) -> str:
+def _create_access_token(username: str, user_id: str, org_id: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": username,
         "uid": user_id,
+        "org_id": org_id or DEFAULT_ORG_ID,
         "iat": now,
         "exp": now + timedelta(hours=JWT_TTL_HOURS),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def decode_bearer_payload(authorization: str | None) -> dict[str, Any] | None:
+    """Decode JWT without session-cache checks. Returns None if missing/invalid."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ").strip()
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.PyJWTError:
+        return None
 
 
 def _decode_token(authorization: str | None = Header(default=None)) -> str:
@@ -88,8 +103,10 @@ def _decode_token(authorization: str | None = Header(default=None)) -> str:
             detail="Invalid token subject",
         )
     username_s = str(username)
+    oid = str(payload.get("org_id") or DEFAULT_ORG_ID).strip() or DEFAULT_ORG_ID
+    set_org_id(oid)
     # Logout clears the in-process session cache; treat missing cache as logged out.
-    if permission_cache.get(_perm_key(username_s)) is None:
+    if permission_cache.get(_perm_key(username_s, oid)) is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session expired or logged out",
@@ -135,6 +152,10 @@ def _ensure_system_roles() -> None:
 
 
 def _ensure_seed_admin() -> None:
+    import os
+
+    if os.environ.get("VAYBOOKS_SKIP_DEFAULT_ADMIN", "").strip() in {"1", "true", "True"}:
+        return
     users = _access().users
     if users.list_users():
         return
@@ -171,7 +192,8 @@ def _user_payload(user: Any, *, working_location_id: Optional[str] = None) -> di
     # Owner / empty effective keys in early seed: grant all for usability
     if user and ROLE_OWNER in (getattr(user, "role_ids", None) or []) and not perms:
         perms = ["*"]
-    cached = permission_cache.get(_perm_key(user.username)) or {}
+    oid = getattr(user, "org_id", None) or get_org_id() or DEFAULT_ORG_ID
+    cached = permission_cache.get(_perm_key(user.username, oid)) or {}
     work = working_location_id
     if work is None:
         work = cached.get("working_location_id")
@@ -179,6 +201,7 @@ def _user_payload(user: Any, *, working_location_id: Optional[str] = None) -> di
         "id": getattr(user, "id", "") or "",
         "username": getattr(user, "username", "") or "",
         "display_name": getattr(user, "display_name", "") or getattr(user, "username", ""),
+        "org_id": oid,
         "role_ids": list(getattr(user, "role_ids", None) or []),
         "location_ids": list(getattr(user, "location_ids", None) or []),
         "active": bool(getattr(user, "active", True)),
@@ -202,11 +225,13 @@ def _cache_session(user: Any, working_location_id: str) -> None:
     perms = sorted(authz.effective_keys(user)) if authz else []
     if ROLE_OWNER in (getattr(user, "role_ids", None) or []) and not perms:
         perms = ["*"]
+    oid = getattr(user, "org_id", None) or get_org_id() or DEFAULT_ORG_ID
     permission_cache.set(
-        _perm_key(user.username),
+        _perm_key(user.username, oid),
         {
             "user_id": user.id,
             "username": user.username,
+            "org_id": oid,
             "permissions": perms or ["*"],
             "modules": ["*"],
             "working_location_id": working_location_id,
@@ -219,7 +244,8 @@ def _cache_session(user: Any, working_location_id: str) -> None:
 def _working_location_payload(user: Any) -> dict[str, Any]:
     inventory = get_inventory_container().inventory
     locs = accessible_locations(user, inventory)
-    cached = permission_cache.get(_perm_key(user.username)) or {}
+    oid = getattr(user, "org_id", None) or get_org_id() or DEFAULT_ORG_ID
+    cached = permission_cache.get(_perm_key(user.username, oid)) or {}
     current = cached.get("working_location_id")
     if not current:
         current = default_working_location_id(user, locs)
@@ -257,9 +283,21 @@ def login(body: LoginRequest) -> LoginResponse:
             detail="username and password are required",
         )
 
+    oid = (body.org_id or DEFAULT_ORG_ID).strip() or DEFAULT_ORG_ID
+    set_org_id(oid)
+
     _ensure_seed_admin()
     try:
-        user = _access().users.authenticate(username, password)
+        user = _access().users.authenticate(username, password, org_id=oid)
+    except TypeError:
+        # Older service signature without org_id
+        try:
+            user = _access().users.authenticate(username, password)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(exc) or "Invalid username or password",
+            ) from exc
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -271,11 +309,13 @@ def login(body: LoginRequest) -> LoginResponse:
             detail="Invalid username or password",
         ) from exc
 
+    user_org = getattr(user, "org_id", None) or oid
+    set_org_id(user_org)
     inventory = get_inventory_container().inventory
     locs = accessible_locations(user, inventory)
     work = default_working_location_id(user, locs)
     _cache_session(user, work)
-    token = _create_access_token(user.username, user.id)
+    token = _create_access_token(user.username, user.id, user_org)
     return LoginResponse(
         access_token=token,
         user=_user_payload(user, working_location_id=work),

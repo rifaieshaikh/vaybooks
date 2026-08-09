@@ -5,6 +5,8 @@ export { baseApi } from './api';
 export {
   useLoginMutation,
   useLogoutMutation,
+  useGetSetupStatusQuery,
+  useCompleteSetupMutation,
   useMeQuery,
   useGetWorkingLocationQuery,
   useSetWorkingLocationMutation,

@@ -1,8 +1,9 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { useAppSelector } from '@vaybooks/store';
+import { useGetSetupStatusQuery, useAppSelector } from '@vaybooks/store';
 import { AppLayout } from './components/AppLayout';
 import { LicenseBlockedPage } from './components/LicenseBlockedPage';
 import { LoginPage } from './components/LoginPage';
+import { SetupWizardModal } from './components/SetupWizardModal';
 import { useShellKeyboardShortcuts } from './useShellKeyboardShortcuts';
 import {
   AccessAuditLogsPage,
@@ -174,12 +175,41 @@ export default function App() {
   const licenseStatus = useAppSelector((s) => s.license.status);
   useShellKeyboardShortcuts(Boolean(accessToken) && licenseStatus !== 'expired');
 
+  const setupQ = useGetSetupStatusQuery(undefined, { skip: !accessToken });
+
   if (!accessToken) {
     return <LoginPage />;
   }
 
   if (licenseStatus === 'expired') {
     return <LicenseBlockedPage />;
+  }
+
+  if (setupQ.isLoading || setupQ.isFetching) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', fontFamily: 'system-ui, sans-serif' }}>
+        Preparing workspace…
+      </div>
+    );
+  }
+
+  if (setupQ.isError) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', fontFamily: 'system-ui, sans-serif', padding: 24 }}>
+        <p>Could not load setup status. Check the API and refresh.</p>
+      </div>
+    );
+  }
+
+  if (setupQ.data && !setupQ.data.setup_completed) {
+    return (
+      <SetupWizardModal
+        orgId={setupQ.data.org_id || 'default'}
+        onCompleted={() => {
+          void setupQ.refetch();
+        }}
+      />
+    );
   }
 
   return (

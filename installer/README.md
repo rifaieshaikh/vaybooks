@@ -4,7 +4,8 @@
 
 ### Windows
 - Python 3.11+
-- [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+- Node.js 18+ (for Electron + desktop-compose UI builds)
+- [Inno Setup 6](https://jrsoftware.org/ishelp/)
 - Internet access (downloads Python embeddable, NSSM, MongoDB MSI)
 
 ### All platforms
@@ -21,7 +22,7 @@ pip install -r requirements-installer.txt
 pip install -r ../requirements.txt
 pip install -r ../requirements-desktop.txt
 
-# Stage application payload
+# Stage application payload (embedded Python, app, UI, Electron, tools)
 python shared/build_app.py --output dist/staging
 
 # Compile installer (requires Inno Setup)
@@ -33,17 +34,39 @@ python shared/generate_checksum.py dist/VayBooks-BMS-Setup-1.0.0.exe
 
 Output: `installer/dist/VayBooks-BMS-Setup-{version}.exe`
 
+Staging layout:
+
+```
+dist/staging/
+  electron/win-unpacked/VayBooks.exe
+  ui/                 # desktop-compose production build
+  python/             # embeddable Python
+  app/                # services + vaybooks (combined API)
+  tools/              # nssm, VayBooks-Launcher
+  scripts/            # post_install, bootstrap_setup, validators
+  nssm/
+  downloads/mongodb.msi
+```
+
+## Wizard / silent flags
+
+| Flag | Meaning |
+|------|---------|
+| `/BACKEND=local\|remote` | Local combined API or thin-client Electron |
+| `/API_BASE_URL=` | Required for remote; host must serve UI + `/api` + `/health` |
+| `/MONGO=install\|existing` | Local backend only (`local` accepted as alias of install) |
+| `/MONGO_URI=` `/DB_NAME=` | Existing Mongo |
+| `/MODULES=` | Comma-separated module ids |
+| `/ADMIN_USER=` `/ADMIN_PASS=` `/LEGAL_NAME=` `/LICENSE_KEY=` | Local bootstrap |
+
+Secrets are written to `%ProgramData%\VayBooks-BMS\config\setup.json` (ACL'd), not passed through to bootstrap CLI.
+
 ## Version Management
 
 ```powershell
-# Sync version from git tag
 python shared/generate_version.py --version 1.0.1
-
-# Or from latest git tag
 python shared/generate_version.py
 ```
-
-Updates `bms/vaybooks/bms/__init__.py` and Inno `#define MyAppVersion`.
 
 ## Publish version.json
 
@@ -51,60 +74,12 @@ Updates `bms/vaybooks/bms/__init__.py` and Inno `#define MyAppVersion`.
 python shared/publish_release.py `
   --download-url "https://github.com/rifaieshaikh/bms/releases/download/v1.0.0/VayBooks-BMS-Setup-1.0.0.exe" `
   --sha256 "<hex>" `
-  --release-notes "## 1.0.0`n- Initial release" `
+  --release-notes "## 1.0.0`n- Electron installer" `
   --output dist/version.json
 ```
 
-## Staging Layout
+## Notes
 
-```
-dist/staging/
-  python/          # Embedded Python + site-packages
-  app/             # BMS application
-  tools/           # nssm.exe, VayBooks-Launcher.exe
-  service/         # Batch wrappers
-  scripts/         # Install/upgrade PowerShell scripts
-  nssm/            # Service registration scripts
-  downloads/       # MongoDB MSI (not shipped in app dir)
-```
-
-## macOS / Linux Packages
-
-```bash
-# macOS tarball
-BUILD_ONLY=1 bash macos/install.sh
-
-# Linux tarball
-BUILD_ONLY=1 bash linux/install.sh
-```
-
-## CI/CD
-
-Push a tag `v*.*.*` to trigger `.github/workflows/release.yml`:
-- Builds Windows installer + version.json
-- Builds macOS and Linux tarballs
-- Creates GitHub Release with all artifacts
-
-## Code Signing (Optional)
-
-For production distribution, sign the installer with an Authenticode certificate:
-
-```powershell
-signtool sign /f certificate.pfx /p password /tr http://timestamp.digicert.com /td sha256 /fd sha256 dist/VayBooks-BMS-Setup-1.0.0.exe
-```
-
-Unsigned installers work but may trigger SmartScreen warnings.
-
-## Directory Structure
-
-```
-installer/
-  windows/inno/       # Inno Setup scripts
-  windows/nssm/       # Service install/uninstall
-  windows/scripts/    # Launcher, pre/post install
-  macos/              # install.sh, launchd plist
-  linux/              # install.sh, systemd unit
-  shared/             # build_app.py, version, checksum
-  assets/             # icon, license
-  dist/               # Build output (gitignored)
-```
+- Canonical installer tree is `vaybooks/installer` (not the deprecated repo-root `installer/`).
+- GA release should wait on Trade or Boutique React parity (see `docs/cutover.md`).
+- Local↔remote mode switch after install is out of scope for v1.

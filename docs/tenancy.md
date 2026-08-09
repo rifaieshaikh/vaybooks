@@ -21,6 +21,7 @@ VayBooks supports two deployment tenancy models.
 - Redis **required** for permission cache keys scoped by org.
 - Files: S3 prefix `{org_id}/files/...`
 - Gateway resolves tenant from JWT `org_id` claim; rejects cross-tenant IDs.
+- First-run org configuration: see [`cloud-setup-wizard.md`](cloud-setup-wizard.md).
 
 ## Database layout
 

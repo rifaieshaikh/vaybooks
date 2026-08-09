@@ -85,6 +85,7 @@ export const baseApi = createApi({
     'AccessPermission',
     'Flags',
     'License',
+    'Setup',
     'Home',
     'Reports',
     'Settings',
@@ -112,18 +113,42 @@ export const baseApi = createApi({
           id?: string;
           username: string;
           display_name?: string;
+          org_id?: string;
           working_location_id?: string;
           location_ids?: string[];
           role_ids?: string[];
           permissions?: string[];
         };
       },
-      { username: string; password: string }
+      { username: string; password: string; org_id?: string }
     >({
       query: (body) => ({ url: '/auth/login', method: 'POST', body }),
     }),
     logout: build.mutation<void, void>({
       query: () => ({ url: '/auth/logout', method: 'POST' }),
+    }),
+    getSetupStatus: build.query<{ setup_completed: boolean; org_id: string }, void>({
+      query: () => '/setup/status',
+      providesTags: ['Setup'],
+    }),
+    completeSetup: build.mutation<
+      { setup_completed: boolean; org_id: string; idempotent?: boolean },
+      {
+        business: {
+          legal_name?: string;
+          trade_name?: string;
+          gstin?: string;
+          phone?: string;
+          email?: string;
+          state_code?: string;
+          fy_start_month?: number;
+        };
+        enabled_modules: string[];
+        license_key?: string;
+      }
+    >({
+      query: (body) => ({ url: '/setup/complete', method: 'POST', body }),
+      invalidatesTags: ['Setup', 'BusinessProfile', 'AccessPlan', 'Flags'],
     }),
     me: build.query<{ user: Record<string, unknown> }, void>({
       query: () => '/auth/me',
@@ -2182,6 +2207,8 @@ export const baseApi = createApi({
 export const {
   useLoginMutation,
   useLogoutMutation,
+  useGetSetupStatusQuery,
+  useCompleteSetupMutation,
   useMeQuery,
   useGetWorkingLocationQuery,
   useSetWorkingLocationMutation,

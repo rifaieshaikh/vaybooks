@@ -1,51 +1,49 @@
 # VayBooks Desktop (Electron)
 
-Phase 1c desktop shell that wraps the Vite web UI in a hardened Electron window.
+Desktop shell that wraps the VayBooks web UI. Packaged builds load the combined API origin; development can use Vite.
 
 ## Prerequisites
 
 - Node.js 18+
-- VayBooks API running on `http://127.0.0.1:8000` (embedded gateway / combined process)
-- Vite UI running via one of:
-  - `npm run dev:desktop` in `web/` → [http://127.0.0.1:5175](http://127.0.0.1:5175) (preferred)
-  - `npm run dev:shell` in `web/` → [http://127.0.0.1:5173](http://127.0.0.1:5173)
+- For local API: VayBooks combined process on `http://127.0.0.1:8000`
 
-## Quick start
-
-From the `vaybooks/` repo root:
+## Development
 
 ```powershell
+# From vaybooks/
 .\restart_vaybooks.ps1 -Mode Desktop
-```
 
-In another terminal:
-
-```powershell
 cd web
 npm run dev:desktop
-```
 
-Then launch Electron:
-
-```powershell
-cd desktop
+cd ../desktop
 npm install
 npm start
 ```
 
-Or use `-Mode Dev` on `restart_vaybooks.ps1` to start the API and print UI instructions.
+Unpackaged Electron probes Vite on `5175` then `5173`.
+
+## Production / installer
+
+```powershell
+cd desktop
+npm install
+npm run pack
+# Output: dist/win-unpacked/VayBooks.exe (productName VayBooks, appId com.vaybooks.bms)
+```
+
+Packaged Electron reads `API_BASE_URL` / `VAYBOOKS_UI_URL` from the environment or `%VAYBOOKS_DATA_DIR%\config\config.toml`, defaulting to `http://127.0.0.1:8000/`.
 
 ## Environment
 
 | Variable | Purpose |
 |----------|---------|
-| `VAYBOOKS_UI_URL` | Override UI URL (default: probe 5175, fallback 5173) |
-| `VAYBOOKS_DATA_DIR` | Desktop data directory (files, config, local Mongo path hints) |
+| `VAYBOOKS_UI_URL` / `API_BASE_URL` | UI origin (local API or remote host) |
+| `VAYBOOKS_DATA_DIR` | Config/data directory |
+| `VAYBOOKS_UI_ROOT` | (API service) path to staged `ui/` static files |
 
 ## Security
 
 - `contextIsolation: true`
 - `nodeIntegration: false`
-- Preload exposes only `window.vaybooksDesktop.isDesktop === true`
-
-See [`docs/security.md`](../docs/security.md) for hardening notes.
+- AppUserModelID: `com.vaybooks.bms`

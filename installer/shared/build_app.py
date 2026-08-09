@@ -38,11 +38,78 @@ EXCLUDE_DIRS = {
     "qa-output",
     "tasks",
     ".github",
+    "web",
+    "desktop",
+    "node_modules",
+    "e2e",
 }
 
 
 def _ignore_app_copy(_dir: str, names: list[str]) -> set[str]:
-    return {name for name in names if name in EXCLUDE_DIRS}
+    ignored = {name for name in names if name in EXCLUDE_DIRS}
+    # Keep services usable; drop heavy front-end trees already excluded via top-level names
+    return ignored
+
+
+def stage_web_ui(output: Path) -> None:
+    """Build desktop-compose and copy dist into staging/ui."""
+    web_dir = BMS_DIR / "web"
+    compose_dist = web_dir / "desktop-compose" / "dist"
+    ui_out = output / "ui"
+    if ui_out.exists():
+        shutil.rmtree(ui_out)
+    npm = shutil.which("npm")
+    if npm and web_dir.exists():
+        print("Building desktop-compose UI...")
+        try:
+            subprocess.check_call([npm, "run", "build", "-w", "desktop-compose"], cwd=str(web_dir))
+        except subprocess.CalledProcessError as exc:
+            print(f"UI build failed ({exc}); using existing dist if present")
+    if compose_dist.is_dir():
+        shutil.copytree(compose_dist, ui_out)
+        print(f"Staged UI -> {ui_out}")
+    else:
+        ui_out.mkdir(parents=True, exist_ok=True)
+        (ui_out / "index.html").write_text(
+            "<!doctype html><html><body><p>VayBooks UI build missing. Run npm run build -w desktop-compose.</p></body></html>",
+            encoding="utf-8",
+        )
+        print("Warning: desktop-compose dist missing; wrote placeholder index.html")
+
+
+def stage_electron(output: Path) -> None:
+    """Package Electron with electron-builder --dir into staging/electron."""
+    desktop_dir = BMS_DIR / "desktop"
+    electron_out = output / "electron"
+    if electron_out.exists():
+        shutil.rmtree(electron_out)
+    electron_out.mkdir(parents=True, exist_ok=True)
+    npm = shutil.which("npm")
+    if not npm or not desktop_dir.exists():
+        print("Warning: npm/desktop missing; Electron staging skipped")
+        return
+    try:
+        subprocess.check_call([npm, "install"], cwd=str(desktop_dir))
+        subprocess.check_call([npm, "run", "pack"], cwd=str(desktop_dir))
+    except subprocess.CalledProcessError as exc:
+        print(f"Electron pack failed: {exc}")
+        return
+    # electron-builder --dir typically writes dist/win-unpacked
+    candidates = [
+        desktop_dir / "dist" / "win-unpacked",
+        desktop_dir / "dist" / "VayBooks-win32-x64",
+    ]
+    packed = next((p for p in candidates if p.is_dir()), None)
+    if packed is None:
+        # fallback: any win-unpacked under dist
+        matches = list((desktop_dir / "dist").glob("**/win-unpacked")) if (desktop_dir / "dist").exists() else []
+        packed = matches[0] if matches else None
+    if packed is None:
+        print("Warning: electron-builder output not found")
+        return
+    dest = electron_out / "win-unpacked"
+    shutil.copytree(packed, dest)
+    print(f"Staged Electron -> {dest}")
 
 
 def _configure_embeddable_pth(python_dir: Path) -> None:
@@ -227,6 +294,8 @@ def main() -> int:
         else:
             setup_embedded_python(output)
     copy_app(output)
+    stage_web_ui(output)
+    stage_electron(output)
     copy_service_scripts(output)
     if not args.skip_downloads:
         download_tools(output)
