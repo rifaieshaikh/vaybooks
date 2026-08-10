@@ -4,7 +4,7 @@ import { matchesRegex, type FilterValues, type SortCriterion } from '@vaybooks/u
 import { asCaption } from '../utils';
 
 export const PAGE_SIZE_OPTIONS = [12, 24, 48] as const;
-export type SalesPageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+export type PurchasesPageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 /** Pickers / editors that need a larger slice of a paged list. */
 export const LIST_FETCH_ALL_SIZE = 500;
 
@@ -66,40 +66,37 @@ export function listPulseMoney(
     }
     total += amount;
     const dateVal =
-      row.sale_date ?? row.order_date ?? row.delivery_date ?? row.return_date ?? row.estimate_date ?? row.quotation_date ?? row.voucher_date;
+      row.bill_date ??
+      row.order_date ??
+      row.receipt_date ??
+      row.return_date ??
+      row.voucher_date;
     if (isThisMonth(dateVal)) monthTotal += amount;
   }
   return { count: rows.length, total, monthTotal };
 }
 
-export function isOpenOrderStatus(status: unknown): boolean {
+export function isOpenPoStatus(status: unknown): boolean {
   const s = String(status || '').toLowerCase();
   return Boolean(s) && !s.includes('closed') && !s.includes('cancelled') && !s.includes('canceled');
 }
 
-export function isPendingDnStatus(status: unknown): boolean {
+export function isPendingGrnStatus(status: unknown): boolean {
   const s = String(status || '').toLowerCase();
-  if (!s) return false;
+  if (!s) return true;
   if (s.includes('cancel')) return false;
-  if (s.includes('delivered') && !s.includes('partial')) return false;
-  return (
-    s.includes('draft') ||
-    s.includes('confirm') ||
-    s.includes('dispatch') ||
-    s.includes('partial')
-  );
+  if (s.includes('received') && !s.includes('partial')) return false;
+  return s.includes('draft') || s.includes('partial') || s.includes('pending');
 }
 
-type UseSalesListStateOpts<F extends FilterValues> = {
+type UsePurchasesListStateOpts<F extends FilterValues> = {
   defaultFilters: F;
   defaultSort: SortCriterion[];
-  /** Map URL chip → filter patch. Return null to ignore. */
   applyChip?: (chip: string, filters: F) => F | null;
-  /** When month=current, which filter key to set to 'current' (or custom handler). */
   monthFilterKey?: keyof F & string;
 };
 
-export function useSalesListState<F extends FilterValues>(opts: UseSalesListStateOpts<F>) {
+export function usePurchasesListState<F extends FilterValues>(opts: UsePurchasesListStateOpts<F>) {
   const [params] = useSearchParams();
   const [search, setSearch] = useState(() => params.get('q') || '');
   const [filters, setFilters] = useState<F>(() => {
@@ -117,14 +114,11 @@ export function useSalesListState<F extends FilterValues>(opts: UseSalesListStat
   });
   const [sort, setSort] = useState<SortCriterion[]>(opts.defaultSort);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<SalesPageSize>(12);
+  const [pageSize, setPageSize] = useState<PurchasesPageSize>(12);
 
   useEffect(() => {
     if (params.get('q') != null) setSearch(params.get('q') || '');
   }, [params]);
-
-  const chipFromUrl = params.get('chip') || params.get('status') || '';
-  const monthFromUrl = params.get('month') || '';
 
   return {
     search,
@@ -145,12 +139,10 @@ export function useSalesListState<F extends FilterValues>(opts: UseSalesListStat
     page,
     setPage,
     pageSize,
-    setPageSize: (n: SalesPageSize) => {
+    setPageSize: (n: PurchasesPageSize) => {
       setPageSize(n);
       setPage(1);
     },
-    chipFromUrl,
-    monthFromUrl,
     params,
   };
 }
@@ -190,20 +182,12 @@ export function balanceOf(row: Record<string, unknown>): number | null {
   return null;
 }
 
-/** Stable filter field defs for date range (text YYYY-MM-DD). */
 export const DATE_RANGE_FIELDS = [
   { key: 'date_from', label: 'From date', type: 'text' as const, placeholder: 'YYYY-MM-DD' },
   { key: 'date_to', label: 'To date', type: 'text' as const, placeholder: 'YYYY-MM-DD' },
 ];
 
-export function withDateRangeFilters<T extends FilterValues>(base: T): T & {
-  date_from: string;
-  date_to: string;
-} {
-  return { ...base, date_from: '', date_to: '' };
-}
-
-/** Server-paged list helpers (sales / purchases). */
+/** Server-paged list helpers. */
 export type PagedListData = {
   items?: Record<string, unknown>[];
   total?: number;
@@ -224,7 +208,7 @@ export function pagedPageCount(data: PagedListData | undefined, pageSize: number
   return Math.max(1, Math.ceil(total / Math.max(1, pageSize)) || 1);
 }
 
-export function sortQueryParams(sort: SortCriterion[]): {
+export function sortQueryParams(sort: { key: string; desc: boolean }[]): {
   sort_by?: string;
   sort_desc?: boolean;
 } {

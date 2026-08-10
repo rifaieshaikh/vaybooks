@@ -19,6 +19,7 @@ import {
   useListVendorsQuery,
 } from '@vaybooks/store';
 import { asCaption, extractError } from '../utils';
+import { LIST_FETCH_ALL_SIZE, pagedItems } from '../pages/purchasesListHelpers';
 import { mapProductsToLineOptions, todayISO } from './linePreview';
 import { useWorkingLocation } from './useWorkingLocation';
 
@@ -33,7 +34,11 @@ export function GoodsReceiptEditorPage() {
 
   const { data: vendors = [] } = useListVendorsQuery();
   const { data: products = [] } = useListInventoryProductsQuery();
-  const { data: orders = [] } = useListPurchaseOrdersQuery();
+  const { data: ordersPage } = useListPurchaseOrdersQuery({
+    page: 1,
+    page_size: LIST_FETCH_ALL_SIZE,
+  });
+  const orders = pagedItems(ordersPage);
   const { locationId } = useWorkingLocation();
   const [createGrn, createState] = useCreateGoodsReceiptMutation();
 

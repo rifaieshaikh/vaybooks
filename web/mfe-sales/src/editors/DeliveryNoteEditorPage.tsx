@@ -27,6 +27,7 @@ import {
   useUpdateDeliveryNoteMutation,
 } from '@vaybooks/store';
 import { asCaption, extractError } from '../utils';
+import { LIST_FETCH_ALL_SIZE, pagedItems } from '../pages/salesListHelpers';
 import {
   editorLinesToPayload,
   mapApiLinesToEditor,
@@ -98,8 +99,16 @@ export function DeliveryNoteEditorPage() {
   const { data: existing, isLoading } = useGetDeliveryNoteQuery(editId, { skip: !editId });
   const { data: customers = [] } = useListCustomersQuery();
   const { data: products = [] } = useListInventoryProductsQuery();
-  const { data: orders = [] } = useListSalesOrdersQuery();
-  const { data: invoices = [] } = useListSalesInvoicesQuery();
+  const { data: ordersPage } = useListSalesOrdersQuery({
+    page: 1,
+    page_size: LIST_FETCH_ALL_SIZE,
+  });
+  const { data: invoicesPage } = useListSalesInvoicesQuery({
+    page: 1,
+    page_size: LIST_FETCH_ALL_SIZE,
+  });
+  const orders = pagedItems(ordersPage);
+  const invoices = pagedItems(invoicesPage);
   const { data: partners = [] } = useListDeliveryPartnersQuery();
   const { data: business } = useGetBusinessProfileQuery();
   const { locationId: workingLocationId } = useWorkingLocation();

@@ -22,6 +22,7 @@ import {
   useUpdateSalesReturnMutation,
 } from '@vaybooks/store';
 import { asCaption, extractError } from '../utils';
+import { LIST_FETCH_ALL_SIZE, pagedItems } from '../pages/salesListHelpers';
 import {
   editorLinesToPayload,
   mapApiLinesToEditor,
@@ -44,7 +45,11 @@ export function ReturnEditorPage() {
   const { data: existing, isLoading } = useGetSalesReturnQuery(editId, { skip: !editId });
   const { data: customers = [] } = useListCustomersQuery();
   const { data: products = [] } = useListInventoryProductsQuery();
-  const { data: invoices = [] } = useListSalesInvoicesQuery();
+  const { data: invoicesPage } = useListSalesInvoicesQuery({
+    page: 1,
+    page_size: LIST_FETCH_ALL_SIZE,
+  });
+  const invoices = pagedItems(invoicesPage);
   const { data: business } = useGetBusinessProfileQuery();
   const { locationId: workingLocationId } = useWorkingLocation();
   const [createReturn, createState] = useCreateSalesReturnMutation();

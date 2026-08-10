@@ -26,10 +26,6 @@ import {
   ErrorText,
   PaginationBar,
   StatusPill,
-  matchesRegex,
-  pageCount,
-  paginate,
-  sortRows,
   type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
@@ -50,10 +46,11 @@ import {
   amountOf,
   dateKey,
   hasActiveListFilters,
-  inDateRange,
   listHasField,
-  listPulseMoney,
-  matchesDocSearch,
+  pagedItems,
+  pagedPageCount,
+  pagedTotal,
+  sortQueryParams,
   useSalesListState,
   useSyncedPage,
 } from './salesListHelpers';
@@ -91,10 +88,6 @@ type PricedKind = 'estimate' | 'quotation';
 
 function PricedDocsListPage({ kind }: { kind: PricedKind }) {
   const navigate = useNavigate();
-  const estimatesQuery = useListSalesEstimatesQuery(undefined, { skip: kind !== 'estimate' });
-  const quotationsQuery = useListSalesQuotationsQuery(undefined, { skip: kind !== 'quotation' });
-  const query = kind === 'estimate' ? estimatesQuery : quotationsQuery;
-  const { data = [], isLoading, isFetching, error, refetch } = query;
 
   const [convertEstimate] = useConvertEstimateToOrderMutation();
   const [convertQuotation] = useConvertQuotationToOrderMutation();
@@ -124,14 +117,43 @@ function PricedDocsListPage({ kind }: { kind: PricedKind }) {
     }
   }, [list.params, navigate, basePath]);
 
+  const listArgs = useMemo(
+    () => ({
+      q: list.search,
+      [numberKey]: list.filters.number || undefined,
+      customer_name: list.filters.customer_name || undefined,
+      status: list.filters.status || undefined,
+      date_from: list.filters.date_from || undefined,
+      date_to: list.filters.date_to || undefined,
+      ...sortQueryParams(list.sort),
+      page: list.page,
+      page_size: list.pageSize,
+    }),
+    [list.search, list.filters, list.sort, list.page, list.pageSize, numberKey],
+  );
+
+  const estimatesQuery = useListSalesEstimatesQuery(listArgs, { skip: kind !== 'estimate' });
+  const quotationsQuery = useListSalesQuotationsQuery(listArgs, { skip: kind !== 'quotation' });
+  const query = kind === 'estimate' ? estimatesQuery : quotationsQuery;
+  const { data, isLoading, isFetching, error, refetch } = query;
+
+  const pageRows = pagedItems(data);
+  const total = pagedTotal(data);
+  const pages = pagedPageCount(data, list.pageSize);
+  useSyncedPage(list.page, pages, list.setPage);
+
+  const pageAmount = useMemo(
+    () => pageRows.reduce((sum, row) => sum + amountOf(row), 0),
+    [pageRows],
+  );
+
   const showValidUntil = useMemo(
-    () => listHasField(data as Record<string, unknown>[], 'valid_until', 'expiry_date'),
-    [data],
+    () => listHasField(pageRows, 'valid_until', 'expiry_date'),
+    [pageRows],
   );
   const showDocDate = useMemo(
-    () =>
-      listHasField(data as Record<string, unknown>[], primaryDateKey, 'voucher_date'),
-    [data, primaryDateKey],
+    () => listHasField(pageRows, primaryDateKey, 'voucher_date'),
+    [pageRows, primaryDateKey],
   );
 
   const filterFields: FilterFieldDef[] = useMemo(
@@ -143,46 +165,9 @@ function PricedDocsListPage({ kind }: { kind: PricedKind }) {
     [],
   );
 
-  const filtered = useMemo(() => {
-    const rows = data.filter((row) => {
-      const rec = row as Record<string, unknown>;
-      if (
-        !matchesDocSearch(rec, list.search, [
-          numberKey,
-          'customer_name',
-          'party_name',
-          'status',
-        ])
-      ) {
-        return false;
-      }
-      if (!matchesRegex(rec[numberKey], list.filters.number)) return false;
-      if (!matchesRegex(row.customer_name || rec.party_name, list.filters.customer_name)) {
-        return false;
-      }
-      if (list.filters.status && String(row.status) !== list.filters.status) return false;
-      const docDate = rec[primaryDateKey] ?? rec.voucher_date;
-      if (!inDateRange(docDate ?? rec.created_at, list.filters.date_from, list.filters.date_to)) {
-        return false;
-      }
-      return true;
-    });
-    return sortRows(
-      rows.map((r) => ({ ...r, net: amountOf(r as Record<string, unknown>) })),
-      list.sort,
-    ) as Array<(typeof data)[number] & { net: number }>;
-  }, [data, list.search, list.filters, list.sort, numberKey, primaryDateKey]);
-
-  const pulse = useMemo(
-    () => listPulseMoney(filtered as Record<string, unknown>[]),
-    [filtered],
-  );
-  const pages = pageCount(filtered.length, list.pageSize);
-  useSyncedPage(list.page, pages, list.setPage);
-  const pageRows = paginate(filtered, Math.min(list.page, pages), list.pageSize);
   const filtersActive = hasActiveListFilters(list.search, list.filters, DEFAULT_FILTERS);
 
-  type Row = (typeof data)[number] & { net?: number };
+  type Row = (typeof pageRows)[number];
 
   const columns: EntityListColumn<Row>[] = useMemo(() => {
     const cols: EntityListColumn<Row>[] = [
@@ -284,12 +269,7 @@ function PricedDocsListPage({ kind }: { kind: PricedKind }) {
       <EntityListHero
         kicker="Sales"
         title={title}
-        count={
-          <>
-            {filtered.length} {filtered.length === 1 ? singular : plural}
-            {filtered.length !== data.length ? ` · ${data.length} total` : ''}
-          </>
-        }
+        count={`${total} ${total === 1 ? singular : plural}`}
         actions={
           <>
             <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
@@ -338,13 +318,10 @@ function PricedDocsListPage({ kind }: { kind: PricedKind }) {
         summary={
           <div className="el-pulse">
             <span>
-              Showing <strong>{pulse.count}</strong>
+              Showing <strong>{total}</strong>
             </span>
             <span>
-              Total <strong>{formatMoney(pulse.total)}</strong>
-            </span>
-            <span>
-              This month <strong>{formatMoney(pulse.monthTotal)}</strong>
+              This page <strong>{formatMoney(pageAmount)}</strong>
             </span>
           </div>
         }

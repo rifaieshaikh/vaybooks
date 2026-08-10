@@ -20,10 +20,6 @@ import {
   EntityListTable,
   ErrorText,
   PaginationBar,
-  matchesRegex,
-  pageCount,
-  paginate,
-  sortRows,
   type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
@@ -43,13 +39,14 @@ import {
   PAGE_SIZE_OPTIONS,
   amountOf,
   balanceOf,
+  currentMonthRange,
   dateKey,
   hasActiveListFilters,
-  inDateRange,
-  isThisMonth,
   listHasField,
-  listPulseMoney,
-  matchesDocSearch,
+  pagedItems,
+  pagedPageCount,
+  pagedTotal,
+  sortQueryParams,
   useSalesListState,
   useSyncedPage,
 } from './salesListHelpers';
@@ -80,7 +77,6 @@ const DEFAULT_SORT: SortCriterion[] = [{ key: 'sale_date', desc: true }];
 
 export function SalesInvoicesListPage() {
   const navigate = useNavigate();
-  const { data = [], isLoading, isFetching, error, refetch } = useListSalesInvoicesQuery();
   const [fetchPdf] = useLazyGetSalesInvoicePdfQuery();
 
   const list = useSalesListState({
@@ -106,10 +102,43 @@ export function SalesInvoicesListPage() {
     }
   }, [list.params, navigate]);
 
-  const showDue = useMemo(() => listHasField(data, 'due_date'), [data]);
+  const listArgs = useMemo(() => {
+    const monthRange = list.filters.month === 'current' ? currentMonthRange() : null;
+    return {
+      q: list.search,
+      store_invoice_number: list.filters.store_invoice_number || undefined,
+      customer_name: list.filters.customer_name || undefined,
+      voucher_number: list.filters.voucher_number || undefined,
+      has_voucher: list.filters.has_voucher || undefined,
+      unpaid: list.filters.unpaid === '1' ? '1' : undefined,
+      date_from: monthRange?.date_from || list.filters.date_from || undefined,
+      date_to: monthRange?.date_to || list.filters.date_to || undefined,
+      ...sortQueryParams(list.sort),
+      page: list.page,
+      page_size: list.pageSize,
+    };
+  }, [list.search, list.filters, list.sort, list.page, list.pageSize]);
+
+  const { data, isLoading, isFetching, error, refetch } = useListSalesInvoicesQuery(listArgs);
+
+  const pageRows = pagedItems(data);
+  const total = pagedTotal(data);
+  const pages = pagedPageCount(data, list.pageSize);
+  useSyncedPage(list.page, pages, list.setPage);
+
+  const pageAmount = useMemo(
+    () => pageRows.reduce((sum, row) => sum + amountOf(row), 0),
+    [pageRows],
+  );
+  const pageOpenBalance = useMemo(
+    () => pageRows.reduce((sum, row) => sum + Math.max(0, balanceOf(row) ?? 0), 0),
+    [pageRows],
+  );
+
+  const showDue = useMemo(() => listHasField(pageRows, 'due_date'), [pageRows]);
   const showBalance = useMemo(
-    () => listHasField(data, 'balance_due', 'balance', 'amount_due'),
-    [data],
+    () => listHasField(pageRows, 'balance_due', 'outstanding', 'balance', 'amount_due'),
+    [pageRows],
   );
 
   const chips = useMemo(() => {
@@ -133,51 +162,9 @@ export function SalesInvoicesListPage() {
     [],
   );
 
-  const filtered = useMemo(() => {
-    const rows = data.filter((row) => {
-      if (
-        !matchesDocSearch(row, list.search, [
-          'store_invoice_number',
-          'voucher_number',
-          'customer_name',
-          'party_name',
-        ])
-      ) {
-        return false;
-      }
-      if (!matchesRegex(row.store_invoice_number, list.filters.store_invoice_number)) return false;
-      if (!matchesRegex(row.customer_name || row.party_name, list.filters.customer_name)) return false;
-      if (!matchesRegex(row.voucher_number, list.filters.voucher_number)) return false;
-      const hasVoucher = Boolean(String(row.voucher_number || '').trim());
-      if (list.filters.has_voucher === 'yes' && !hasVoucher) return false;
-      if (list.filters.has_voucher === 'no' && hasVoucher) return false;
-      if (list.filters.month === 'current' && !isThisMonth(row.sale_date || row.voucher_date)) {
-        return false;
-      }
-      if (list.filters.unpaid === '1') {
-        const bal = balanceOf(row);
-        if (bal == null || bal <= 0.01) return false;
-      }
-      if (
-        !inDateRange(row.sale_date || row.voucher_date, list.filters.date_from, list.filters.date_to)
-      ) {
-        return false;
-      }
-      return true;
-    });
-    return sortRows(
-      rows.map((r) => ({ ...r, net: amountOf(r) })) as typeof data,
-      list.sort,
-    );
-  }, [data, list.search, list.filters, list.sort]);
-
-  const pulse = useMemo(() => listPulseMoney(filtered), [filtered]);
-  const pages = pageCount(filtered.length, list.pageSize);
-  useSyncedPage(list.page, pages, list.setPage);
-  const pageRows = paginate(filtered, Math.min(list.page, pages), list.pageSize);
   const filtersActive = hasActiveListFilters(list.search, list.filters, DEFAULT_FILTERS);
 
-  type InvoiceRow = (typeof data)[number];
+  type InvoiceRow = (typeof pageRows)[number];
 
   const columns: EntityListColumn<InvoiceRow>[] = useMemo(() => {
     const cols: EntityListColumn<InvoiceRow>[] = [
@@ -290,12 +277,7 @@ export function SalesInvoicesListPage() {
       <EntityListHero
         kicker="Sales"
         title="Sales Invoices"
-        count={
-          <>
-            {filtered.length} {filtered.length === 1 ? 'invoice' : 'invoices'}
-            {filtered.length !== data.length ? ` · ${data.length} total` : ''}
-          </>
-        }
+        count={`${total} ${total === 1 ? 'invoice' : 'invoices'}`}
         actions={
           <>
             <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
@@ -343,20 +325,14 @@ export function SalesInvoicesListPage() {
         summary={
           <div className="el-pulse">
             <span>
-              Showing <strong>{pulse.count}</strong>
+              Showing <strong>{total}</strong>
             </span>
             <span>
-              Total <strong>{formatMoney(pulse.total)}</strong>
-            </span>
-            <span>
-              This month <strong>{formatMoney(pulse.monthTotal)}</strong>
+              This page <strong>{formatMoney(pageAmount)}</strong>
             </span>
             {showBalance ? (
               <span className="el-pulse-due">
-                Open balance{' '}
-                <strong>
-                  {formatMoney(filtered.reduce((s, r) => s + Math.max(0, balanceOf(r) ?? 0), 0))}
-                </strong>
+                Open balance <strong>{formatMoney(pageOpenBalance)}</strong>
               </span>
             ) : null}
           </div>

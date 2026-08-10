@@ -2,7 +2,7 @@ export { createAppStore } from './store';
 export type { AppDispatch, AppStore, RootState } from './store';
 export { useAppDispatch, useAppSelector } from './hooks';
 export { baseApi } from './api';
-export type { PagedResult } from './api';
+export type { PagedResult, DocListParams } from './api';
 export {
   useLoginMutation,
   useLogoutMutation,

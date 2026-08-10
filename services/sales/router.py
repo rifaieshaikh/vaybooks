@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from packages.services_kit.sales_container import get_sales_container
+from packages.services_kit.paging import DEFAULT_PAGE_SIZE, apply_list_query
 from services.common.authz import require_permission
 from services.finance.router import is_consumer_healthy as finance_healthy
 from services.inventory.router import is_consumer_healthy as inventory_healthy
@@ -212,6 +213,17 @@ def _invoice_dict(row: dict[str, Any], *, include_lines: bool = False) -> dict[s
         ]
         if b
     )
+    # Alias accounting `outstanding` for list/detail AR chrome.
+    if data.get("balance_due") is None and data.get("outstanding") is not None:
+        try:
+            data["balance_due"] = float(data.get("outstanding") or 0)
+        except (TypeError, ValueError):
+            data["balance_due"] = data.get("outstanding")
+    if data.get("amount_paid") is None and data.get("collected") is not None:
+        try:
+            data["amount_paid"] = float(data.get("collected") or 0)
+        except (TypeError, ValueError):
+            data["amount_paid"] = data.get("collected")
     if not include_lines:
         data.pop("lines", None)
     degraded = is_degraded_pending()
@@ -383,9 +395,39 @@ def customer_product_history(
 
 
 @router.get("/estimates")
-def list_estimates() -> list[dict[str, Any]]:
+def list_estimates(
+    *,
+    q: str = "",
+    estimate_number: str = "",
+    customer_name: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    sort_by: str = "estimate_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
-        return [_doc_dict(e, include_lines=False) for e in _svc().list_estimates()]
+        rows = [_doc_dict(e, include_lines=False) for e in _svc().list_estimates()]
+        equals: dict[str, str] = {}
+        if status.strip():
+            equals["status"] = status.strip()
+        return apply_list_query(
+            rows,
+            q=q,
+            q_fields=("estimate_number", "customer_name", "status"),
+            equals=equals,
+            contains={"estimate_number": estimate_number, "customer_name": customer_name},
+            date_field="estimate_date",
+            alt_date_fields=("voucher_date", "created_at"),
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by or "estimate_date",
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+        )
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -473,9 +515,39 @@ def convert_estimate_to_invoice(estimate_id: str, body: ConvertInvoiceWrite) -> 
 
 
 @router.get("/quotations")
-def list_quotations() -> list[dict[str, Any]]:
+def list_quotations(
+    *,
+    q: str = "",
+    quotation_number: str = "",
+    customer_name: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    sort_by: str = "quotation_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
-        return [_doc_dict(q, include_lines=False) for q in _svc().list_quotations()]
+        rows = [_doc_dict(row, include_lines=False) for row in _svc().list_quotations()]
+        equals: dict[str, str] = {}
+        if status.strip():
+            equals["status"] = status.strip()
+        return apply_list_query(
+            rows,
+            q=q,
+            q_fields=("quotation_number", "customer_name", "status"),
+            equals=equals,
+            contains={"quotation_number": quotation_number, "customer_name": customer_name},
+            date_field="quotation_date",
+            alt_date_fields=("voucher_date", "created_at"),
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by or "quotation_date",
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+        )
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -547,9 +619,49 @@ def convert_quotation_to_order(quotation_id: str, body: ConvertOrderWrite | None
 
 
 @router.get("/orders")
-def list_orders() -> list[dict[str, Any]]:
+def list_orders(
+    *,
+    q: str = "",
+    so_number: str = "",
+    customer_name: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    sort_by: str = "order_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
-        return [_doc_dict(o, include_lines=False) for o in _svc().list_sales_orders()]
+        rows = [_doc_dict(o, include_lines=False) for o in _svc().list_sales_orders()]
+        status_key = status.strip()
+        if status_key.lower() == "open":
+            rows = [
+                r
+                for r in rows
+                if (s := str(r.get("status") or "").lower())
+                and "closed" not in s
+                and "cancelled" not in s
+                and "canceled" not in s
+            ]
+            status_key = ""
+        equals: dict[str, str] = {}
+        if status_key:
+            equals["status"] = status_key
+        return apply_list_query(
+            rows,
+            q=q,
+            q_fields=("so_number", "customer_name", "status"),
+            equals=equals,
+            contains={"so_number": so_number, "customer_name": customer_name},
+            date_field="order_date",
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by or "order_date",
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+        )
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -633,9 +745,56 @@ def convert_order_to_invoice(order_id: str, body: ConvertInvoiceWrite) -> dict[s
 
 
 @router.get("/delivery-notes")
-def list_delivery_notes() -> list[dict[str, Any]]:
+def list_delivery_notes(
+    *,
+    q: str = "",
+    dn_number: str = "",
+    customer_name: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    sort_by: str = "delivery_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
-        return [_doc_dict(d, include_lines=False) for d in _svc().list_delivery_notes()]
+        rows = [_doc_dict(d, include_lines=False) for d in _svc().list_delivery_notes()]
+        status_key = status.strip()
+        if status_key.lower() == "pending":
+
+            def _pending(row: dict[str, Any]) -> bool:
+                s = str(row.get("status") or "").lower()
+                if not s or "cancel" in s:
+                    return False
+                if "delivered" in s and "partial" not in s:
+                    return False
+                return (
+                    "draft" in s
+                    or "confirm" in s
+                    or "dispatch" in s
+                    or "partial" in s
+                )
+
+            rows = [r for r in rows if _pending(r)]
+            status_key = ""
+        equals: dict[str, str] = {}
+        if status_key:
+            equals["status"] = status_key
+        return apply_list_query(
+            rows,
+            q=q,
+            q_fields=("dn_number", "customer_name", "status", "so_number"),
+            equals=equals,
+            contains={"dn_number": dn_number, "customer_name": customer_name},
+            date_field="delivery_date",
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by or "delivery_date",
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+        )
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -718,9 +877,59 @@ def cancel_delivery_note(dn_id: str) -> dict[str, Any]:
 
 
 @router.get("/invoices")
-def list_invoices() -> list[dict[str, Any]]:
+def list_invoices(
+    *,
+    q: str = "",
+    store_invoice_number: str = "",
+    customer_name: str = "",
+    voucher_number: str = "",
+    has_voucher: str = "",
+    unpaid: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    sort_by: str = "sale_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
-        return [_invoice_dict(row) for row in _svc().list_sales_invoices()]
+        rows = [_invoice_dict(row) for row in _svc().list_sales_invoices()]
+        hv = has_voucher.strip().lower()
+        if hv in {"yes", "no"}:
+            rows = [
+                r
+                for r in rows
+                if (bool(str(r.get("voucher_number") or "").strip()) == (hv == "yes"))
+            ]
+        if unpaid.strip() in {"1", "true", "yes"}:
+            rows = [
+                r
+                for r in rows
+                if float(r.get("balance_due") or r.get("outstanding") or 0) > 0.01
+            ]
+        return apply_list_query(
+            rows,
+            q=q,
+            q_fields=(
+                "store_invoice_number",
+                "voucher_number",
+                "customer_name",
+                "party_name",
+            ),
+            contains={
+                "store_invoice_number": store_invoice_number,
+                "customer_name": customer_name,
+                "voucher_number": voucher_number,
+            },
+            date_field="sale_date",
+            alt_date_fields=("voucher_date",),
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by or "sale_date",
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+        )
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -908,9 +1117,38 @@ def invoice_pdf(invoice_id: str):
 
 
 @router.get("/returns")
-def list_returns() -> list[dict[str, Any]]:
+def list_returns(
+    *,
+    q: str = "",
+    return_number: str = "",
+    customer_name: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    sort_by: str = "return_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
-        return [_doc_dict(r, include_lines=False) for r in _svc().list_sales_returns()]
+        rows = [_doc_dict(r, include_lines=False) for r in _svc().list_sales_returns()]
+        equals: dict[str, str] = {}
+        if status.strip():
+            equals["status"] = status.strip()
+        return apply_list_query(
+            rows,
+            q=q,
+            q_fields=("return_number", "customer_name", "status"),
+            equals=equals,
+            contains={"return_number": return_number, "customer_name": customer_name},
+            date_field="return_date",
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by or "return_date",
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+        )
     except Exception as exc:
         raise _http_err(exc) from exc
 

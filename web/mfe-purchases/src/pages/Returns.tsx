@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   useGetPurchaseReturnQuery,
   useListPurchaseReturnsQuery,
@@ -15,14 +15,10 @@ import {
   EntityListLoading,
   EntityListPage,
   EntityListQuickFilters,
+  EntityListRefreshing,
   EntityListTable,
   ErrorText,
-  PAGE_SIZE,
   PaginationBar,
-  matchesRegex,
-  pageCount,
-  paginate,
-  sortRows,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
@@ -35,107 +31,180 @@ import {
   moneySummaryFromDoc,
   notesFromDoc,
 } from './documentDetailHelpers';
+import {
+  DATE_RANGE_FIELDS,
+  PAGE_SIZE_OPTIONS,
+  amountOf,
+  currentMonthRange,
+  dateKey,
+  hasActiveListFilters,
+  pagedItems,
+  pagedPageCount,
+  pagedTotal,
+  sortQueryParams,
+  usePurchasesListState,
+  useSyncedPage,
+} from './purchasesListHelpers';
 
-const DEFAULT_FILTERS = { return_number: '', vendor_name: '', amount: '' };
+type ReturnFilters = {
+  return_number: string;
+  vendor_name: string;
+  amount: string;
+  month: string;
+  date_from: string;
+  date_to: string;
+};
+
+const DEFAULT_FILTERS: ReturnFilters = {
+  return_number: '',
+  vendor_name: '',
+  amount: '',
+  month: '',
+  date_from: '',
+  date_to: '',
+};
+
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'return_date', desc: true }];
 
 export function PurchaseReturnsListPage() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const { data = [], isLoading, error } = useListPurchaseReturnsQuery();
 
-  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
-  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
-  const [page, setPage] = useState(1);
+  const list = usePurchasesListState({
+    defaultFilters: DEFAULT_FILTERS,
+    defaultSort: DEFAULT_SORT,
+    monthFilterKey: 'month',
+    applyChip: (chip, filters) => {
+      if (chip === 'with' || chip === 'zero') return { ...filters, amount: chip };
+      if (!chip || chip === 'all') return { ...filters, amount: '' };
+      return null;
+    },
+  });
+
+  const listArgs = useMemo(() => {
+    const monthRange = list.filters.month === 'current' ? currentMonthRange() : null;
+    return {
+      q: list.search || undefined,
+      return_number: list.filters.return_number || undefined,
+      vendor_name: list.filters.vendor_name || undefined,
+      date_from: monthRange?.date_from || list.filters.date_from || undefined,
+      date_to: monthRange?.date_to || list.filters.date_to || undefined,
+      ...sortQueryParams(list.sort),
+      page: list.page,
+      page_size: list.pageSize,
+      ...(list.filters.amount ? { amount: list.filters.amount } : {}),
+    };
+  }, [list.search, list.filters, list.sort, list.page, list.pageSize]);
+
+  const { data, isLoading, isFetching, error, refetch } = useListPurchaseReturnsQuery(listArgs);
+
+  const pageRows = pagedItems(data);
+  const total = pagedTotal(data);
+  const pages = pagedPageCount(data, list.pageSize);
+  useSyncedPage(list.page, pages, list.setPage);
 
   useEffect(() => {
-    if (params.get('new') === '1') {
-      const vid = params.get('vendor_id');
+    if (list.params.get('new') === '1') {
+      const vid = list.params.get('vendor_id');
       navigate(vid ? `/purchases/returns/new?vendor_id=${vid}` : '/purchases/returns/new', {
         replace: true,
       });
     }
-  }, [params, navigate]);
+  }, [list.params, navigate]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
       { key: 'return_number', label: 'Return #', type: 'text' },
       { key: 'vendor_name', label: 'Vendor', type: 'text' },
+      ...DATE_RANGE_FIELDS,
     ],
     [],
   );
 
-  const filtered = useMemo(() => {
-    const rows = data.filter((row) => {
-      if (!matchesRegex(row.return_number, filters.return_number)) return false;
-      if (!matchesRegex(row.vendor_name, filters.vendor_name)) return false;
-      const amount = Number(row.total_amount ?? 0);
-      if (filters.amount === 'with' && !(Math.abs(amount) > 0.01)) return false;
-      if (filters.amount === 'zero' && Math.abs(amount) >= 0.01) return false;
-      return true;
-    });
-    return sortRows(rows, sort);
-  }, [data, filters, sort]);
+  const pageAmount = useMemo(
+    () => pageRows.reduce((s, r) => s + amountOf(r), 0),
+    [pageRows],
+  );
+  const filtersActive = hasActiveListFilters(list.search, list.filters, DEFAULT_FILTERS);
 
-  const pages = pageCount(filtered.length, PAGE_SIZE);
-  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
-
-  type ReturnRow = (typeof data)[number];
+  type ReturnRow = (typeof pageRows)[number];
 
   const columns: EntityListColumn<ReturnRow>[] = useMemo(
     () => [
       {
-        id: 'return',
+        id: 'return_number',
         header: 'Return #',
         render: (row) => (
-          <div className="el-customer">
-            <div className="el-customer-meta">
-              <span className="el-customer-name">{asCaption(row.return_number) || String(row.id)}</span>
-              <span className="el-customer-sub">{asCaption(row.return_date).slice(0, 10) || '—'}</span>
-            </div>
-          </div>
+          <button
+            type="button"
+            className="el-doc-link"
+            onClick={() => navigate(`/purchases/returns/${row.id}`)}
+          >
+            {asCaption(row.return_number) || String(row.id)}
+          </button>
         ),
       },
       {
         id: 'vendor',
         header: 'Vendor',
-        render: (row) => asCaption(row.vendor_name) || '—',
+        render: (row) => asCaption(row.vendor_name) || <span className="el-muted">—</span>,
+      },
+      {
+        id: 'date',
+        header: 'Date',
+        render: (row) => dateKey(row.return_date) || <span className="el-muted">—</span>,
       },
       {
         id: 'amount',
         header: 'Amount',
         className: 'el-num',
         headerClassName: 'el-col-num',
-        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
+        render: (row) => formatMoney(amountOf(row)),
       },
     ],
-    [],
+    [navigate],
   );
 
   const goNew = () => {
-    const vid = params.get('vendor_id');
+    const vid = list.params.get('vendor_id');
     navigate(vid ? `/purchases/returns/new?vendor_id=${vid}` : '/purchases/returns/new');
   };
 
   return (
-    <EntityListPage>
+    <EntityListPage className="el-page--sales">
       <EntityListHero
         kicker="Purchases"
         title="Purchase Returns"
-        count={`${filtered.length} ${filtered.length === 1 ? 'return' : 'returns'}`}
+        count={
+          <>
+            {total} {total === 1 ? 'return' : 'returns'}
+          </>
+        }
         actions={
-          <Button type="button" onClick={goNew}>
-            New return
-          </Button>
+          <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
+            <Button type="button" onClick={goNew}>
+              New return
+            </Button>
+          </>
+        }
+        search={
+          <input
+            type="search"
+            value={list.search}
+            onChange={(e) => list.setSearch(e.target.value)}
+            placeholder="Search return #, vendor, amount…"
+            aria-label="Search returns"
+          />
         }
         chips={
           <EntityListQuickFilters
             ariaLabel="Amount"
-            value={filters.amount || 'all'}
-            onChange={(id) => {
-              setFilters((prev) => ({ ...prev, amount: id === 'all' ? '' : id }));
-              setPage(1);
-            }}
+            value={list.filters.amount || 'all'}
+            onChange={(id) =>
+              list.setFilters((prev) => ({ ...prev, amount: id === 'all' ? '' : id }))
+            }
             options={[
               { id: 'all', label: 'All' },
               { id: 'with', label: 'With amount' },
@@ -146,37 +215,62 @@ export function PurchaseReturnsListPage() {
         tools={
           <EntityListFilterSort
             filterFields={filterFields}
-            filters={filters}
+            filters={list.filters}
             defaultFilters={DEFAULT_FILTERS}
-            excludeKeys={['amount']}
-            onFiltersChange={(next) => {
-              setFilters(next as typeof filters);
-              setPage(1);
-            }}
-            sort={sort}
+            excludeKeys={['amount', 'month']}
+            onFiltersChange={(next) => list.setFilters(next as ReturnFilters)}
+            sort={list.sort}
             defaultSort={DEFAULT_SORT}
             sortOptions={[
               { value: 'return_date', label: 'Date' },
               { value: 'return_number', label: 'Return #' },
               { value: 'total_amount', label: 'Amount' },
             ]}
-            onSortChange={(next) => {
-              setSort(next);
-              setPage(1);
-            }}
+            onSortChange={list.setSort}
           />
+        }
+        summary={
+          <div className="el-pulse">
+            <span>
+              Showing <strong>{total}</strong>
+            </span>
+            <span>
+              This page <strong>{formatMoney(pageAmount)}</strong>
+            </span>
+          </div>
         }
       />
 
+      {isFetching && !isLoading ? <EntityListRefreshing /> : null}
       {isLoading ? <EntityListLoading>Loading returns…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load returns.</ErrorText> : null}
+
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>No returns found.</strong>
-          <p>Record a purchase return to send goods back to a vendor.</p>
-          <Button type="button" onClick={goNew}>
-            New return
-          </Button>
+          {filtersActive ? (
+            <>
+              <strong>No matches</strong>
+              <p>Try clearing search or filters.</p>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  list.setSearch('');
+                  list.setFilters({ ...DEFAULT_FILTERS });
+                }}
+              >
+                Clear filters
+              </Button>
+            </>
+          ) : (
+            <>
+              <strong>No returns yet</strong>
+              <p>Record a purchase return to send goods back to a vendor.</p>
+              <Button type="button" onClick={goNew}>
+                New return
+              </Button>
+            </>
+          )}
         </EntityListEmpty>
       ) : null}
 
@@ -193,8 +287,29 @@ export function PurchaseReturnsListPage() {
 
       {!isLoading && !error && pageRows.length > 0 ? (
         <EntityListFoot>
+          <div className="el-page-size">
+            <label>
+              Rows{' '}
+              <select
+                value={list.pageSize}
+                onChange={(e) =>
+                  list.setPageSize(Number(e.target.value) as (typeof PAGE_SIZE_OPTIONS)[number])
+                }
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="el-foot-pager">
-            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+            <PaginationBar
+              page={Math.min(list.page, pages)}
+              pageCount={pages}
+              onPage={list.setPage}
+            />
           </div>
         </EntityListFoot>
       ) : null}

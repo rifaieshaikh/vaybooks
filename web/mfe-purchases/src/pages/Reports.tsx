@@ -4,6 +4,10 @@ import { usePurchasesReportsCatalogQuery, useRunPurchasesReportMutation } from '
 import {
   Button,
   DataTable,
+  EntityListEmpty,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
   ErrorText,
   FormRow,
   type DataTableColumn,
@@ -40,81 +44,76 @@ export function PurchasesReportsPage() {
   }
 
   return (
-    <div>
-      <h2 style={{ margin: '0 0 16px', color: 'var(--vb-color-primary, #185c4c)' }}>Purchase Reports</h2>
-      {catalogLoading && <p>Loading catalog…</p>}
-      {catalogError ? <ErrorText>Failed to load report catalog.</ErrorText> : null}
-
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end', marginBottom: 20 }}>
-        <FormRow label="Report">
-          <select
-            value={reportType || types[0] || ''}
-            onChange={(e) => setReportType(e.target.value)}
-            style={{ minWidth: 240, padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-          >
-            {types.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <Button type="button" onClick={onRun} disabled={runState.isLoading || types.length === 0}>
-          {runState.isLoading ? 'Running…' : 'Run'}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => downloadCsv('purchases-report.csv', rows)}
-          disabled={rows.length === 0}
-        >
-          Export CSV
-        </Button>
-      </div>
-
-      {runError ? <ErrorText>{runError}</ErrorText> : null}
-      {!runState.isLoading && rows.length === 0 && !runError ? (
-        <p style={{ color: '#667' }}>Pick a report and run it.</p>
-      ) : null}
-      {rows.length > 0 ? (
-        <>
-          <div style={{ marginBottom: 8, color: '#667' }}>
-            {rows.length} row{rows.length === 1 ? '' : 's'}
+    <EntityListPage className="el-page--sales">
+      <EntityListHero
+        kicker="Purchases"
+        title="Reports"
+        count={rows.length ? `${rows.length} row${rows.length === 1 ? '' : 's'}` : undefined}
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => downloadCsv('purchases-report.csv', rows)}
+              disabled={rows.length === 0}
+            >
+              Export CSV
+            </Button>
+            <Button type="button" onClick={onRun} disabled={runState.isLoading || types.length === 0}>
+              {runState.isLoading ? 'Running…' : 'Run report'}
+            </Button>
+          </>
+        }
+        summary={
+          <div className="el-pulse" style={{ alignItems: 'flex-end', gap: '1rem' }}>
+            <FormRow label="Report type">
+              <select
+                className="vb-control"
+                value={reportType || types[0] || ''}
+                onChange={(e) => setReportType(e.target.value)}
+                style={{ minWidth: 240 }}
+              >
+                {types.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
           </div>
-          <DataTable columns={columns} data={rows} rowKey={(row) => JSON.stringify(row)} />
-        </>
+        }
+      />
+
+      {catalogLoading ? <EntityListLoading>Loading catalog…</EntityListLoading> : null}
+      {catalogError ? <ErrorText>Failed to load report catalog.</ErrorText> : null}
+      {runError ? <ErrorText>{runError}</ErrorText> : null}
+      {runState.isLoading ? <EntityListLoading>Running report…</EntityListLoading> : null}
+
+      {!catalogLoading && !runState.isLoading && rows.length === 0 && !runError ? (
+        <EntityListEmpty>
+          <strong>No results yet</strong>
+          <p>Pick a report type and run it to see rows here.</p>
+        </EntityListEmpty>
       ) : null}
-    </div>
+
+      {rows.length > 0 ? (
+        <DataTable columns={columns} data={rows} rowKey={(row) => JSON.stringify(row)} />
+      ) : null}
+    </EntityListPage>
   );
 }
 
 export function PurchasesScheduledReportsPage() {
   return (
-    <div>
-      <h2 style={{ margin: '0 0 12px', color: 'var(--vb-color-primary, #185c4c)' }}>
-        Scheduled Purchase Reports
-      </h2>
-      <p style={{ color: '#567', maxWidth: 620 }}>
-        Recurring purchase reports are configured from the shared scheduler module. Create or manage a scheduled job
-        there and pick a purchases report type.
+    <EntityListPage className="el-page--sales">
+      <EntityListHero kicker="Purchases" title="Scheduled reports" />
+      <p className="el-muted" style={{ maxWidth: 620, marginTop: 0 }}>
+        Recurring purchase reports are configured from the shared scheduler module. Create or manage
+        a scheduled job there and pick a purchases report type.
       </p>
-      <Link
-        to="/schedulers/purchases?panel=reports"
-        style={{
-          display: 'inline-block',
-          marginTop: 8,
-          padding: '0.5rem 0.9rem',
-          borderRadius: 8,
-          border: '1px solid #c5d4ce',
-          background: '#eef6f2',
-          color: '#185c4c',
-          textDecoration: 'none',
-          fontSize: 14,
-          fontWeight: 600,
-        }}
-      >
-        Open Schedulers → Purchases
-      </Link>
-    </div>
+      <p style={{ marginTop: 12 }}>
+        <Link to="/schedulers/purchases?panel=reports">Open Schedulers → Purchases</Link>
+      </p>
+    </EntityListPage>
   );
 }

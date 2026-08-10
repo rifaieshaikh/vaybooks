@@ -22,10 +22,6 @@ import {
   ErrorText,
   PaginationBar,
   StatusPill,
-  matchesRegex,
-  pageCount,
-  paginate,
-  sortRows,
   type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
@@ -46,10 +42,10 @@ import {
   amountOf,
   dateKey,
   hasActiveListFilters,
-  inDateRange,
-  isOpenOrderStatus,
-  listPulseMoney,
-  matchesDocSearch,
+  pagedItems,
+  pagedPageCount,
+  pagedTotal,
+  sortQueryParams,
   useSalesListState,
   useSyncedPage,
 } from './salesListHelpers';
@@ -83,7 +79,6 @@ const STATUS_CHIPS = [
 
 export function SalesOrdersListPage() {
   const navigate = useNavigate();
-  const { data = [], isLoading, isFetching, error, refetch } = useListSalesOrdersQuery();
 
   const list = useSalesListState({
     defaultFilters: DEFAULT_FILTERS,
@@ -103,6 +98,33 @@ export function SalesOrdersListPage() {
     }
   }, [list.params, navigate]);
 
+  const listArgs = useMemo(
+    () => ({
+      q: list.search,
+      so_number: list.filters.so_number || undefined,
+      customer_name: list.filters.customer_name || undefined,
+      status: list.filters.status || undefined,
+      date_from: list.filters.date_from || undefined,
+      date_to: list.filters.date_to || undefined,
+      ...sortQueryParams(list.sort),
+      page: list.page,
+      page_size: list.pageSize,
+    }),
+    [list.search, list.filters, list.sort, list.page, list.pageSize],
+  );
+
+  const { data, isLoading, isFetching, error, refetch } = useListSalesOrdersQuery(listArgs);
+
+  const pageRows = pagedItems(data);
+  const total = pagedTotal(data);
+  const pages = pagedPageCount(data, list.pageSize);
+  useSyncedPage(list.page, pages, list.setPage);
+
+  const pageAmount = useMemo(
+    () => pageRows.reduce((sum, row) => sum + amountOf(row), 0),
+    [pageRows],
+  );
+
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
       { key: 'so_number', label: 'SO #', type: 'text' },
@@ -112,32 +134,9 @@ export function SalesOrdersListPage() {
     [],
   );
 
-  const filtered = useMemo(() => {
-    const rows = data.filter((row) => {
-      if (!matchesDocSearch(row, list.search, ['so_number', 'customer_name', 'status'])) return false;
-      if (!matchesRegex(row.so_number, list.filters.so_number)) return false;
-      if (!matchesRegex(row.customer_name, list.filters.customer_name)) return false;
-      if (list.filters.status === 'open') {
-        if (!isOpenOrderStatus(row.status)) return false;
-      } else if (list.filters.status && String(row.status) !== list.filters.status) {
-        return false;
-      }
-      if (!inDateRange(row.order_date, list.filters.date_from, list.filters.date_to)) return false;
-      return true;
-    });
-    return sortRows(
-      rows.map((r) => ({ ...r, total_amount: amountOf(r) })) as typeof data,
-      list.sort,
-    );
-  }, [data, list.search, list.filters, list.sort]);
-
-  const pulse = useMemo(() => listPulseMoney(filtered, ['total_amount']), [filtered]);
-  const pages = pageCount(filtered.length, list.pageSize);
-  useSyncedPage(list.page, pages, list.setPage);
-  const pageRows = paginate(filtered, Math.min(list.page, pages), list.pageSize);
   const filtersActive = hasActiveListFilters(list.search, list.filters, DEFAULT_FILTERS);
 
-  type OrderRow = (typeof data)[number];
+  type OrderRow = (typeof pageRows)[number];
 
   const columns: EntityListColumn<OrderRow>[] = useMemo(
     () => [
@@ -190,12 +189,7 @@ export function SalesOrdersListPage() {
       <EntityListHero
         kicker="Sales"
         title="Sales Orders"
-        count={
-          <>
-            {filtered.length} {filtered.length === 1 ? 'order' : 'orders'}
-            {filtered.length !== data.length ? ` · ${data.length} total` : ''}
-          </>
-        }
+        count={`${total} ${total === 1 ? 'order' : 'orders'}`}
         actions={
           <>
             <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
@@ -246,13 +240,10 @@ export function SalesOrdersListPage() {
         summary={
           <div className="el-pulse">
             <span>
-              Showing <strong>{pulse.count}</strong>
+              Showing <strong>{total}</strong>
             </span>
             <span>
-              Total <strong>{formatMoney(pulse.total)}</strong>
-            </span>
-            <span>
-              This month <strong>{formatMoney(pulse.monthTotal)}</strong>
+              This page <strong>{formatMoney(pageAmount)}</strong>
             </span>
           </div>
         }

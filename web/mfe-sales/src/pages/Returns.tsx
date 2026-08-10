@@ -22,10 +22,6 @@ import {
   ErrorText,
   PaginationBar,
   StatusPill,
-  matchesRegex,
-  pageCount,
-  paginate,
-  sortRows,
   type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
@@ -44,12 +40,13 @@ import {
   DATE_RANGE_FIELDS,
   PAGE_SIZE_OPTIONS,
   amountOf,
+  currentMonthRange,
   dateKey,
   hasActiveListFilters,
-  inDateRange,
-  isThisMonth,
-  listPulseMoney,
-  matchesDocSearch,
+  pagedItems,
+  pagedPageCount,
+  pagedTotal,
+  sortQueryParams,
   useSalesListState,
   useSyncedPage,
 } from './salesListHelpers';
@@ -86,7 +83,6 @@ const STATUS_CHIPS = [
 
 export function SalesReturnsListPage() {
   const navigate = useNavigate();
-  const { data = [], isLoading, isFetching, error, refetch } = useListSalesReturnsQuery();
 
   const list = useSalesListState({
     defaultFilters: DEFAULT_FILTERS,
@@ -108,6 +104,33 @@ export function SalesReturnsListPage() {
     }
   }, [list.params, navigate]);
 
+  const listArgs = useMemo(() => {
+    const monthRange = list.filters.month === 'current' ? currentMonthRange() : null;
+    return {
+      q: list.search,
+      return_number: list.filters.return_number || undefined,
+      customer_name: list.filters.customer_name || undefined,
+      status: list.filters.status || undefined,
+      date_from: monthRange?.date_from || list.filters.date_from || undefined,
+      date_to: monthRange?.date_to || list.filters.date_to || undefined,
+      ...sortQueryParams(list.sort),
+      page: list.page,
+      page_size: list.pageSize,
+    };
+  }, [list.search, list.filters, list.sort, list.page, list.pageSize]);
+
+  const { data, isLoading, isFetching, error, refetch } = useListSalesReturnsQuery(listArgs);
+
+  const pageRows = pagedItems(data);
+  const total = pagedTotal(data);
+  const pages = pagedPageCount(data, list.pageSize);
+  useSyncedPage(list.page, pages, list.setPage);
+
+  const pageAmount = useMemo(
+    () => pageRows.reduce((sum, row) => sum + amountOf(row), 0),
+    [pageRows],
+  );
+
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
       { key: 'return_number', label: 'Return #', type: 'text' },
@@ -117,42 +140,9 @@ export function SalesReturnsListPage() {
     [],
   );
 
-  const filtered = useMemo(() => {
-    const rows = data.filter((row) => {
-      if (
-        !matchesDocSearch(row, list.search, [
-          'return_number',
-          'customer_name',
-          'party_name',
-          'status',
-        ])
-      ) {
-        return false;
-      }
-      if (!matchesRegex(row.return_number, list.filters.return_number)) return false;
-      if (!matchesRegex(row.customer_name || row.party_name, list.filters.customer_name)) {
-        return false;
-      }
-      if (list.filters.status && String(row.status) !== list.filters.status) return false;
-      if (list.filters.month === 'current' && !isThisMonth(row.return_date)) return false;
-      if (!inDateRange(row.return_date, list.filters.date_from, list.filters.date_to)) {
-        return false;
-      }
-      return true;
-    });
-    return sortRows(
-      rows.map((r) => ({ ...r, net: amountOf(r) })),
-      list.sort,
-    ) as Array<(typeof data)[number] & { net: number }>;
-  }, [data, list.search, list.filters, list.sort]);
-
-  const pulse = useMemo(() => listPulseMoney(filtered), [filtered]);
-  const pages = pageCount(filtered.length, list.pageSize);
-  useSyncedPage(list.page, pages, list.setPage);
-  const pageRows = paginate(filtered, Math.min(list.page, pages), list.pageSize);
   const filtersActive = hasActiveListFilters(list.search, list.filters, DEFAULT_FILTERS);
 
-  type ReturnRow = (typeof data)[number] & { net?: number };
+  type ReturnRow = (typeof pageRows)[number];
 
   const columns: EntityListColumn<ReturnRow>[] = useMemo(
     () => [
@@ -215,12 +205,7 @@ export function SalesReturnsListPage() {
       <EntityListHero
         kicker="Sales"
         title="Sales Returns"
-        count={
-          <>
-            {filtered.length} {filtered.length === 1 ? 'return' : 'returns'}
-            {filtered.length !== data.length ? ` · ${data.length} total` : ''}
-          </>
-        }
+        count={`${total} ${total === 1 ? 'return' : 'returns'}`}
         actions={
           <>
             <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
@@ -269,13 +254,10 @@ export function SalesReturnsListPage() {
         summary={
           <div className="el-pulse">
             <span>
-              Showing <strong>{pulse.count}</strong>
+              Showing <strong>{total}</strong>
             </span>
             <span>
-              Total <strong>{formatMoney(pulse.total)}</strong>
-            </span>
-            <span>
-              This month <strong>{formatMoney(pulse.monthTotal)}</strong>
+              This page <strong>{formatMoney(pageAmount)}</strong>
             </span>
           </div>
         }

@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from packages.services_kit.purchases_container import get_purchases_container
+from packages.services_kit.paging import DEFAULT_PAGE_SIZE, apply_list_query
 from services.finance.router import is_consumer_healthy as finance_healthy
 from services.inventory.router import is_consumer_healthy as inventory_healthy
 from services.parties.serialize import entity_dict
@@ -210,6 +211,16 @@ def _bill_dict(row: dict[str, Any], *, include_lines: bool = False) -> dict[str,
         f"₹{float(data.get('total') or 0):,.2f}",
     ]
     data["caption"] = " · ".join(b for b in caption_bits if b).strip(" ·")
+    if data.get("balance_due") is None and data.get("outstanding") is not None:
+        try:
+            data["balance_due"] = float(data.get("outstanding") or 0)
+        except (TypeError, ValueError):
+            data["balance_due"] = data.get("outstanding")
+    if data.get("amount_paid") is None and data.get("paid") is not None:
+        try:
+            data["amount_paid"] = float(data.get("paid") or 0)
+        except (TypeError, ValueError):
+            data["amount_paid"] = data.get("paid")
     if not include_lines:
         data.pop("lines", None)
     # Avoid dumping embedded JSON into list UIs
@@ -273,9 +284,49 @@ def overview() -> dict[str, Any]:
 
 
 @router.get("/orders")
-def list_orders() -> list[dict[str, Any]]:
+def list_orders(
+    *,
+    q: str = "",
+    po_number: str = "",
+    vendor_name: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    sort_by: str = "order_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
-        return [_po_dict(po, include_lines=False) for po in _svc().list_purchase_orders()]
+        rows = [_po_dict(po, include_lines=False) for po in _svc().list_purchase_orders()]
+        status_key = status.strip()
+        if status_key.lower() == "open":
+            rows = [
+                r
+                for r in rows
+                if (s := str(r.get("status") or "").lower())
+                and "closed" not in s
+                and "cancelled" not in s
+                and "canceled" not in s
+            ]
+            status_key = ""
+        equals: dict[str, str] = {}
+        if status_key:
+            equals["status"] = status_key
+        return apply_list_query(
+            rows,
+            q=q,
+            q_fields=("po_number", "vendor_name", "status"),
+            equals=equals,
+            contains={"po_number": po_number, "vendor_name": vendor_name},
+            date_field="order_date",
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by or "order_date",
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+        )
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -408,9 +459,51 @@ def close_order(order_id: str) -> dict[str, Any]:
 
 
 @router.get("/goods-receipts")
-def list_goods_receipts() -> list[dict[str, Any]]:
+def list_goods_receipts(
+    *,
+    q: str = "",
+    grn_number: str = "",
+    vendor_name: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    sort_by: str = "receipt_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
-        return [_grn_dict(g, include_lines=False) for g in _svc().list_goods_receipts()]
+        rows = [_grn_dict(g, include_lines=False) for g in _svc().list_goods_receipts()]
+        status_key = status.strip()
+        if status_key.lower() == "pending":
+
+            def _pending(row: dict[str, Any]) -> bool:
+                s = str(row.get("status") or "").lower()
+                if "cancel" in s:
+                    return False
+                if "received" in s and "partial" not in s:
+                    return False
+                return (not s) or "draft" in s or "partial" in s or "pending" in s
+
+            rows = [r for r in rows if _pending(r)]
+            status_key = ""
+        equals: dict[str, str] = {}
+        if status_key:
+            equals["status"] = status_key
+        return apply_list_query(
+            rows,
+            q=q,
+            q_fields=("grn_number", "vendor_name", "status", "po_number"),
+            equals=equals,
+            contains={"grn_number": grn_number, "vendor_name": vendor_name},
+            date_field="receipt_date",
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by or "receipt_date",
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+        )
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -489,9 +582,59 @@ def _bill_raw_lines(lines: List[BillLineWrite]) -> list[dict[str, Any]]:
 
 
 @router.get("/bills")
-def list_bills() -> list[dict[str, Any]]:
+def list_bills(
+    *,
+    q: str = "",
+    vendor_bill_number: str = "",
+    vendor_name: str = "",
+    voucher_number: str = "",
+    has_voucher: str = "",
+    unpaid: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    sort_by: str = "bill_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
-        return [_bill_dict(row) for row in _svc().list_purchase_bills()]
+        rows = [_bill_dict(row) for row in _svc().list_purchase_bills()]
+        hv = has_voucher.strip().lower()
+        if hv in {"yes", "no"}:
+            rows = [
+                r
+                for r in rows
+                if (bool(str(r.get("voucher_number") or "").strip()) == (hv == "yes"))
+            ]
+        if unpaid.strip() in {"1", "true", "yes"}:
+            rows = [
+                r
+                for r in rows
+                if float(r.get("balance_due") or r.get("outstanding") or 0) > 0.01
+            ]
+        return apply_list_query(
+            rows,
+            q=q,
+            q_fields=(
+                "vendor_bill_number",
+                "voucher_number",
+                "vendor_name",
+                "party_name",
+            ),
+            contains={
+                "vendor_bill_number": vendor_bill_number,
+                "vendor_name": vendor_name,
+                "voucher_number": voucher_number,
+            },
+            date_field="bill_date",
+            alt_date_fields=("voucher_date",),
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by or "bill_date",
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+        )
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -551,9 +694,33 @@ def update_bill(bill_id: str, body: PurchaseBillWrite) -> dict[str, Any]:
 
 
 @router.get("/returns")
-def list_returns() -> list[dict[str, Any]]:
+def list_returns(
+    *,
+    q: str = "",
+    return_number: str = "",
+    vendor_name: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    sort_by: str = "return_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
-        return [_return_dict(r, include_lines=False) for r in _svc().list_purchase_returns()]
+        rows = [_return_dict(r, include_lines=False) for r in _svc().list_purchase_returns()]
+        return apply_list_query(
+            rows,
+            q=q,
+            q_fields=("return_number", "vendor_name"),
+            contains={"return_number": return_number, "vendor_name": vendor_name},
+            date_field="return_date",
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by or "return_date",
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+        )
     except Exception as exc:
         raise _http_err(exc) from exc
 

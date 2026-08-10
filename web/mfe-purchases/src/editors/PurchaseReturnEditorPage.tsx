@@ -21,6 +21,7 @@ import {
   useListVendorsQuery,
 } from '@vaybooks/store';
 import { asCaption, extractError } from '../utils';
+import { LIST_FETCH_ALL_SIZE, pagedItems } from '../pages/purchasesListHelpers';
 import {
   editorLinesToReturnPayload,
   mapProductsToLineOptions,
@@ -48,7 +49,11 @@ export function PurchaseReturnEditorPage() {
 
   const { data: vendors = [] } = useListVendorsQuery();
   const { data: products = [] } = useListInventoryProductsQuery();
-  const { data: bills = [] } = useListPurchaseBillsQuery();
+  const { data: billsPage } = useListPurchaseBillsQuery({
+    page: 1,
+    page_size: LIST_FETCH_ALL_SIZE,
+  });
+  const bills = pagedItems(billsPage);
   const { data: accounts = [] } = useListFinanceAccountsQuery();
   const { data: business } = useGetBusinessProfileQuery();
   const { locationId } = useWorkingLocation();

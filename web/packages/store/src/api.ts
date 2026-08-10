@@ -16,6 +16,19 @@ export type PagedResult<T = Record<string, unknown>> = {
   page_size: number;
 };
 
+/** Common query args for sales/purchase document list endpoints. */
+export type DocListParams = {
+  q?: string;
+  date_from?: string;
+  date_to?: string;
+  sort_by?: string;
+  sort_desc?: boolean;
+  page?: number;
+  page_size?: number;
+  status?: string;
+  [key: string]: string | number | boolean | undefined;
+};
+
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: '/api',
   prepareHeaders: (headers, { getState }) => {
@@ -642,8 +655,8 @@ export const baseApi = createApi({
       query: () => '/sales/overview',
       providesTags: ['Sales', 'SalesOrder', 'SalesInvoice', 'SalesDeliveryNote', 'SalesReturn'],
     }),
-    listSalesEstimates: build.query<Record<string, unknown>[], void>({
-      query: () => '/sales/estimates',
+    listSalesEstimates: build.query<PagedResult, DocListParams | void>({
+      query: (args) => ({ url: '/sales/estimates', params: args || undefined }),
       providesTags: ['SalesEstimate'],
     }),
     getSalesEstimate: build.query<Record<string, unknown>, string>({
@@ -676,8 +689,8 @@ export const baseApi = createApi({
       query: (id) => ({ url: `/sales/estimates/${id}/convert-order`, method: 'POST', body: {} }),
       invalidatesTags: ['SalesEstimate', 'SalesOrder', 'Sales'],
     }),
-    listSalesQuotations: build.query<Record<string, unknown>[], void>({
-      query: () => '/sales/quotations',
+    listSalesQuotations: build.query<PagedResult, DocListParams | void>({
+      query: (args) => ({ url: '/sales/quotations', params: args || undefined }),
       providesTags: ['SalesQuotation'],
     }),
     getSalesQuotation: build.query<Record<string, unknown>, string>({
@@ -710,8 +723,8 @@ export const baseApi = createApi({
       query: (id) => ({ url: `/sales/quotations/${id}/convert-order`, method: 'POST', body: {} }),
       invalidatesTags: ['SalesQuotation', 'SalesOrder', 'Sales'],
     }),
-    listSalesOrders: build.query<Record<string, unknown>[], void>({
-      query: () => '/sales/orders',
+    listSalesOrders: build.query<PagedResult, DocListParams | void>({
+      query: (args) => ({ url: '/sales/orders', params: args || undefined }),
       providesTags: ['SalesOrder'],
     }),
     getSalesOrder: build.query<Record<string, unknown>, string>({
@@ -748,8 +761,8 @@ export const baseApi = createApi({
       }),
       invalidatesTags: ['SalesOrder', 'SalesInvoice', 'Sales'],
     }),
-    listDeliveryNotes: build.query<Record<string, unknown>[], void>({
-      query: () => '/sales/delivery-notes',
+    listDeliveryNotes: build.query<PagedResult, DocListParams | void>({
+      query: (args) => ({ url: '/sales/delivery-notes', params: args || undefined }),
       providesTags: ['SalesDeliveryNote'],
     }),
     getDeliveryNote: build.query<Record<string, unknown>, string>({
@@ -783,8 +796,8 @@ export const baseApi = createApi({
       query: (id) => ({ url: `/sales/delivery-notes/${id}/cancel`, method: 'POST' }),
       invalidatesTags: ['SalesDeliveryNote', 'Sales'],
     }),
-    listSalesInvoices: build.query<Record<string, unknown>[], void>({
-      query: () => '/sales/invoices',
+    listSalesInvoices: build.query<PagedResult, DocListParams | void>({
+      query: (args) => ({ url: '/sales/invoices', params: args || undefined }),
       providesTags: ['SalesInvoice'],
     }),
     getSalesInvoice: build.query<Record<string, unknown>, string>({
@@ -808,8 +821,8 @@ export const baseApi = createApi({
       query: ({ id, body }) => ({ url: `/sales/invoices/${id}`, method: 'PUT', body }),
       invalidatesTags: ['SalesInvoice', 'Sales', 'Finance', 'Inventory'],
     }),
-    listSalesReturns: build.query<Record<string, unknown>[], void>({
-      query: () => '/sales/returns',
+    listSalesReturns: build.query<PagedResult, DocListParams | void>({
+      query: (args) => ({ url: '/sales/returns', params: args || undefined }),
       providesTags: ['SalesReturn'],
     }),
     getSalesReturn: build.query<Record<string, unknown>, string>({
@@ -855,8 +868,8 @@ export const baseApi = createApi({
       query: () => '/purchases/overview',
       providesTags: ['Purchases', 'PurchaseOrder', 'PurchaseBill', 'PurchaseGoodsReceipt', 'PurchaseReturn'],
     }),
-    listPurchaseOrders: build.query<Record<string, unknown>[], void>({
-      query: () => '/purchases/orders',
+    listPurchaseOrders: build.query<PagedResult, DocListParams | void>({
+      query: (args) => ({ url: '/purchases/orders', params: args || undefined }),
       providesTags: ['PurchaseOrder'],
     }),
     getPurchaseOrder: build.query<Record<string, unknown>, string>({
@@ -892,8 +905,8 @@ export const baseApi = createApi({
       query: (id) => ({ url: `/purchases/orders/${id}/close`, method: 'POST' }),
       invalidatesTags: ['PurchaseOrder', 'Purchases'],
     }),
-    listGoodsReceipts: build.query<Record<string, unknown>[], void>({
-      query: () => '/purchases/goods-receipts',
+    listGoodsReceipts: build.query<PagedResult, DocListParams | void>({
+      query: (args) => ({ url: '/purchases/goods-receipts', params: args || undefined }),
       providesTags: ['PurchaseGoodsReceipt'],
     }),
     getGoodsReceipt: build.query<Record<string, unknown>, string>({
@@ -908,8 +921,8 @@ export const baseApi = createApi({
       query: (id) => ({ url: `/purchases/goods-receipts/${id}/confirm`, method: 'POST' }),
       invalidatesTags: ['PurchaseGoodsReceipt', 'PurchaseOrder', 'Purchases', 'Inventory'],
     }),
-    listPurchaseBills: build.query<Record<string, unknown>[], void>({
-      query: () => '/purchases/bills',
+    listPurchaseBills: build.query<PagedResult, DocListParams | void>({
+      query: (args) => ({ url: '/purchases/bills', params: args || undefined }),
       providesTags: ['PurchaseBill'],
     }),
     getPurchaseBill: build.query<Record<string, unknown>, string>({
@@ -933,8 +946,8 @@ export const baseApi = createApi({
     >({
       query: (params) => ({ url: '/purchases/vendor-rates', params }),
     }),
-    listPurchaseReturns: build.query<Record<string, unknown>[], void>({
-      query: () => '/purchases/returns',
+    listPurchaseReturns: build.query<PagedResult, DocListParams | void>({
+      query: (args) => ({ url: '/purchases/returns', params: args || undefined }),
       providesTags: ['PurchaseReturn'],
     }),
     getPurchaseReturn: build.query<Record<string, unknown>, string>({

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   useGetPurchaseBillQuery,
   useListPurchaseBillsQuery,
@@ -15,14 +15,10 @@ import {
   EntityListLoading,
   EntityListPage,
   EntityListQuickFilters,
+  EntityListRefreshing,
   EntityListTable,
   ErrorText,
-  PAGE_SIZE,
   PaginationBar,
-  matchesRegex,
-  pageCount,
-  paginate,
-  sortRows,
   type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
@@ -37,169 +33,318 @@ import {
   moneySummaryFromDoc,
   notesFromDoc,
 } from './documentDetailHelpers';
+import {
+  DATE_RANGE_FIELDS,
+  PAGE_SIZE_OPTIONS,
+  amountOf,
+  balanceOf,
+  currentMonthRange,
+  dateKey,
+  hasActiveListFilters,
+  listHasField,
+  pagedItems,
+  pagedPageCount,
+  pagedTotal,
+  sortQueryParams,
+  usePurchasesListState,
+  useSyncedPage,
+} from './purchasesListHelpers';
 
-const DEFAULT_FILTERS = {
+type BillFilters = {
+  vendor_bill_number: string;
+  vendor_name: string;
+  voucher_number: string;
+  has_voucher: string;
+  month: string;
+  unpaid: string;
+  date_from: string;
+  date_to: string;
+};
+
+const DEFAULT_FILTERS: BillFilters = {
   vendor_bill_number: '',
   vendor_name: '',
   voucher_number: '',
   has_voucher: '',
+  month: '',
+  unpaid: '',
+  date_from: '',
+  date_to: '',
 };
+
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'bill_date', desc: true }];
-const VOUCHER_CHIPS = [
-  { id: 'all', label: 'All' },
-  { id: 'yes', label: 'Has voucher' },
-  { id: 'no', label: 'No voucher' },
-];
 
 export function PurchaseBillsListPage() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const { data = [], isLoading, error } = useListPurchaseBillsQuery();
 
-  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
-  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
-  const [page, setPage] = useState(1);
+  const list = usePurchasesListState({
+    defaultFilters: DEFAULT_FILTERS,
+    defaultSort: DEFAULT_SORT,
+    monthFilterKey: 'month',
+    applyChip: (chip, filters) => {
+      if (chip === 'yes' || chip === 'no') {
+        return { ...filters, has_voucher: chip, month: '', unpaid: '' };
+      }
+      if (chip === 'month') return { ...filters, month: 'current', has_voucher: '', unpaid: '' };
+      if (chip === 'unpaid') return { ...filters, unpaid: '1', has_voucher: '', month: '' };
+      return { ...filters, has_voucher: '', month: '', unpaid: '' };
+    },
+  });
+
+  const listArgs = useMemo(() => {
+    const monthRange = list.filters.month === 'current' ? currentMonthRange() : null;
+    return {
+      q: list.search || undefined,
+      vendor_bill_number: list.filters.vendor_bill_number || undefined,
+      vendor_name: list.filters.vendor_name || undefined,
+      voucher_number: list.filters.voucher_number || undefined,
+      has_voucher: list.filters.has_voucher || undefined,
+      unpaid: list.filters.unpaid === '1' ? '1' : undefined,
+      date_from: monthRange?.date_from || list.filters.date_from || undefined,
+      date_to: monthRange?.date_to || list.filters.date_to || undefined,
+      ...sortQueryParams(list.sort),
+      page: list.page,
+      page_size: list.pageSize,
+    };
+  }, [list.search, list.filters, list.sort, list.page, list.pageSize]);
+
+  const { data, isLoading, isFetching, error, refetch } = useListPurchaseBillsQuery(listArgs);
+
+  const pageRows = pagedItems(data);
+  const total = pagedTotal(data);
+  const pages = pagedPageCount(data, list.pageSize);
+  useSyncedPage(list.page, pages, list.setPage);
 
   useEffect(() => {
-    if (params.get('new') === '1') {
-      const vid = params.get('vendor_id');
+    if (list.params.get('new') === '1') {
+      const vid = list.params.get('vendor_id');
       navigate(vid ? `/purchases/bills/new?vendor_id=${vid}` : '/purchases/bills/new', {
         replace: true,
       });
     }
-  }, [params, navigate]);
+  }, [list.params, navigate]);
+
+  const showBalance = useMemo(
+    () => listHasField(pageRows, 'outstanding', 'balance_due'),
+    [pageRows],
+  );
+
+  const pageAmount = useMemo(
+    () => pageRows.reduce((s, r) => s + amountOf(r), 0),
+    [pageRows],
+  );
+
+  const pageOpenBalance = useMemo(
+    () => pageRows.reduce((s, r) => s + Math.max(0, balanceOf(r) ?? 0), 0),
+    [pageRows],
+  );
+
+  const chips = useMemo(() => {
+    const base = [
+      { id: 'all', label: 'All' },
+      { id: 'month', label: 'This month' },
+      { id: 'yes', label: 'Has voucher' },
+      { id: 'no', label: 'No voucher' },
+    ];
+    if (showBalance) base.splice(2, 0, { id: 'unpaid', label: 'Unpaid' });
+    return base;
+  }, [showBalance]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
       { key: 'vendor_bill_number', label: 'Vendor bill #', type: 'text' },
       { key: 'vendor_name', label: 'Vendor', type: 'text' },
       { key: 'voucher_number', label: 'Voucher #', type: 'text' },
+      ...DATE_RANGE_FIELDS,
     ],
     [],
   );
 
-  const filtered = useMemo(() => {
-    const rows = data.filter((row) => {
-      if (!matchesRegex(row.vendor_bill_number, filters.vendor_bill_number)) return false;
-      if (!matchesRegex(row.vendor_name || row.party_name, filters.vendor_name)) return false;
-      if (!matchesRegex(row.voucher_number, filters.voucher_number)) return false;
-      const hasVoucher = Boolean(String(row.voucher_number || '').trim());
-      if (filters.has_voucher === 'yes' && !hasVoucher) return false;
-      if (filters.has_voucher === 'no' && hasVoucher) return false;
-      return true;
-    });
-    return sortRows(rows, sort);
-  }, [data, filters, sort]);
+  const filtersActive = hasActiveListFilters(list.search, list.filters, DEFAULT_FILTERS);
 
-  const pages = pageCount(filtered.length, PAGE_SIZE);
-  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+  type BillRow = (typeof pageRows)[number];
 
-  type BillRow = (typeof data)[number];
-
-  const columns: EntityListColumn<BillRow>[] = useMemo(
-    () => [
+  const columns: EntityListColumn<BillRow>[] = useMemo(() => {
+    const cols: EntityListColumn<BillRow>[] = [
       {
         id: 'bill',
         header: 'Bill #',
-        render: (row) => {
-          const title =
-            asCaption(row.vendor_bill_number) || asCaption(row.voucher_number) || String(row.id);
-          const desc = asCaption(row.description || row.caption);
-          return (
-            <div className="el-customer">
-              <div className="el-customer-meta">
-                <span className="el-customer-name">{title}</span>
-                <span className="el-customer-sub">
-                  {asCaption(row.bill_date).slice(0, 10) || '—'}
-                  {desc && desc.length <= 80 ? ` · ${desc}` : ''}
-                </span>
-              </div>
-            </div>
-          );
-        },
+        render: (row) => (
+          <div className="el-customer-meta">
+            <button
+              type="button"
+              className="el-doc-link"
+              onClick={() => navigate(`/purchases/bills/${row.id}`)}
+            >
+              {asCaption(row.vendor_bill_number) ||
+                asCaption(row.voucher_number) ||
+                String(row.id)}
+            </button>
+            {asCaption(row.voucher_number) && asCaption(row.vendor_bill_number) ? (
+              <span className="el-customer-sub">{asCaption(row.voucher_number)}</span>
+            ) : null}
+          </div>
+        ),
       },
       {
         id: 'vendor',
         header: 'Vendor',
-        render: (row) => asCaption(row.vendor_name || row.party_name) || '—',
+        render: (row) =>
+          asCaption(row.vendor_name || row.party_name) || <span className="el-muted">—</span>,
       },
       {
-        id: 'voucher',
-        header: 'Voucher #',
-        render: (row) => asCaption(row.voucher_number) || '—',
+        id: 'date',
+        header: 'Date',
+        render: (row) =>
+          dateKey(row.bill_date || row.voucher_date) || <span className="el-muted">—</span>,
       },
       {
         id: 'amount',
         header: 'Amount',
         className: 'el-num',
         headerClassName: 'el-col-num',
-        render: (row) => formatMoney(Number(row.total ?? row.amount ?? 0)),
+        render: (row) => formatMoney(amountOf(row)),
       },
-    ],
-    [],
-  );
+    ];
+    if (showBalance) {
+      cols.push({
+        id: 'balance',
+        header: 'Balance',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => {
+          const bal = balanceOf(row);
+          if (bal == null) return <span className="el-muted">—</span>;
+          return <span className={bal > 0.01 ? 'el-due' : 'el-settled'}>{formatMoney(bal)}</span>;
+        },
+      });
+    }
+    return cols;
+  }, [navigate, showBalance]);
 
   const goNew = () => {
-    const vid = params.get('vendor_id');
+    const vid = list.params.get('vendor_id');
     navigate(vid ? `/purchases/bills/new?vendor_id=${vid}` : '/purchases/bills/new');
   };
 
+  function setChip(id: string) {
+    list.setFilters((prev) => {
+      const next = { ...prev, has_voucher: '', month: '', unpaid: '' };
+      if (id === 'yes' || id === 'no') next.has_voucher = id;
+      else if (id === 'month') next.month = 'current';
+      else if (id === 'unpaid') next.unpaid = '1';
+      return next;
+    });
+  }
+
+  const chipValue =
+    list.filters.month === 'current'
+      ? 'month'
+      : list.filters.unpaid === '1'
+        ? 'unpaid'
+        : list.filters.has_voucher || 'all';
+
   return (
-    <EntityListPage>
+    <EntityListPage className="el-page--sales">
       <EntityListHero
         kicker="Purchases"
         title="Purchase Bills"
-        count={`${filtered.length} ${filtered.length === 1 ? 'bill' : 'bills'}`}
+        count={
+          <>
+            {total} {total === 1 ? 'bill' : 'bills'}
+          </>
+        }
         actions={
-          <Button type="button" onClick={goNew}>
-            New bill
-          </Button>
+          <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
+            <Button type="button" onClick={goNew}>
+              New bill
+            </Button>
+          </>
+        }
+        search={
+          <input
+            type="search"
+            value={list.search}
+            onChange={(e) => list.setSearch(e.target.value)}
+            placeholder="Search bill #, vendor, amount…"
+            aria-label="Search bills"
+          />
         }
         chips={
           <EntityListQuickFilters
-            ariaLabel="Voucher"
-            value={filters.has_voucher || 'all'}
-            onChange={(id) => {
-              setFilters((prev) => ({ ...prev, has_voucher: id === 'all' ? '' : id }));
-              setPage(1);
-            }}
-            options={VOUCHER_CHIPS}
+            ariaLabel="Bill filters"
+            value={chipValue}
+            onChange={setChip}
+            options={chips}
           />
         }
         tools={
           <EntityListFilterSort
             filterFields={filterFields}
-            filters={filters}
+            filters={list.filters}
             defaultFilters={DEFAULT_FILTERS}
-            excludeKeys={['has_voucher']}
-            onFiltersChange={(next) => {
-              setFilters(next as typeof filters);
-              setPage(1);
-            }}
-            sort={sort}
+            excludeKeys={['has_voucher', 'month', 'unpaid']}
+            onFiltersChange={(next) => list.setFilters(next as BillFilters)}
+            sort={list.sort}
             defaultSort={DEFAULT_SORT}
             sortOptions={[
               { value: 'bill_date', label: 'Date' },
-              { value: 'total', label: 'Amount' },
-              { value: 'voucher_number', label: 'Voucher #' },
+              { value: 'net', label: 'Amount' },
+              { value: 'vendor_bill_number', label: 'Bill #' },
             ]}
-            onSortChange={(next) => {
-              setSort(next);
-              setPage(1);
-            }}
+            onSortChange={list.setSort}
           />
+        }
+        summary={
+          <div className="el-pulse">
+            <span>
+              Showing <strong>{total}</strong>
+            </span>
+            <span>
+              This page <strong>{formatMoney(pageAmount)}</strong>
+            </span>
+            {showBalance ? (
+              <span className="el-pulse-due">
+                Open balance <strong>{formatMoney(pageOpenBalance)}</strong>
+              </span>
+            ) : null}
+          </div>
         }
       />
 
+      {isFetching && !isLoading ? <EntityListRefreshing /> : null}
       {isLoading ? <EntityListLoading>Loading bills…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load bills.</ErrorText> : null}
+
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>No bills found.</strong>
-          <p>Create a bill to record a vendor purchase.</p>
-          <Button type="button" onClick={goNew}>
-            New bill
-          </Button>
+          {filtersActive ? (
+            <>
+              <strong>No matches</strong>
+              <p>Try clearing search or filters.</p>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  list.setSearch('');
+                  list.setFilters({ ...DEFAULT_FILTERS });
+                }}
+              >
+                Clear filters
+              </Button>
+            </>
+          ) : (
+            <>
+              <strong>No bills yet</strong>
+              <p>Create a bill to record a vendor purchase.</p>
+              <Button type="button" onClick={goNew}>
+                New bill
+              </Button>
+            </>
+          )}
         </EntityListEmpty>
       ) : null}
 
@@ -209,15 +354,39 @@ export function PurchaseBillsListPage() {
           rows={pageRows}
           rowKey={(row) => String(row.id)}
           actions={(row) => (
-            <EntityListActions onOpen={() => navigate(`/purchases/bills/${row.id}`)} />
+            <EntityListActions
+              onOpen={() => navigate(`/purchases/bills/${row.id}`)}
+              onEdit={() => navigate(`/purchases/bills/${row.id}/edit`)}
+            />
           )}
         />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
         <EntityListFoot>
+          <div className="el-page-size">
+            <label>
+              Rows{' '}
+              <select
+                value={list.pageSize}
+                onChange={(e) =>
+                  list.setPageSize(Number(e.target.value) as (typeof PAGE_SIZE_OPTIONS)[number])
+                }
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="el-foot-pager">
-            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+            <PaginationBar
+              page={Math.min(list.page, pages)}
+              pageCount={pages}
+              onPage={list.setPage}
+            />
           </div>
         </EntityListFoot>
       ) : null}

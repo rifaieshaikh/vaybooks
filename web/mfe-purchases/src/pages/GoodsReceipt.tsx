@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   useConfirmGoodsReceiptMutation,
   useGetGoodsReceiptQuery,
@@ -16,14 +16,11 @@ import {
   EntityListLoading,
   EntityListPage,
   EntityListQuickFilters,
+  EntityListRefreshing,
   EntityListTable,
   ErrorText,
-  PAGE_SIZE,
   PaginationBar,
-  matchesRegex,
-  pageCount,
-  paginate,
-  sortRows,
+  StatusPill,
   type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
@@ -38,11 +35,39 @@ import {
   notesFromDoc,
   statusIncludes,
 } from './documentDetailHelpers';
+import {
+  DATE_RANGE_FIELDS,
+  PAGE_SIZE_OPTIONS,
+  amountOf,
+  dateKey,
+  hasActiveListFilters,
+  pagedItems,
+  pagedPageCount,
+  pagedTotal,
+  sortQueryParams,
+  usePurchasesListState,
+  useSyncedPage,
+} from './purchasesListHelpers';
 
-const DEFAULT_FILTERS = { grn_number: '', vendor_name: '', status: '' };
+type GrnFilters = {
+  grn_number: string;
+  vendor_name: string;
+  status: string;
+  date_from: string;
+  date_to: string;
+};
+
+const DEFAULT_FILTERS: GrnFilters = {
+  grn_number: '',
+  vendor_name: '',
+  status: '',
+  date_from: '',
+  date_to: '',
+};
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'receipt_date', desc: true }];
 const STATUS_CHIPS = [
   { id: 'all', label: 'All' },
+  { id: 'pending', label: 'Pending' },
   { id: 'Draft', label: 'Draft' },
   { id: 'Received', label: 'Received' },
   { id: 'Cancelled', label: 'Cancelled' },
@@ -50,17 +75,42 @@ const STATUS_CHIPS = [
 
 export function GoodsReceiptListPage() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const { data = [], isLoading, error } = useListGoodsReceiptsQuery();
 
-  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
-  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
-  const [page, setPage] = useState(1);
+  const list = usePurchasesListState({
+    defaultFilters: DEFAULT_FILTERS,
+    defaultSort: DEFAULT_SORT,
+    applyChip: (chip, filters) => {
+      if (!chip || chip === 'all') return { ...filters, status: '' };
+      return { ...filters, status: chip };
+    },
+  });
+
+  const listArgs = useMemo(
+    () => ({
+      q: list.search || undefined,
+      grn_number: list.filters.grn_number || undefined,
+      vendor_name: list.filters.vendor_name || undefined,
+      status: list.filters.status || undefined,
+      date_from: list.filters.date_from || undefined,
+      date_to: list.filters.date_to || undefined,
+      ...sortQueryParams(list.sort),
+      page: list.page,
+      page_size: list.pageSize,
+    }),
+    [list.search, list.filters, list.sort, list.page, list.pageSize],
+  );
+
+  const { data, isLoading, isFetching, error, refetch } = useListGoodsReceiptsQuery(listArgs);
+
+  const pageRows = pagedItems(data);
+  const total = pagedTotal(data);
+  const pages = pagedPageCount(data, list.pageSize);
+  useSyncedPage(list.page, pages, list.setPage);
 
   useEffect(() => {
-    if (params.get('new') === '1') {
-      const vid = params.get('vendor_id');
-      const po = params.get('purchase_order_id');
+    if (list.params.get('new') === '1') {
+      const vid = list.params.get('vendor_id');
+      const po = list.params.get('purchase_order_id');
       const qs = new URLSearchParams();
       if (vid) qs.set('vendor_id', vid);
       if (po) qs.set('purchase_order_id', po);
@@ -69,128 +119,170 @@ export function GoodsReceiptListPage() {
         replace: true,
       });
     }
-  }, [params, navigate]);
+  }, [list.params, navigate]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
       { key: 'grn_number', label: 'GRN #', type: 'text' },
       { key: 'vendor_name', label: 'Vendor', type: 'text' },
-      { key: 'status', label: 'Status', type: 'text' },
+      ...DATE_RANGE_FIELDS,
     ],
     [],
   );
 
-  const filtered = useMemo(() => {
-    const rows = data.filter((row) => {
-      if (!matchesRegex(row.grn_number, filters.grn_number)) return false;
-      if (!matchesRegex(row.vendor_name, filters.vendor_name)) return false;
-      if (filters.status && String(row.status) !== filters.status) return false;
-      return true;
-    });
-    return sortRows(rows, sort);
-  }, [data, filters, sort]);
+  const pageAmount = useMemo(
+    () => pageRows.reduce((s, r) => s + amountOf(r), 0),
+    [pageRows],
+  );
+  const filtersActive = hasActiveListFilters(list.search, list.filters, DEFAULT_FILTERS);
 
-  const pages = pageCount(filtered.length, PAGE_SIZE);
-  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
-
-  type GrnRow = (typeof data)[number];
+  type GrnRow = (typeof pageRows)[number];
 
   const columns: EntityListColumn<GrnRow>[] = useMemo(
     () => [
       {
-        id: 'grn',
+        id: 'grn_number',
         header: 'GRN #',
         render: (row) => (
-          <div className="el-customer">
-            <div className="el-customer-meta">
-              <span className="el-customer-name">{asCaption(row.grn_number) || String(row.id)}</span>
-              <span className="el-customer-sub">{asCaption(row.receipt_date).slice(0, 10) || '—'}</span>
-            </div>
-          </div>
+          <button
+            type="button"
+            className="el-doc-link"
+            onClick={() => navigate(`/purchases/goods-receipt/${row.id}`)}
+          >
+            {asCaption(row.grn_number) || String(row.id)}
+          </button>
         ),
       },
       {
         id: 'vendor',
         header: 'Vendor',
-        render: (row) => asCaption(row.vendor_name) || '—',
+        render: (row) => asCaption(row.vendor_name) || <span className="el-muted">—</span>,
       },
       {
         id: 'status',
         header: 'Status',
-        render: (row) => asCaption(row.status) || '—',
+        render: (row) => <StatusPill status={row.status} />,
+      },
+      {
+        id: 'date',
+        header: 'Date',
+        render: (row) => dateKey(row.receipt_date) || <span className="el-muted">—</span>,
       },
       {
         id: 'amount',
         header: 'Amount',
         className: 'el-num',
         headerClassName: 'el-col-num',
-        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
+        render: (row) => formatMoney(amountOf(row)),
       },
     ],
-    [],
+    [navigate],
   );
 
   const goNew = () => {
-    const vid = params.get('vendor_id');
+    const vid = list.params.get('vendor_id');
     navigate(vid ? `/purchases/goods-receipt/new?vendor_id=${vid}` : '/purchases/goods-receipt/new');
   };
 
   return (
-    <EntityListPage>
+    <EntityListPage className="el-page--sales">
       <EntityListHero
         kicker="Purchases"
         title="Goods Receipt"
-        count={`${filtered.length} ${filtered.length === 1 ? 'receipt' : 'receipts'}`}
+        count={
+          <>
+            {total} {total === 1 ? 'receipt' : 'receipts'}
+          </>
+        }
         actions={
-          <Button type="button" onClick={goNew}>
-            New GRN
-          </Button>
+          <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
+            <Button type="button" onClick={goNew}>
+              New GRN
+            </Button>
+          </>
+        }
+        search={
+          <input
+            type="search"
+            value={list.search}
+            onChange={(e) => list.setSearch(e.target.value)}
+            placeholder="Search GRN #, vendor, status…"
+            aria-label="Search goods receipts"
+          />
         }
         chips={
           <EntityListQuickFilters
             ariaLabel="Status"
-            value={filters.status || 'all'}
-            onChange={(id) => {
-              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
-              setPage(1);
-            }}
+            value={list.filters.status || 'all'}
+            onChange={(id) =>
+              list.setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }))
+            }
             options={STATUS_CHIPS}
           />
         }
         tools={
           <EntityListFilterSort
             filterFields={filterFields}
-            filters={filters}
+            filters={list.filters}
             defaultFilters={DEFAULT_FILTERS}
             excludeKeys={['status']}
-            onFiltersChange={(next) => {
-              setFilters(next as typeof filters);
-              setPage(1);
-            }}
-            sort={sort}
+            onFiltersChange={(next) => list.setFilters(next as GrnFilters)}
+            sort={list.sort}
             defaultSort={DEFAULT_SORT}
             sortOptions={[
               { value: 'receipt_date', label: 'Date' },
               { value: 'grn_number', label: 'GRN #' },
               { value: 'total_amount', label: 'Amount' },
+              { value: 'status', label: 'Status' },
             ]}
-            onSortChange={(next) => {
-              setSort(next);
-              setPage(1);
-            }}
+            onSortChange={list.setSort}
           />
+        }
+        summary={
+          <div className="el-pulse">
+            <span>
+              Showing <strong>{total}</strong>
+            </span>
+            <span>
+              This page <strong>{formatMoney(pageAmount)}</strong>
+            </span>
+          </div>
         }
       />
 
+      {isFetching && !isLoading ? <EntityListRefreshing /> : null}
       {isLoading ? <EntityListLoading>Loading goods receipts…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load goods receipts.</ErrorText> : null}
+
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>No goods receipts found.</strong>
-          <p>Receive goods against a purchase order.</p>
-          <Button type="button" onClick={goNew}>
-            New GRN
-          </Button>
+          {filtersActive ? (
+            <>
+              <strong>No matches</strong>
+              <p>Try clearing search or filters.</p>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  list.setSearch('');
+                  list.setFilters({ ...DEFAULT_FILTERS });
+                }}
+              >
+                Clear filters
+              </Button>
+            </>
+          ) : (
+            <>
+              <strong>No goods receipts yet</strong>
+              <p>Receive goods against a purchase order.</p>
+              <Button type="button" onClick={goNew}>
+                New GRN
+              </Button>
+            </>
+          )}
         </EntityListEmpty>
       ) : null}
 
@@ -199,16 +291,53 @@ export function GoodsReceiptListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
-          actions={(row) => (
-            <EntityListActions onOpen={() => navigate(`/purchases/goods-receipt/${row.id}`)} />
-          )}
+          actions={(row) => {
+            const received = statusIncludes(row.status, 'received');
+            return (
+              <EntityListActions
+                onOpen={() => navigate(`/purchases/goods-receipt/${row.id}`)}
+                primary={
+                  received
+                    ? {
+                        label: 'Create bill',
+                        onClick: () =>
+                          navigate(
+                            `/purchases/bills/new?vendor_id=${row.vendor_id || ''}&reference_grn_id=${row.id}`,
+                          ),
+                      }
+                    : undefined
+                }
+              />
+            );
+          }}
         />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
         <EntityListFoot>
+          <div className="el-page-size">
+            <label>
+              Rows{' '}
+              <select
+                value={list.pageSize}
+                onChange={(e) =>
+                  list.setPageSize(Number(e.target.value) as (typeof PAGE_SIZE_OPTIONS)[number])
+                }
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="el-foot-pager">
-            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+            <PaginationBar
+              page={Math.min(list.page, pages)}
+              pageCount={pages}
+              onPage={list.setPage}
+            />
           </div>
         </EntityListFoot>
       ) : null}
