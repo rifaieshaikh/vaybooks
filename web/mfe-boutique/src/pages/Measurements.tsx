@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   useCreateBoutiqueMeasurementMutation,
   useDeleteBoutiqueMeasurementMutation,
@@ -13,6 +13,11 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
+  EntityDetailBack,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -44,11 +49,12 @@ import {
   measurementFormMissingRequired,
 } from '../MeasurementForm';
 import { asCaption, extractError } from '../utils';
-import '../MeasurementDetail.css';
+import '../BoutiqueList.css';
+
 
 const PERSON_TYPES = ['Men', 'Women', 'Boy Child', 'Girl Child', 'Infant'] as const;
 
-const DEFAULT_FILTERS = { measurement_number: '', wearer_name: '', person_type: '' };
+const DEFAULT_FILTERS = { q: '', measurement_number: '', wearer_name: '', person_type: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'measurement_number', desc: true }];
 
 export function BoutiqueMeasurementsListPage() {
@@ -61,7 +67,8 @@ export function BoutiqueMeasurementsListPage() {
   const [customerId, setCustomerId] = useState('');
   const [form, setForm] = useState<MeasurementFormValue | null>(null);
 
-  const { data, isLoading, error } = useListBoutiqueMeasurementsQuery({
+  const { data, isLoading, error, isFetching, refetch } = useListBoutiqueMeasurementsQuery({
+    q: filters.q || undefined,
     measurement_number: filters.measurement_number || undefined,
     wearer_name: filters.wearer_name || undefined,
     person_type: filters.person_type || undefined,
@@ -76,6 +83,9 @@ export function BoutiqueMeasurementsListPage() {
   const pageRows = pagedItems(data);
   const total = pagedTotal(data);
   const pages = pagedPageCount(data, LIST_PAGE_SIZE);
+  const hasActiveFilters = Boolean(
+    filters.q || filters.measurement_number || filters.wearer_name || filters.person_type,
+  );
 
   const customerNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -104,6 +114,13 @@ export function BoutiqueMeasurementsListPage() {
 
   type MeasRow = (typeof pageRows)[number];
 
+  function openNew() {
+    setFormError('');
+    setCustomerId('');
+    setForm(null);
+    setOpen(true);
+  }
+
   const columns: EntityListColumn<MeasRow>[] = useMemo(
     () => [
       {
@@ -112,17 +129,20 @@ export function BoutiqueMeasurementsListPage() {
         render: (row) => {
           const number = displayName(row, ['measurement_number'], String(row.id));
           const wearer = asCaption(row.wearer_name) || 'No wearer';
-          const customer = customerNameById.get(String(row.customer_id || '')) || '—';
           return (
-            <div className="el-customer">
-              <div className="el-customer-meta">
-                <span className="el-customer-name">{number}</span>
-                <span className="el-customer-sub">
-                  {wearer} · {customer}
-                </span>
-              </div>
+            <div className="bl-primary">
+              <div className="bl-primary-title">{number}</div>
+              <div className="bl-primary-sub">{wearer}</div>
             </div>
           );
+        },
+      },
+      {
+        id: 'customer',
+        header: 'Customer',
+        render: (row) => {
+          const customer = customerNameById.get(String(row.customer_id || ''));
+          return <span className={customer ? undefined : 'el-muted'}>{customer || '—'}</span>;
         },
       },
       {
@@ -176,23 +196,35 @@ export function BoutiqueMeasurementsListPage() {
   }
 
   return (
-    <EntityListPage>
+    <EntityListPage className="bl-page">
       <EntityListHero
         kicker="Boutique"
         title="Measurements"
         count={`${total} ${total === 1 ? 'measurement' : 'measurements'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setCustomerId('');
-              setForm(null);
-              setOpen(true);
+          <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
+            <Button type="button" variant="ghost" onClick={() => navigate('/boutique/items')}>
+              Items
+            </Button>
+            <Button type="button" onClick={openNew}>
+              New measurement
+            </Button>
+          </>
+        }
+        search={
+          <input
+            type="search"
+            value={filters.q}
+            onChange={(e) => {
+              setFilters((prev) => ({ ...prev, q: e.target.value }));
+              setPage(1);
             }}
-          >
-            New measurement
-          </Button>
+            placeholder="Search number, wearer, or person type…"
+            aria-label="Search measurements"
+          />
         }
         chips={
           <EntityListQuickFilters
@@ -213,9 +245,14 @@ export function BoutiqueMeasurementsListPage() {
             filterFields={filterFields}
             filters={filters}
             defaultFilters={DEFAULT_FILTERS}
-            excludeKeys={['person_type']}
+            excludeKeys={['person_type', 'q']}
             onFiltersChange={(next) => {
-              setFilters(next as typeof filters);
+              setFilters({
+                ...DEFAULT_FILTERS,
+                ...next,
+                q: filters.q,
+                person_type: filters.person_type,
+              });
               setPage(1);
             }}
             sort={sort}
@@ -231,13 +268,47 @@ export function BoutiqueMeasurementsListPage() {
             }}
           />
         }
+        summary={
+          !isLoading && pageRows.length > 0 ? (
+            <div className="el-pulse">
+              <span>
+                <strong>{pageRows.length}</strong> on this page
+              </span>
+              <span className="el-muted">
+                {total} total{isFetching ? ' · Updating…' : ''}
+              </span>
+            </div>
+          ) : null
+        }
       />
 
       {isLoading ? <EntityListLoading>Loading measurements…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load measurements.</ErrorText> : null}
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>No measurements found.</strong>
+          <strong>{hasActiveFilters ? 'No matching measurements' : 'No measurements yet'}</strong>
+          <p>
+            {hasActiveFilters
+              ? 'Clear search or person-type filters to see more records.'
+              : 'Capture a wearer measurement to link garments on boutique orders.'}
+          </p>
+          <div className="bl-empty-cta">
+            {hasActiveFilters ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setFilters({ ...DEFAULT_FILTERS });
+                  setPage(1);
+                }}
+              >
+                Clear filters
+              </Button>
+            ) : null}
+            <Button type="button" onClick={openNew}>
+              New measurement
+            </Button>
+          </div>
         </EntityListEmpty>
       ) : null}
 
@@ -246,6 +317,9 @@ export function BoutiqueMeasurementsListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/boutique/measurements/${row.id}`)}
+          onNew={openNew}
           actions={(row) => (
             <EntityListActions onOpen={() => navigate(`/boutique/measurements/${row.id}`)} />
           )}
@@ -393,100 +467,112 @@ export function BoutiqueMeasurementDetailPage() {
   }
 
   return (
-    <div className="md">
-      <Link className="md-back" to="/boutique/measurements">
-        ← Measurements
-      </Link>
+    <EntityDetailPage>
+      <EntityDetailBack to="/boutique/measurements" label="Measurements" />
 
-      <header className="md-hero">
-        <div>
-          <p className="md-kicker">Boutique measurement</p>
-          <h1>{measurementNumber}</h1>
-          <p className="md-lead">
-            Reusable for this customer&apos;s future customization orders.
-          </p>
-        </div>
-        <div className="md-hero-actions">
-          {customerId ? (
+      <EntityDetailHero
+        kicker="Boutique · Measurement"
+        title={measurementNumber}
+        lead={
+          <>
+            {personType}
+            <span className="ed-lead-sep"> · {wearer}</span>
+            <span className="ed-lead-sep"> · Reusable for future orders</span>
+          </>
+        }
+        actions={
+          <>
+            <Button type="button" variant="ghost" onClick={() => void refetch()}>
+              Refresh
+            </Button>
+            {customerId ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => navigate(`/parties/customers/${customerId}`)}
+              >
+                Open customer
+              </Button>
+            ) : null}
+            <Button type="button" variant="ghost" onClick={() => void onPdf()}>
+              Download PDF
+            </Button>
             <Button
               type="button"
-              variant="ghost"
-              onClick={() => navigate(`/parties/customers/${customerId}`)}
+              disabled={saving || updateState.isLoading}
+              onClick={() => void onSave()}
             >
-              Open customer
+              {saving || updateState.isLoading ? 'Saving…' : 'Save'}
             </Button>
-          ) : null}
-          <Button type="button" variant="ghost" onClick={() => void onPdf()}>
-            Download PDF
-          </Button>
-        </div>
-      </header>
+          </>
+        }
+      />
 
-      <div className="md-snapshot">
-        <div className="md-stat">
-          <span>Customer</span>
-          <strong title={customerName}>
-            {customerName}
-            {customerPhone ? ` · ${customerPhone}` : ''}
-          </strong>
-        </div>
-        <div className="md-stat">
-          <span>Wearer</span>
-          <strong>{wearer}</strong>
-        </div>
-        <div className="md-stat">
-          <span>Person type</span>
-          <strong>{personType}</strong>
-        </div>
-        <div className="md-stat">
-          <span>Measured</span>
-          <strong>
-            {measuredAt}
-            {filled ? ` · ${filled} values` : ''}
-          </strong>
-        </div>
-      </div>
+      <EntityDetailSnapshot
+        items={[
+          {
+            label: 'Customer',
+            value: (
+              <span title={customerName}>
+                {customerName}
+                {customerPhone ? ` · ${customerPhone}` : ''}
+              </span>
+            ),
+          },
+          { label: 'Wearer', value: wearer },
+          { label: 'Person type', value: personType },
+          {
+            label: 'Measured',
+            value: (
+              <>
+                {measuredAt}
+                {filled ? ` · ${filled} values` : ''}
+              </>
+            ),
+          },
+        ]}
+      />
 
       {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-      {saveOk && !actionError ? (
-        <p className="md-lead" style={{ color: 'var(--md-accent)', marginBottom: 12 }}>
-          Measurement saved.
-        </p>
-      ) : null}
+      {saveOk && !actionError ? <p className="ed-panel-note is-ok">Measurement saved.</p> : null}
 
       <MeasurementForm key={id} initial={initial} layout="detail" onChange={setForm} />
 
-      <div className="md-actions">
-        <div className="md-actions-hint">
-          Save before using this sheet on a new garment.
-        </div>
-        <div className="md-actions-right">
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={deleteState.isLoading}
-            onClick={async () => {
-              if (!window.confirm('Delete this measurement?')) return;
-              setActionError('');
-              try {
-                await deleteMeas(id).unwrap();
-                navigate('/boutique/measurements');
-              } catch (e) {
-                setActionError(extractError(e));
-              }
-            }}
-          >
-            Delete
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/boutique/measurements')}>
+            Back to list
           </Button>
-          <Button
-            type="button"
-            disabled={saving || updateState.isLoading}
-            onClick={() => void onSave()}
-          >
-            {saving || updateState.isLoading ? 'Saving…' : 'Save measurement'}
-          </Button>
-        </div>
-      </div>
-    </div>
+        }
+        end={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={deleteState.isLoading}
+              onClick={async () => {
+                if (!window.confirm('Delete this measurement?')) return;
+                setActionError('');
+                try {
+                  await deleteMeas(id).unwrap();
+                  navigate('/boutique/measurements');
+                } catch (e) {
+                  setActionError(extractError(e));
+                }
+              }}
+            >
+              Delete
+            </Button>
+            <Button
+              type="button"
+              disabled={saving || updateState.isLoading}
+              onClick={() => void onSave()}
+            >
+              {saving || updateState.isLoading ? 'Saving…' : 'Save'}
+            </Button>
+          </>
+        }
+      />
+    </EntityDetailPage>
   );
 }

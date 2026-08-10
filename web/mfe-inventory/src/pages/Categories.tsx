@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   useCreateInventoryCategoryMutation,
   useListInventoryCategoriesQuery,
@@ -117,6 +118,7 @@ function CategoryFormFields({
 
 /** Streamlit parity: category catalog with hierarchy, filters and add/edit modal. */
 export function CategoriesListPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data = [], isLoading, error, refetch } = useListInventoryCategoriesQuery({ active_only: false });
   const [createCategory, createState] = useCreateInventoryCategoryMutation();
   const [updateCategory, updateState] = useUpdateInventoryCategoryMutation();
@@ -180,6 +182,14 @@ export function CategoriesListPage() {
     setEditId(null);
     setDialog('add');
   }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openAdd();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   function openEdit(row: CategoryRow) {
     setFormError('');
@@ -310,6 +320,9 @@ export function CategoriesListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={(row) => openEdit(row)}
+          onNew={openAdd}
           actions={(row) => <EntityListActions onEdit={() => openEdit(row)} />}
         />
       ) : null}

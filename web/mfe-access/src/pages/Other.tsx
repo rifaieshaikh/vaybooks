@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   useCreateAccessPlanMutation,
   useGetAccessPermissionsQuery,
@@ -129,6 +130,7 @@ const PLAN_FILTER_FIELDS: FilterFieldDef[] = [
 ];
 
 export function AccessPlansPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data = [], isLoading, error, refetch } = useListAccessPlansQuery();
   const [createPlan, createState] = useCreateAccessPlanMutation();
 
@@ -138,6 +140,20 @@ export function AccessPlansPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState('');
   const [formError, setFormError] = useState('');
+
+  function openCreate() {
+    setName('');
+    setFormError('');
+    setDialogOpen(true);
+  }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openCreate();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const filtered = useMemo(() => {
     let rows = data.filter((row) => {
@@ -203,14 +219,7 @@ export function AccessPlansPage() {
         title="Plans"
         count={`${filtered.length} ${filtered.length === 1 ? 'plan' : 'plans'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setName('');
-              setFormError('');
-              setDialogOpen(true);
-            }}
-          >
+          <Button type="button" onClick={openCreate}>
             Create plan
           </Button>
         }
@@ -262,7 +271,13 @@ export function AccessPlansPage() {
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          keyboardNav
+          onNew={openCreate}
+        />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (

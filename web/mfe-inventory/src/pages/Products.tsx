@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useCreateInventoryProductMutation,
   useGetInventoryProductQuery,
@@ -10,6 +10,14 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
+  EntityDetailBack,
+  EntityDetailForm,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailPanel,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
+  EntityDetailTabs,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -24,6 +32,7 @@ import {
   Modal,
   PAGE_SIZE,
   PaginationBar,
+  StatusPill,
   TextInput,
   displayName,
   matchesRegex,
@@ -33,7 +42,18 @@ import {
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
+  type StatusPillTone,
 } from '@vaybooks/ui-kit';
+
+type ProductDetailTab = 'details' | 'pricing' | 'stock';
+
+function stockStatusTone(status: unknown): StatusPillTone {
+  const s = String(status || '');
+  if (s === 'In') return 'success';
+  if (s === 'Low') return 'warn';
+  if (s === 'Out') return 'danger';
+  return 'neutral';
+}
 
 type ProductFormValues = {
   sku: string;
@@ -219,6 +239,7 @@ function ProductFormFields({
 /** Streamlit parity: product catalog list with stock-status badges, filters, add/edit modal. */
 export function ProductsListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data = [], isLoading, error, refetch } = useListInventoryProductsQuery({ active_only: false });
   const { data: categories = [] } = useListInventoryCategoriesQuery({ active_only: true });
   const { data: locations = [] } = useListInventoryLocationsQuery({ active_only: true });
@@ -302,6 +323,14 @@ export function ProductsListPage() {
     setEditId(null);
     setDialog('add');
   }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openAdd();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   function openEdit(row: ProductRow) {
     setFormError('');
@@ -451,6 +480,10 @@ export function ProductsListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/inventory/products/${String(row.id)}`)}
+          onEditRow={(row) => openEdit(row)}
+          onNew={openAdd}
           actions={(row) => (
             <EntityListActions
               onOpen={() => navigate(`/inventory/products/${String(row.id)}`)}
@@ -502,11 +535,12 @@ export function ProductsListPage() {
 /** Streamlit parity: product detail — full field dump plus edit modal. */
 export function ProductDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useGetInventoryProductQuery(id, { skip: !id });
   const { data: categories = [] } = useListInventoryCategoriesQuery({ active_only: false });
   const { data: locations = [] } = useListInventoryLocationsQuery({ active_only: false });
-  const [updateProduct] = useUpdateInventoryProductMutation();
-  const [editOpen, setEditOpen] = useState(false);
+  const [updateProduct, updateState] = useUpdateInventoryProductMutation();
+  const [tab, setTab] = useState<ProductDetailTab>('details');
   const [values, setValues] = useState<ProductFormValues>(emptyProductForm());
   const [formError, setFormError] = useState('');
 
@@ -519,78 +553,213 @@ export function ProductDetailPage() {
     [locations],
   );
 
-  if (isLoading) return <p>Loading…</p>;
-  if (error || !data) return <p style={{ color: '#b00020' }}>Product not found.</p>;
+  useEffect(() => {
+    if (!data) return;
+    setValues(productToForm(data));
+    setFormError('');
+  }, [data]);
 
   function setField(name: keyof ProductFormValues, value: string | boolean | string[]) {
     setValues((p) => ({ ...p, [name]: value }));
   }
 
-  return (
-    <div>
-      <p>
-        <Link to="/inventory/products">← Products</Link>
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>{String(data.name)}</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button type="button" variant="ghost" onClick={() => refetch()}>
-            Refresh
-          </Button>
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setValues(productToForm(data));
-              setEditOpen(true);
-            }}
-          >
-            Edit
-          </Button>
-        </div>
-      </div>
-      <p style={{ color: '#567' }}>
-        SKU: {String(data.sku)} · Qty on hand: {Number(data.current_qty ?? 0)} · Status: {String(data.stock_status || '—')}
-        {data.is_active === false ? ' · Inactive' : ''}
-      </p>
-      <pre style={{ background: '#f5f5f5', padding: 12, overflow: 'auto', fontSize: 12, marginTop: 12 }}>
-        {JSON.stringify(data, null, 2)}
-      </pre>
+  async function onSave() {
+    setFormError('');
+    try {
+      await updateProduct({ id, body: productBody(values) }).unwrap();
+      refetch();
+    } catch (e: unknown) {
+      setFormError(extractError(e));
+    }
+  }
 
-      <Modal
-        title="Edit Product"
-        open={editOpen}
-        onClose={() => setEditOpen(false)}
-        footer={
+  if (isLoading) {
+    return (
+      <EntityDetailPage>
+        <EntityListLoading>Loading product…</EntityListLoading>
+      </EntityDetailPage>
+    );
+  }
+  if (error || !data) {
+    return (
+      <EntityDetailPage>
+        <EntityDetailBack to="/inventory/products" label="Products" />
+        <ErrorText>Product not found.</ErrorText>
+      </EntityDetailPage>
+    );
+  }
+
+  const stockLabel = stockStatusLabel(data.stock_status);
+  const heroActions = (
+    <>
+      <Button type="button" variant="ghost" onClick={() => void refetch()}>
+        Refresh
+      </Button>
+      <Button type="button" onClick={() => void onSave()} disabled={updateState.isLoading}>
+        {updateState.isLoading ? 'Saving…' : 'Save'}
+      </Button>
+    </>
+  );
+
+  return (
+    <EntityDetailPage>
+      <EntityDetailBack to="/inventory/products" label="Products" />
+
+      <EntityDetailHero
+        kicker="Inventory · Product"
+        title={displayName(data as Record<string, unknown>, ['name'], String(data.name || id))}
+        lead={
           <>
-            <Button
-              type="button"
-              onClick={async () => {
-                try {
-                  await updateProduct({ id, body: productBody(values) }).unwrap();
-                  setEditOpen(false);
-                  refetch();
-                } catch (e: unknown) {
-                  setFormError(extractError(e));
-                }
-              }}
-            >
-              Save Changes
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setEditOpen(false)}>
-              Cancel
-            </Button>
+            <StatusPill status={stockLabel} tone={stockStatusTone(data.stock_status)} />
+            <span className="ed-lead-sep"> · {String(data.sku || '—')}</span>
+            {data.is_active === false ? <span className="ed-lead-sep"> · Inactive</span> : null}
           </>
         }
-      >
-        {formError ? <ErrorText>{formError}</ErrorText> : null}
-        <ProductFormFields
-          values={values}
-          onChange={setField}
-          categoryOptions={categoryOptions}
-          locationOptions={locationOptions}
-        />
-      </Modal>
-    </div>
+        actions={heroActions}
+      />
+
+      <EntityDetailSnapshot
+        ariaLabel="Product facts"
+        items={[
+          { label: 'SKU', value: String(data.sku || '—') },
+          { label: 'Qty on hand', value: Number(data.current_qty ?? 0) },
+          { label: 'Stock', value: stockLabel },
+          { label: 'Unit', value: String(data.unit || data.unit_code || '—') },
+          { label: 'Active', value: data.is_active === false ? 'No' : 'Yes' },
+        ]}
+      />
+
+      {formError ? <ErrorText>{formError}</ErrorText> : null}
+
+      <EntityDetailTabs
+        value={tab}
+        ariaLabel="Product sections"
+        onChange={(next) => setTab(next as ProductDetailTab)}
+        options={[
+          { id: 'details', label: 'Details' },
+          { id: 'pricing', label: 'Pricing' },
+          { id: 'stock', label: 'Stock' },
+        ]}
+      />
+
+      {tab === 'details' ? (
+        <EntityDetailPanel title="Details" note="Identity, categories, and catalog status.">
+          <EntityDetailForm>
+            <div className="ed-grid ed-grid-2">
+              <FormRow label="SKU *">
+                <TextInput value={values.sku} onChange={(e) => setField('sku', e.target.value)} required />
+              </FormRow>
+              <FormRow label="Name *">
+                <TextInput value={values.name} onChange={(e) => setField('name', e.target.value)} required />
+              </FormRow>
+              <FormRow label="Unit code">
+                <TextInput value={values.unit_code} onChange={(e) => setField('unit_code', e.target.value)} />
+              </FormRow>
+              <FormRow label="HSN / SAC">
+                <TextInput value={values.hsn_sac} onChange={(e) => setField('hsn_sac', e.target.value)} />
+              </FormRow>
+              <FormRow label="Status">
+                <select
+                  value={values.is_active ? 'yes' : 'no'}
+                  onChange={(e) => setField('is_active', e.target.value === 'yes')}
+                >
+                  <option value="yes">Active</option>
+                  <option value="no">Inactive</option>
+                </select>
+              </FormRow>
+            </div>
+            <FormRow label="Categories">
+              {categoryOptions.length === 0 ? (
+                <p className="ed-panel-note">No categories yet.</p>
+              ) : (
+                <select
+                  multiple
+                  value={values.category_ids}
+                  onChange={(e) =>
+                    setField(
+                      'category_ids',
+                      Array.from(e.target.selectedOptions).map((o) => o.value),
+                    )
+                  }
+                >
+                  {categoryOptions.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </FormRow>
+          </EntityDetailForm>
+        </EntityDetailPanel>
+      ) : null}
+
+      {tab === 'pricing' ? (
+        <EntityDetailPanel title="Pricing" note="Selling rate, MRP, and GST.">
+          <EntityDetailForm>
+            <div className="ed-grid ed-grid-3">
+              <FormRow label="Selling rate">
+                <TextInput
+                  type="number"
+                  value={values.selling_rate}
+                  onChange={(e) => setField('selling_rate', e.target.value)}
+                />
+              </FormRow>
+              <FormRow label="MRP">
+                <TextInput type="number" value={values.mrp} onChange={(e) => setField('mrp', e.target.value)} />
+              </FormRow>
+              <FormRow label="GST rate %">
+                <TextInput
+                  type="number"
+                  value={values.gst_rate}
+                  onChange={(e) => setField('gst_rate', e.target.value)}
+                />
+              </FormRow>
+            </div>
+          </EntityDetailForm>
+        </EntityDetailPanel>
+      ) : null}
+
+      {tab === 'stock' ? (
+        <EntityDetailPanel title="Stock" note="On-hand quantity and opening stock fields.">
+          <EntityDetailForm>
+            <div className="ed-grid ed-grid-2">
+              <FormRow label="Qty on hand">
+                <TextInput value={String(Number(data.current_qty ?? 0))} disabled />
+              </FormRow>
+              <FormRow label="Stock status">
+                <TextInput value={stockLabel} disabled />
+              </FormRow>
+              <FormRow label="Opening qty (new products only)">
+                <TextInput
+                  type="number"
+                  value={values.opening_qty}
+                  onChange={(e) => setField('opening_qty', e.target.value)}
+                />
+              </FormRow>
+              <FormRow label="Opening location">
+                <select value={values.location_id} onChange={(e) => setField('location_id', e.target.value)}>
+                  <option value="">— Default location —</option>
+                  {locationOptions.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              </FormRow>
+            </div>
+          </EntityDetailForm>
+        </EntityDetailPanel>
+      ) : null}
+
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/inventory/products')}>
+            Back to list
+          </Button>
+        }
+        end={heroActions}
+      />
+    </EntityDetailPage>
   );
 }

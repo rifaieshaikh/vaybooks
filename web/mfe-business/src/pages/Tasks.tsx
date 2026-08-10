@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   useAssignBusinessTaskMutation,
   useCompleteBusinessTaskMutation,
@@ -53,6 +54,7 @@ const FILTER_FIELDS: FilterFieldDef[] = [
 ];
 
 export function BusinessTasksPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: raw, isLoading, error, refetch } = useListBusinessTasksQuery({
     page: 1,
     page_size: 200,
@@ -130,6 +132,14 @@ export function BusinessTasksPage() {
     setStatusValue('Created');
     setOpen(true);
   }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openCreate();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   function openEdit(row: TaskRow) {
     setFormError('');
@@ -263,6 +273,9 @@ export function BusinessTasksPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={(row) => openEdit(row)}
+          onNew={openCreate}
           actions={(row) => (
             <EntityListActions
               onEdit={() => openEdit(row)}

@@ -201,6 +201,16 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return target.isContentEditable;
 }
 
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest('a, button, input, select, textarea, label, [role="button"]'),
+  );
+}
+
+/** Last list table the user interacted with (for multi-table pages). */
+let lastActiveListTable: HTMLElement | null = null;
+
 export function EntityListTable<T>({
   columns,
   rows,
@@ -229,10 +239,36 @@ export function EntityListTable<T>({
 
   useEffect(() => {
     if (!keyboardNav) return;
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    function markActive() {
+      lastActiveListTable = wrap;
+    }
+    wrap.addEventListener('pointerdown', markActive);
+    wrap.addEventListener('focusin', markActive);
+    return () => {
+      wrap.removeEventListener('pointerdown', markActive);
+      wrap.removeEventListener('focusin', markActive);
+    };
+  }, [keyboardNav]);
+
+  useEffect(() => {
+    if (!keyboardNav) return;
 
     function onKeyDown(e: KeyboardEvent) {
-      const page = wrapRef.current?.closest('.el-page');
-      if (!page) return;
+      const wrap = wrapRef.current;
+      const page = wrap?.closest('.el-page');
+      if (!wrap || !page) return;
+
+      // When several keyboardNav tables share a page, only the last-interacted one wins
+      const siblings = page.querySelectorAll('.el-table-wrap');
+      if (siblings.length > 1) {
+        if (lastActiveListTable && lastActiveListTable !== wrap) return;
+        if (!lastActiveListTable) {
+          const first = page.querySelector('.el-table-wrap');
+          if (first && first !== wrap) return;
+        }
+      }
 
       const chord = eventChord(e);
       if (!chord) return;
@@ -247,12 +283,50 @@ export function EntityListTable<T>({
         return;
       }
 
+      if (!typing && chordMatches(chord, bindings.prevPage)) {
+        const btn = page.querySelector<HTMLButtonElement>('[data-el-page-prev]');
+        if (btn && !btn.disabled) {
+          e.preventDefault();
+          btn.click();
+        }
+        return;
+      }
+      if (!typing && chordMatches(chord, bindings.nextPage)) {
+        const btn = page.querySelector<HTMLButtonElement>('[data-el-page-next]');
+        if (btn && !btn.disabled) {
+          e.preventDefault();
+          btn.click();
+        }
+        return;
+      }
+
+      if (!typing) {
+        for (let i = 0; i < 9; i += 1) {
+          const viewChord = bindings.viewNth?.[i];
+          if (viewChord && chordMatches(chord, viewChord) && onActivateRow && rows[i]) {
+            e.preventDefault();
+            lastActiveListTable = wrap;
+            setActiveIdx(i);
+            onActivateRow(rows[i]);
+            return;
+          }
+          const editChord = bindings.editNth?.[i];
+          if (editChord && chordMatches(chord, editChord) && onEditRow && rows[i]) {
+            e.preventDefault();
+            lastActiveListTable = wrap;
+            setActiveIdx(i);
+            onEditRow(rows[i]);
+            return;
+          }
+        }
+      }
+
       if (typing) return;
-      // Let modifier chords (Ctrl/Alt) stay with the shell shortcut handler
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
       if (chordMatches(chord, bindings.new) && onNew) {
         e.preventDefault();
+        lastActiveListTable = wrap;
         onNew();
         return;
       }
@@ -261,11 +335,13 @@ export function EntityListTable<T>({
 
       if (chordMatches(chord, bindings.next)) {
         e.preventDefault();
+        lastActiveListTable = wrap;
         setActiveIdx((i) => Math.min(i + 1, rows.length - 1));
         return;
       }
       if (chordMatches(chord, bindings.prev)) {
         e.preventDefault();
+        lastActiveListTable = wrap;
         setActiveIdx((i) => Math.max(i - 1, 0));
         return;
       }
@@ -303,6 +379,8 @@ export function EntityListTable<T>({
       `${formatChordHint(bindings.open)} open`,
       `${formatChordHint(bindings.edit)} edit`,
       `${formatChordHint(bindings.new)} new`,
+      'Alt+1–9 view',
+      'Alt+Shift+1–9 edit',
     ];
     return parts.join(' · ');
   }, [bindings]);
@@ -328,20 +406,32 @@ export function EntityListTable<T>({
           {rows.map((row, index) => (
             <tr
               key={rowKey(row)}
-              className={keyboardNav && index === activeIdx ? 'el-row-active' : undefined}
-              onClick={keyboardNav ? () => setActiveIdx(index) : undefined}
-              onDoubleClick={
-                keyboardNav && onActivateRow
-                  ? () => onActivateRow(row)
-                  : undefined
-              }
+              className={[
+                keyboardNav && index === activeIdx ? 'el-row-active' : '',
+                onActivateRow ? 'el-row-clickable' : '',
+              ]
+                .filter(Boolean)
+                .join(' ') || undefined}
+              onClick={(e) => {
+                if (isInteractiveTarget(e.target)) return;
+                if (keyboardNav) setActiveIdx(index);
+                if (onActivateRow) onActivateRow(row);
+              }}
             >
               {columns.map((col) => (
                 <td key={col.id} className={col.className}>
                   {col.render(row)}
                 </td>
               ))}
-              {actions ? <td className="el-actions-cell">{actions(row)}</td> : null}
+              {actions ? (
+                <td
+                  className="el-actions-cell"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  {actions(row)}
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>
@@ -393,7 +483,51 @@ type EntityListFilterSortProps = {
   /** Keys driven by quick chips — omitted from More filters dialog + badge count. */
   excludeKeys?: string[];
   filtersLabel?: string;
+  /** Optional override for list.filters.mtd / list.filters.last_30d. */
+  onDatePreset?: (preset: 'mtd' | 'last_30d') => void;
 };
+
+function isoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function mtdRange(now = new Date()): { date_from: string; date_to: string } {
+  const from = new Date(now.getFullYear(), now.getMonth(), 1);
+  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return { date_from: isoDate(from), date_to: isoDate(to) };
+}
+
+function last30dRange(now = new Date()): { date_from: string; date_to: string } {
+  const to = now;
+  const from = new Date(now);
+  from.setDate(from.getDate() - 29);
+  return { date_from: isoDate(from), date_to: isoDate(to) };
+}
+
+function applyDatePresetToFilters(
+  filters: FilterValues,
+  filterFields: FilterFieldDef[],
+  preset: 'mtd' | 'last_30d',
+): FilterValues {
+  const keys = new Set([...Object.keys(filters), ...filterFields.map((f) => f.key)]);
+  const next = { ...filters };
+  if (keys.has('month')) {
+    next.month = preset === 'mtd' ? 'current' : '';
+  }
+  const range = preset === 'mtd' ? mtdRange() : last30dRange();
+  if (keys.has('date_from') || keys.has('date_to')) {
+    next.date_from = range.date_from;
+    next.date_to = range.date_to;
+  }
+  if (keys.has('from_date') || keys.has('to_date')) {
+    next.from_date = range.date_from;
+    next.to_date = range.date_to;
+  }
+  return next;
+}
 
 /** Filter/sort tool links + dialogs for EntityListHero `tools` slot (right-aligned). */
 export function EntityListFilterSort({
@@ -407,10 +541,13 @@ export function EntityListFilterSort({
   onSortChange,
   excludeKeys = [],
   filtersLabel = 'More filters',
+  onDatePreset,
 }: EntityListFilterSortProps) {
   const [panel, setPanel] = useState<'filters' | 'sort' | null>(null);
   const [filterDraft, setFilterDraft] = useState<FilterValues>(filters);
   const [sortDraft, setSortDraft] = useState<SortCriterion[]>(sort);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const bindings = useListKeyboardBindings();
 
   const dialogFields = useMemo(
     () => (excludeKeys.length ? filterFields.filter((f) => !excludeKeys.includes(f.key)) : filterFields),
@@ -425,13 +562,86 @@ export function EntityListFilterSort({
     if (panel === 'sort') setSortDraft(sort.length ? sort : defaultSort);
   }, [panel, sort, defaultSort]);
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const page = wrapRef.current?.closest('.el-page');
+      if (!page) return;
+      if (isTypingTarget(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) return;
+
+      const chord = eventChord(e);
+      if (!chord) return;
+
+      if (chordMatches(chord, bindings.filtersOpen) && dialogFields.length > 0) {
+        e.preventDefault();
+        setPanel('filters');
+        return;
+      }
+      if (chordMatches(chord, bindings.sortOpen)) {
+        e.preventDefault();
+        setPanel('sort');
+        return;
+      }
+      if (chordMatches(chord, bindings.filtersClear) && dialogFields.length > 0) {
+        e.preventDefault();
+        const cleared = { ...filters };
+        for (const f of dialogFields) cleared[f.key] = defaultFilters[f.key] ?? '';
+        onFiltersChange(cleared);
+        setPanel(null);
+        return;
+      }
+      if (chordMatches(chord, bindings.sortClear)) {
+        e.preventDefault();
+        onSortChange([...defaultSort]);
+        setPanel(null);
+        return;
+      }
+      if (panel === 'filters' && chordMatches(chord, bindings.filtersApply)) {
+        e.preventDefault();
+        onFiltersChange({
+          ...filters,
+          ...Object.fromEntries(dialogFields.map((f) => [f.key, filterDraft[f.key] || ''])),
+        });
+        setPanel(null);
+        return;
+      }
+
+      if (chordMatches(chord, bindings.filtersMtd)) {
+        e.preventDefault();
+        if (onDatePreset) onDatePreset('mtd');
+        else onFiltersChange(applyDatePresetToFilters(filters, filterFields, 'mtd'));
+        setPanel(null);
+        return;
+      }
+      if (chordMatches(chord, bindings.filtersLast30d)) {
+        e.preventDefault();
+        if (onDatePreset) onDatePreset('last_30d');
+        else onFiltersChange(applyDatePresetToFilters(filters, filterFields, 'last_30d'));
+        setPanel(null);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    bindings,
+    defaultFilters,
+    defaultSort,
+    dialogFields,
+    filterDraft,
+    filterFields,
+    filters,
+    onDatePreset,
+    onFiltersChange,
+    onSortChange,
+    panel,
+  ]);
+
   const activeCount = useMemo(
     () => dialogFields.reduce((n, f) => n + (Boolean(filters[f.key]?.trim()) ? 1 : 0), 0),
     [dialogFields, filters],
   );
 
   return (
-    <>
+    <div ref={wrapRef}>
       <div className="el-tool-links">
         {dialogFields.length > 0 ? (
           <button type="button" className="el-tool-link" onClick={() => setPanel('filters')}>
@@ -478,7 +688,7 @@ export function EntityListFilterSort({
           setPanel(null);
         }}
       />
-    </>
+    </div>
   );
 }
 

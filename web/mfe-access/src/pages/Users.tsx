@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useCreateAccessUserMutation,
   useGetAccessUserQuery,
@@ -11,6 +11,14 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
+  EntityDetailBack,
+  EntityDetailForm,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailPanel,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
+  EntityDetailTabs,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -36,6 +44,8 @@ import {
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
+
+type UserDetailTab = 'profile' | 'access' | 'security';
 
 function LocationChecklist({
   locations,
@@ -92,6 +102,7 @@ const USER_FILTER_FIELDS: FilterFieldDef[] = [
 
 export function AccessUsersListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data = [], isLoading, error } = useListAccessUsersQuery();
   const rolesQ = useListAccessRolesQuery();
   const { data: locations = [] } = useListInventoryLocationsQuery();
@@ -107,6 +118,24 @@ export function AccessUsersListPage() {
   const [roleId, setRoleId] = useState('');
   const [locationIds, setLocationIds] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
+
+  function openCreate() {
+    setUsername('');
+    setUserDisplayName('');
+    setPassword('');
+    setRoleId('');
+    setLocationIds([]);
+    setFormError('');
+    setDialogOpen(true);
+  }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openCreate();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const filtered = useMemo(() => {
     let rows = data.filter((row) => {
@@ -181,18 +210,7 @@ export function AccessUsersListPage() {
         title="Users"
         count={`${filtered.length} ${filtered.length === 1 ? 'user' : 'users'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setUsername('');
-              setUserDisplayName('');
-              setPassword('');
-              setRoleId('');
-              setLocationIds([]);
-              setFormError('');
-              setDialogOpen(true);
-            }}
-          >
+          <Button type="button" onClick={openCreate}>
             Create user
           </Button>
         }
@@ -248,6 +266,9 @@ export function AccessUsersListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/access/users/${row.id}`)}
+          onNew={openCreate}
           actions={(row) => (
             <EntityListActions onOpen={() => navigate(`/access/users/${row.id}`)} />
           )}
@@ -313,6 +334,7 @@ export function AccessUsersListPage() {
 
 export function AccessUserDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useGetAccessUserQuery(id, { skip: !id });
   const [updateUser, updateState] = useUpdateAccessUserMutation();
   const [setPassword, passwordState] = useSetAccessUserPasswordMutation();
@@ -325,6 +347,7 @@ export function AccessUserDetailPage() {
   const [active, setActive] = useState(true);
   const [password, setPasswordValue] = useState('');
   const [msg, setMsg] = useState('');
+  const [tab, setTab] = useState<UserDetailTab>('profile');
 
   useEffect(() => {
     if (!data || hydrated) return;
@@ -334,6 +357,9 @@ export function AccessUserDetailPage() {
     setActive(Boolean(data.active));
     setHydrated(true);
   }, [data, hydrated]);
+
+  const saving = updateState.isLoading || passwordState.isLoading;
+  const saveDisabled = saving || (password.length > 0 && password.length < 4);
 
   async function onSave() {
     setMsg('');
@@ -356,51 +382,156 @@ export function AccessUserDetailPage() {
     }
   }
 
-  if (isLoading) return <p>Loading…</p>;
-  if (error || !data) return <ErrorText>User not found.</ErrorText>;
+  if (isLoading) {
+    return (
+      <EntityDetailPage>
+        <EntityListLoading>Loading user…</EntityListLoading>
+      </EntityDetailPage>
+    );
+  }
+  if (error || !data) {
+    return (
+      <EntityDetailPage>
+        <EntityDetailBack to="/access/users" label="Users" />
+        <ErrorText>User not found.</ErrorText>
+      </EntityDetailPage>
+    );
+  }
+
+  const roleNames = (rolesQ.data || [])
+    .filter((role) => roleIds.includes(String(role.id)))
+    .map((role) => asCaption(role.name))
+    .filter(Boolean);
+  const heroActions = (
+    <Button type="button" onClick={() => void onSave()} disabled={saveDisabled}>
+      {saving ? 'Saving…' : 'Save'}
+    </Button>
+  );
 
   return (
-    <div>
-      <p>
-        <Link to="/access/users">← Users</Link>
-      </p>
-      <h2 style={{ color: 'var(--vb-color-primary, #185c4c)' }}>{asCaption(data.username)}</h2>
-      <div style={{ display: 'grid', gap: 12, maxWidth: 560 }}>
-        <FormRow label="Display name">
-          <input value={userDisplayName} onChange={(e) => setUserDisplayName(e.target.value)} />
-        </FormRow>
-        <FormRow label="Roles">
-          <select
-            multiple
-            value={roleIds}
-            onChange={(e) => setRoleIds(Array.from(e.target.selectedOptions, (option) => option.value))}
-            style={{ minHeight: 100 }}
-          >
-            {(rolesQ.data || []).map((role) => (
-              <option key={String(role.id)} value={String(role.id)}>
-                {asCaption(role.name)}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Locations">
-          <LocationChecklist locations={locations} selected={locationIds} onChange={setLocationIds} />
-        </FormRow>
-        <label>
-          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Active
-        </label>
-        <FormRow label="New password (leave blank to keep)">
-          <input type="password" value={password} onChange={(e) => setPasswordValue(e.target.value)} />
-        </FormRow>
-        <Button
-          type="button"
-          onClick={onSave}
-          disabled={updateState.isLoading || passwordState.isLoading || (password.length > 0 && password.length < 4)}
+    <EntityDetailPage>
+      <EntityDetailBack to="/access/users" label="Users" />
+
+      <EntityDetailHero
+        kicker="Access · User"
+        title={asCaption(data.username) || 'User'}
+        lead={
+          <>
+            <span>{asCaption(data.display_name) || 'No display name'}</span>
+            <span className="ed-lead-sep"> · {active ? 'Active' : 'Inactive'}</span>
+          </>
+        }
+        actions={heroActions}
+      />
+
+      <EntityDetailSnapshot
+        ariaLabel="User facts"
+        items={[
+          { label: 'Username', value: asCaption(data.username) || '—' },
+          { label: 'Display name', value: userDisplayName || asCaption(data.display_name) || '—' },
+          { label: 'Status', value: active ? 'Active' : 'Inactive' },
+          {
+            label: 'Roles',
+            value: roleNames.length ? roleNames.join(', ') : `${roleIds.length || 0} assigned`,
+          },
+          { label: 'Locations', value: String(locationIds.length) },
+        ]}
+      />
+
+      {msg === 'Saved' ? <p className="ed-panel-note is-ok">Saved.</p> : null}
+      {msg && msg !== 'Saved' ? <ErrorText>{msg}</ErrorText> : null}
+
+      <EntityDetailTabs
+        value={tab}
+        ariaLabel="User sections"
+        onChange={(next) => setTab(next as UserDetailTab)}
+        options={[
+          { id: 'profile', label: 'Profile' },
+          { id: 'access', label: 'Access' },
+          { id: 'security', label: 'Security' },
+        ]}
+      />
+
+      {tab === 'profile' ? (
+        <EntityDetailPanel key="profile" title="Profile" note="Identity and account status.">
+          <EntityDetailForm>
+            <div className="ed-grid">
+              <FormRow label="Username">
+                <input value={asCaption(data.username)} readOnly disabled />
+              </FormRow>
+              <FormRow label="Display name">
+                <input value={userDisplayName} onChange={(e) => setUserDisplayName(e.target.value)} />
+              </FormRow>
+              <FormRow label="Status">
+                <select
+                  value={active ? 'yes' : 'no'}
+                  onChange={(e) => setActive(e.target.value === 'yes')}
+                >
+                  <option value="yes">Active</option>
+                  <option value="no">Inactive</option>
+                </select>
+              </FormRow>
+            </div>
+          </EntityDetailForm>
+        </EntityDetailPanel>
+      ) : null}
+
+      {tab === 'access' ? (
+        <EntityDetailPanel key="access" title="Access" note="Roles and inventory locations this user can use.">
+          <EntityDetailForm>
+            <FormRow label="Roles">
+              <select
+                multiple
+                value={roleIds}
+                onChange={(e) =>
+                  setRoleIds(Array.from(e.target.selectedOptions, (option) => option.value))
+                }
+                style={{ minHeight: 100 }}
+              >
+                {(rolesQ.data || []).map((role) => (
+                  <option key={String(role.id)} value={String(role.id)}>
+                    {asCaption(role.name)}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+            <FormRow label="Locations">
+              <LocationChecklist
+                locations={locations}
+                selected={locationIds}
+                onChange={setLocationIds}
+              />
+            </FormRow>
+          </EntityDetailForm>
+        </EntityDetailPanel>
+      ) : null}
+
+      {tab === 'security' ? (
+        <EntityDetailPanel
+          key="security"
+          title="Security"
+          note="Leave blank to keep the current password. New passwords must be at least 4 characters."
         >
-          Save
-        </Button>
-        {msg ? <p>{msg}</p> : null}
-      </div>
-    </div>
+          <EntityDetailForm>
+            <FormRow label="New password">
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPasswordValue(e.target.value)}
+              />
+            </FormRow>
+          </EntityDetailForm>
+        </EntityDetailPanel>
+      ) : null}
+
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/access/users')}>
+            Back to list
+          </Button>
+        }
+        end={heroActions}
+      />
+    </EntityDetailPage>
   );
 }

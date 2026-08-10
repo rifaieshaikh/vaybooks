@@ -82,6 +82,11 @@ def updates_check() -> dict[str, Any]:
     return _c().updates.check()
 
 
+@router.post("/updates/install")
+def updates_install() -> dict[str, Any]:
+    return _c().updates.install()
+
+
 @router.get("/logs")
 def list_logs(*, limit: int = 100) -> list[dict[str, Any]]:
     return _c().logs.list(limit=max(1, min(limit, 500)))

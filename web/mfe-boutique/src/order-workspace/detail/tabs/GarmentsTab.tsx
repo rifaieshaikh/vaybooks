@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useListBoutiqueOrderExpensesQuery } from '@vaybooks/store';
+import { EntityDetailTabs } from '@vaybooks/ui-kit';
 import { GarmentOpsBoard } from '../../components/GarmentOpsBoard';
 import type { OrderLike } from '../../types';
 
@@ -9,6 +10,12 @@ type Props = {
   readOnly?: boolean;
   onDone?: () => void;
 };
+
+const GARMENT_FILTERS = [
+  { id: 'pending', label: 'Pending' },
+  { id: 'done', label: 'Done' },
+  { id: 'all', label: 'All' },
+] as const;
 
 export function GarmentsTab({ orderId, order, readOnly, onDone }: Props) {
   const { data: expenses = [], refetch } = useListBoutiqueOrderExpensesQuery(orderId);
@@ -21,27 +28,13 @@ export function GarmentsTab({ orderId, order, readOnly, onDone }: Props) {
           <h2>Garments</h2>
           <p className="ow-lead">Expand a garment to complete its activities.</p>
         </div>
-        <div className="od-filters" role="tablist" aria-label="Activity filter">
-          {(
-            [
-              ['pending', 'Pending'],
-              ['done', 'Done'],
-              ['all', 'All'],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={filter === id}
-              className={`ow-chip${filter === id ? ' is-live' : ''}`}
-              onClick={() => setFilter(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
       </div>
+      <EntityDetailTabs
+        value={filter}
+        ariaLabel="Activity filter"
+        onChange={(id) => setFilter(id as 'all' | 'pending' | 'done')}
+        options={[...GARMENT_FILTERS]}
+      />
       <GarmentOpsBoard
         orderId={orderId}
         order={order}

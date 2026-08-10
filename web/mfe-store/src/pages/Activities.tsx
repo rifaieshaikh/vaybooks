@@ -125,6 +125,16 @@ export function StoreActivitiesPage() {
     [],
   );
 
+  function openCreate() {
+    setFormError('');
+    setEditingId(null);
+    setName('');
+    setCategory(CATEGORIES[0]);
+    setRate('100');
+    setIsActive(true);
+    setOpen(true);
+  }
+
   function openEdit(row: ActivityRow) {
     setFormError('');
     setEditingId(String(row.id));
@@ -201,18 +211,7 @@ export function StoreActivitiesPage() {
         title="Store Activities"
         count={`${filtered.length} ${filtered.length === 1 ? 'activity' : 'activities'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setEditingId(null);
-              setName('');
-              setCategory(CATEGORIES[0]);
-              setRate('100');
-              setIsActive(true);
-              setOpen(true);
-            }}
-          >
+          <Button type="button" onClick={openCreate}>
             New activity
           </Button>
         }
@@ -269,6 +268,9 @@ export function StoreActivitiesPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={(row) => openEdit(row)}
+          onNew={openCreate}
           actions={(row) => (
             <EntityListActions
               onEdit={() => openEdit(row)}

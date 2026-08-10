@@ -132,7 +132,11 @@ export function DeliveryPanel({ orderId, order, onDone }: Props) {
         </div>
         {error ? <ErrorText>{error}</ErrorText> : null}
         <div className="ow-actions">
-          <Button type="submit" disabled={createState.isLoading || selected.length === 0}>
+          <Button
+            type="submit"
+            data-kb-action="orders.record_delivery"
+            disabled={createState.isLoading || selected.length === 0}
+          >
             {createState.isLoading ? 'Saving…' : 'Record delivery'}
           </Button>
         </div>

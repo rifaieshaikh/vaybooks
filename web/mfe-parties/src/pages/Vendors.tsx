@@ -1,5 +1,11 @@
 import {
   Button,
+  EntityDetailBack,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailPanel,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -13,7 +19,6 @@ import {
   FormRow,
   PAGE_SIZE,
   PaginationBar,
-  StatusBanner,
   TextInput,
   displayName,
   formatBalance,
@@ -33,18 +38,22 @@ import {
   useListVendorsQuery,
   useUpdateVendorMutation,
 } from '@vaybooks/store';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DisabledModuleNote,
-  LocationIdsField,
   PartyAddressTaxFields,
-  parseLocationIds,
   type PartyFormValues,
 } from '../components/PartyFields';
+import {
+  PartyLocationPicker,
+  usePartyListLocationFilter,
+  usePartyLocationIds,
+  type AccessibleLocation,
+} from '../components/PartyLocationFields';
 import { Modal } from '../components/Modal';
 
-function vendorBody(v: PartyFormValues) {
+function vendorBody(v: PartyFormValues, locationIds: string[]) {
   return {
     vendor_name: v.vendor_name || '',
     phone_number: v.phone_number || '',
@@ -66,7 +75,7 @@ function vendorBody(v: PartyFormValues) {
     bank_ifsc: v.bank_ifsc || '',
     bank_name: v.bank_name || '',
     notes: v.notes || '',
-    location_ids: parseLocationIds(v.location_ids || 'default'),
+    location_ids: locationIds,
     segment_ids: (v.segment_ids || '')
       .split(',')
       .map((s) => s.trim())
@@ -78,9 +87,12 @@ function emptyVendor(): PartyFormValues {
   return {
     country: 'India',
     registration_type: 'Unregistered',
-    location_ids: 'default',
     segment_ids: '',
   };
+}
+
+function vendorLocationIds(data: Record<string, unknown>): string[] {
+  return Array.isArray(data.location_ids) ? (data.location_ids as string[]).map(String) : [];
 }
 
 function vendorToForm(data: Record<string, unknown>): PartyFormValues {
@@ -105,7 +117,6 @@ function vendorToForm(data: Record<string, unknown>): PartyFormValues {
     bank_ifsc: String(data.bank_ifsc || ''),
     bank_name: String(data.bank_name || ''),
     notes: String(data.notes || ''),
-    location_ids: Array.isArray(data.location_ids) ? (data.location_ids as string[]).join(', ') : 'default',
     segment_ids: Array.isArray(data.segment_ids) ? (data.segment_ids as string[]).join(',') : '',
   };
 }
@@ -114,10 +125,17 @@ function VendorFormFields({
   values,
   onChange,
   segmentOptions,
+  locationPicker,
 }: {
   values: PartyFormValues;
   onChange: (n: string, v: string) => void;
   segmentOptions: { id: string; name: string }[];
+  locationPicker?: {
+    showPicker: boolean;
+    locationIds: string[];
+    setLocationIds: (next: string[]) => void;
+    accessible: AccessibleLocation[];
+  };
 }) {
   const selected = (values.segment_ids || '').split(',').map((s) => s.trim()).filter(Boolean);
   return (
@@ -188,7 +206,14 @@ function VendorFormFields({
       <FormRow label="Notes">
         <TextInput value={values.notes || ''} onChange={(e) => onChange('notes', e.target.value)} />
       </FormRow>
-      <LocationIdsField value={values.location_ids || 'default'} onChange={(v) => onChange('location_ids', v)} />
+      {locationPicker ? (
+        <PartyLocationPicker
+          showPicker={locationPicker.showPicker}
+          locationIds={locationPicker.locationIds}
+          setLocationIds={locationPicker.setLocationIds}
+          accessible={locationPicker.accessible}
+        />
+      ) : null}
     </div>
   );
 }
@@ -205,7 +230,11 @@ const DEFAULT_VENDOR_SORT: SortCriterion[] = [{ key: 'created_at', desc: true }]
 
 export function VendorsListPage() {
   const navigate = useNavigate();
-  const { data = [], isLoading, error, refetch } = useListVendorsQuery();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { ready: locReady, params: locParams } = usePartyListLocationFilter();
+  const { data = [], isLoading, error, refetch } = useListVendorsQuery(locParams || undefined, {
+    skip: !locReady,
+  });
   const { data: segments = [] } = useListPartySegmentsQuery({ applies_to: 'vendor', active_only: true });
   const [createVendor] = useCreateVendorMutation();
   const [updateVendor] = useUpdateVendorMutation();
@@ -217,6 +246,16 @@ export function VendorsListPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [values, setValues] = useState<PartyFormValues>(emptyVendor());
   const [formError, setFormError] = useState('');
+  const existingLocIds = useMemo(() => {
+    if (dialog !== 'edit' || !editId) return [] as string[];
+    const row = data.find((r) => String(r.id) === editId);
+    return row ? vendorLocationIds(row) : [];
+  }, [dialog, editId, data]);
+  const locationState = usePartyLocationIds({
+    mode: dialog === 'edit' ? 'edit' : 'create',
+    existingIds: existingLocIds,
+    resetKey: `${dialog || ''}:${editId || 'new'}`,
+  });
 
   const segmentOptions = useMemo(
     () => segments.map((s) => ({ id: String(s.id), name: String(s.name || s.id) })),
@@ -273,9 +312,15 @@ export function VendorsListPage() {
 
   async function submitForm() {
     setFormError('');
+    const loc = locationState.resolveForSave();
+    if (loc.error) {
+      setFormError(loc.error);
+      return;
+    }
     try {
-      if (dialog === 'add') await createVendor(vendorBody(values)).unwrap();
-      else if (dialog === 'edit' && editId) await updateVendor({ id: editId, body: vendorBody(values) }).unwrap();
+      if (dialog === 'add') await createVendor(vendorBody(values, loc.locationIds)).unwrap();
+      else if (dialog === 'edit' && editId)
+        await updateVendor({ id: editId, body: vendorBody(values, loc.locationIds) }).unwrap();
       setDialog(null);
       refetch();
     } catch (e: unknown) {
@@ -295,6 +340,21 @@ export function VendorsListPage() {
     setFormError('');
     setDialog('edit');
   }
+
+  function openAdd() {
+    setValues(emptyVendor());
+    setEditId(null);
+    setFormError('');
+    setDialog('add');
+  }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openAdd();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const columns: EntityListColumn<VendorRow>[] = useMemo(
     () => [
@@ -349,15 +409,7 @@ export function VendorsListPage() {
         title="Vendors"
         count={`${filtered.length} ${filtered.length === 1 ? 'vendor' : 'vendors'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setValues(emptyVendor());
-              setEditId(null);
-              setFormError('');
-              setDialog('add');
-            }}
-          >
+          <Button type="button" onClick={openAdd}>
             Add Vendor
           </Button>
         }
@@ -418,6 +470,10 @@ export function VendorsListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/parties/vendors/${row.id}`)}
+          onEditRow={(row) => openEdit(row)}
+          onNew={openAdd}
           actions={(row) => (
             <EntityListActions
               onOpen={() => navigate(`/parties/vendors/${row.id}`)}
@@ -441,6 +497,23 @@ export function VendorsListPage() {
         onClose={() => setDialog(null)}
         footer={
           <>
+            {dialog === 'add' ? (
+              <Button
+                type="button"
+                variant="ghost"
+                data-kb-action="vendors.open_existing"
+                onClick={() => {
+                  setDialog(null);
+                  requestAnimationFrame(() => {
+                    const search = document.querySelector<HTMLInputElement>('.el-search input');
+                    search?.focus();
+                    search?.select?.();
+                  });
+                }}
+              >
+                Search existing
+              </Button>
+            ) : null}
             <Button type="button" onClick={() => void submitForm()}>
               {dialog === 'edit' ? 'Save Changes' : 'Create Vendor'}
             </Button>
@@ -451,7 +524,17 @@ export function VendorsListPage() {
         }
       >
         {formError ? <ErrorText>{formError}</ErrorText> : null}
-        <VendorFormFields values={values} onChange={(n, v) => setValues((p) => ({ ...p, [n]: v }))} segmentOptions={segmentOptions} />
+        <VendorFormFields
+          values={values}
+          onChange={(n, v) => setValues((p) => ({ ...p, [n]: v }))}
+          segmentOptions={segmentOptions}
+          locationPicker={{
+            showPicker: locationState.showPicker,
+            locationIds: locationState.locationIds,
+            setLocationIds: locationState.setLocationIds,
+            accessible: locationState.accessible,
+          }}
+        />
       </Modal>
     </EntityListPage>
   );
@@ -459,6 +542,7 @@ export function VendorsListPage() {
 
 export function VendorDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useGetVendorQuery(id, { skip: !id });
   const summary = useGetVendorSummaryQuery(id, { skip: !id });
   const { data: segments = [] } = useListPartySegmentsQuery({ applies_to: 'vendor', active_only: false });
@@ -466,32 +550,119 @@ export function VendorDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [values, setValues] = useState<PartyFormValues>(emptyVendor());
   const [formError, setFormError] = useState('');
+  const existingLocationIds = useMemo(
+    () => (data ? vendorLocationIds(data as Record<string, unknown>) : []),
+    [data],
+  );
+  const locationState = usePartyLocationIds({
+    mode: 'edit',
+    existingIds: existingLocationIds,
+    resetKey: editOpen ? id : '',
+  });
+  const segmentOptions = useMemo(
+    () => segments.map((s) => ({ id: String(s.id), name: String(s.name || s.id) })),
+    [segments],
+  );
 
-  if (isLoading) return <p>Loading…</p>;
-  if (error || !data) return <p style={{ color: '#b00020' }}>Vendor not found.</p>;
+  function openEdit() {
+    if (!data) return;
+    setValues(vendorToForm(data));
+    setFormError('');
+    setEditOpen(true);
+  }
 
-  const segmentOptions = segments.map((s) => ({ id: String(s.id), name: String(s.name || s.id) }));
+  if (isLoading) {
+    return (
+      <EntityDetailPage>
+        <EntityListLoading>Loading vendor…</EntityListLoading>
+      </EntityDetailPage>
+    );
+  }
+  if (error || !data) {
+    return (
+      <EntityDetailPage>
+        <EntityDetailBack to="/parties/vendors" label="Vendors" />
+        <ErrorText>Vendor not found.</ErrorText>
+      </EntityDetailPage>
+    );
+  }
+
+  const phone = String(data.phone_number || '');
+  const email = String(data.email || '');
+  const gstin = String(data.gstin || '');
+  const payable = String(summary.data?.balance ?? 0);
 
   return (
-    <div>
-      <p>
-        <Link to="/parties/vendors">← Vendors</Link>
-      </p>
-      <h2 style={{ color: 'var(--vb-color-primary, #185c4c)' }}>{String(data.vendor_name)}</h2>
-      <StatusBanner>Payable balance: {String(summary.data?.balance ?? 0)}</StatusBanner>
+    <EntityDetailPage>
+      <EntityDetailBack to="/parties/vendors" label="Vendors" />
+
+      <EntityDetailHero
+        kicker="Parties · Vendor"
+        title={String(data.vendor_name)}
+        lead={
+          <>
+            <span>{phone || 'No phone on file'}</span>
+            {email ? <span className="ed-lead-sep"> · {email}</span> : null}
+            {gstin ? <span className="ed-lead-sep"> · GSTIN {gstin}</span> : null}
+          </>
+        }
+        actions={
+          <>
+            <Button
+              type="button"
+              data-kb-action="vendors.record_payment"
+              onClick={() => navigate(`/finance/payments?new=1&vendor_id=${encodeURIComponent(id)}`)}
+            >
+              Record payment
+            </Button>
+            <Button type="button" onClick={openEdit}>
+              Edit
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                refetch();
+                summary.refetch();
+              }}
+            >
+              Refresh
+            </Button>
+          </>
+        }
+      />
+
+      <EntityDetailSnapshot
+        ariaLabel="Vendor facts"
+        items={[
+          { label: 'Phone', value: phone || '—' },
+          ...(email ? [{ label: 'Email', value: email }] : []),
+          { label: 'Payable balance', value: payable },
+          ...(gstin ? [{ label: 'GSTIN', value: gstin }] : []),
+        ]}
+      />
+
       <DisabledModuleNote />
-      <Button
-        onClick={() => {
-          setValues(vendorToForm(data));
-          setFormError('');
-          setEditOpen(true);
-        }}
-      >
-        Edit
-      </Button>
-      <pre style={{ background: '#f5f5f5', padding: 12, overflow: 'auto', fontSize: 12, marginTop: 12 }}>
-        {JSON.stringify(data, null, 2)}
-      </pre>
+
+      <EntityDetailPanel title="Overview">
+        <pre style={{ background: '#f5f5f5', padding: 12, overflow: 'auto', fontSize: 12, margin: 0 }}>
+          {JSON.stringify(data, null, 2)}
+        </pre>
+      </EntityDetailPanel>
+
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/parties/vendors')}>
+            Back to list
+          </Button>
+        }
+        end={
+          <Button type="button" onClick={openEdit}>
+            Edit
+          </Button>
+        }
+      />
+
       <Modal
         title="Edit Vendor"
         open={editOpen}
@@ -501,8 +672,13 @@ export function VendorDetailPage() {
             <Button
               type="button"
               onClick={async () => {
+                const loc = locationState.resolveForSave();
+                if (loc.error) {
+                  setFormError(loc.error);
+                  return;
+                }
                 try {
-                  await updateVendor({ id, body: vendorBody(values) }).unwrap();
+                  await updateVendor({ id, body: vendorBody(values, loc.locationIds) }).unwrap();
                   setEditOpen(false);
                   refetch();
                 } catch (e: unknown) {
@@ -519,8 +695,18 @@ export function VendorDetailPage() {
         }
       >
         {formError ? <ErrorText>{formError}</ErrorText> : null}
-        <VendorFormFields values={values} onChange={(n, v) => setValues((p) => ({ ...p, [n]: v }))} segmentOptions={segmentOptions} />
+        <VendorFormFields
+          values={values}
+          onChange={(n, v) => setValues((p) => ({ ...p, [n]: v }))}
+          segmentOptions={segmentOptions}
+          locationPicker={{
+            showPicker: locationState.showPicker,
+            locationIds: locationState.locationIds,
+            setLocationIds: locationState.setLocationIds,
+            accessible: locationState.accessible,
+          }}
+        />
       </Modal>
-    </div>
+    </EntityDetailPage>
   );
 }

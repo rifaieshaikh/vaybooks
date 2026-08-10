@@ -180,7 +180,12 @@ export function VouchersListPage() {
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          keyboardNav
+        />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (

@@ -1,4 +1,5 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   useCan,
   useCreateDiscountRuleMutation,
@@ -290,6 +291,7 @@ function FormSection({ title, children }: { title: string; children: ReactNode }
 export function DiscountsSettingsPage() {
   const can = useCan();
   const canEdit = can('settings.discounts.edit');
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data = [], isLoading, error, refetch } = useListDiscountRulesQuery();
   const [createRule, createState] = useCreateDiscountRuleMutation();
   const [updateRule, updateState] = useUpdateDiscountRuleMutation();
@@ -360,6 +362,14 @@ export function DiscountsSettingsPage() {
     setForm(emptyForm());
     setDialog('add');
   }
+
+  useEffect(() => {
+    if (!canEdit || searchParams.get('new') !== '1') return;
+    openAdd();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [canEdit, searchParams, setSearchParams]);
 
   function openEdit(row: DiscountRow) {
     setFormError('');
@@ -641,6 +651,9 @@ export function DiscountsSettingsPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={canEdit ? (row) => openEdit(row) : undefined}
+          onNew={canEdit ? openAdd : undefined}
           actions={(row) =>
             canEdit ? (
               <div className="el-actions">

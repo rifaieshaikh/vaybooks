@@ -142,6 +142,19 @@ export function StoreTimePage() {
     [],
   );
 
+  function openCreate() {
+    setFormError('');
+    setEditingId(null);
+    setActivityId('');
+    setWorkerId('');
+    setWorkDate('');
+    setStartTime('09:00');
+    setEndTime('11:00');
+    setNotes('');
+    setStatusValue('Created');
+    setOpen(true);
+  }
+
   function openEdit(row: TimeRow) {
     setFormError('');
     setEditingId(String(row.id));
@@ -253,21 +266,7 @@ export function StoreTimePage() {
         title="Business Tasks"
         count={`${filtered.length} ${filtered.length === 1 ? 'entry' : 'entries'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setEditingId(null);
-              setActivityId('');
-              setWorkerId('');
-              setWorkDate('');
-              setStartTime('09:00');
-              setEndTime('11:00');
-              setNotes('');
-              setStatusValue('Created');
-              setOpen(true);
-            }}
-          >
+          <Button type="button" onClick={openCreate}>
             Log time
           </Button>
         }
@@ -324,6 +323,9 @@ export function StoreTimePage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={(row) => openEdit(row)}
+          onNew={openCreate}
           actions={(row) => (
             <EntityListActions
               onEdit={() => openEdit(row)}

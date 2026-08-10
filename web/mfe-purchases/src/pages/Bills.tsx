@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
+  useDeletePurchaseBillMutation,
   useGetPurchaseBillQuery,
   useListPurchaseBillsQuery,
 } from '@vaybooks/store';
@@ -366,6 +367,10 @@ export function PurchaseBillsListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/purchases/bills/${row.id}`)}
+          onEditRow={(row) => navigate(`/purchases/bills/${row.id}/edit`)}
+          onNew={goNew}
           actions={(row) => (
             <EntityListActions
               onOpen={() => navigate(`/purchases/bills/${row.id}`)}
@@ -411,6 +416,7 @@ export function PurchaseBillDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const { data, isLoading, error } = useGetPurchaseBillQuery(id, { skip: !id });
+  const [deleteBill, deleteState] = useDeletePurchaseBillMutation();
 
   const lines = useMemo(
     () => mapDocLines(data?.lines || data?.items),
@@ -440,6 +446,22 @@ export function PurchaseBillDetailPage() {
       disabled: !editable,
       title: editable ? 'Edit bill' : 'Bills can only be edited in the same calendar month',
       onClick: () => navigate(`/purchases/bills/${id}/edit`),
+    },
+    {
+      id: 'delete',
+      label: deleteState.isLoading ? 'Deleting…' : 'Delete',
+      variant: 'ghost',
+      kbAction: 'purchases.bills.delete',
+      disabled: deleteState.isLoading,
+      onClick: async () => {
+        if (!window.confirm('Delete this purchase bill? This cannot be undone.')) return;
+        try {
+          await deleteBill(id).unwrap();
+          navigate('/purchases/bills');
+        } catch {
+          window.alert('Failed to delete bill.');
+        }
+      },
     },
   ];
 

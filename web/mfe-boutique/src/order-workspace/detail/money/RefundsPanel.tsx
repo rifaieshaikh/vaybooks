@@ -96,22 +96,14 @@ export function RefundsPanel({ orderId, readOnly, onDone }: Props) {
       {!readOnly ? (
         <form className="ow-grid" onSubmit={(e) => void onSubmit(e)}>
           <FormRow label="Refund type">
-            <div className="od-filters" role="group">
-              <button
-                type="button"
-                className={`ow-chip${kind === 'advance' ? ' is-live' : ''}`}
-                onClick={() => setKind('advance')}
-              >
-                Advance
-              </button>
-              <button
-                type="button"
-                className={`ow-chip${kind === 'payment' ? ' is-live' : ''}`}
-                onClick={() => setKind('payment')}
-              >
-                Receipt / payment
-              </button>
-            </div>
+            <select
+              className="vb-control"
+              value={kind}
+              onChange={(e) => setKind(e.target.value as 'advance' | 'payment')}
+            >
+              <option value="advance">Advance</option>
+              <option value="payment">Receipt / payment</option>
+            </select>
           </FormRow>
           <div className="ow-grid two">
             <FormRow label={`Amount * (max ${formatMoney(available)})`}>
@@ -142,7 +134,7 @@ export function RefundsPanel({ orderId, readOnly, onDone }: Props) {
             <TextInput value={description} onChange={(e) => setDescription(e.target.value)} />
           </FormRow>
           <div className="ow-actions">
-            <Button type="submit" disabled={createState.isLoading || !(available > 0)}>
+            <Button type="submit" data-kb-action="orders.record_refund" disabled={createState.isLoading || !(available > 0)}>
               {createState.isLoading ? 'Saving…' : 'Record refund'}
             </Button>
           </div>

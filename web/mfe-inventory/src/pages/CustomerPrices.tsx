@@ -256,6 +256,9 @@ export function CustomerPricesPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => setHistoryRow(row)}
+          onNew={openAdd}
           actions={(row) => (
             <EntityListActions openLabel="History" onOpen={() => setHistoryRow(row)} />
           )}

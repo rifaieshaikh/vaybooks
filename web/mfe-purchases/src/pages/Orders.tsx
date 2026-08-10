@@ -292,6 +292,10 @@ export function PurchaseOrdersListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/purchases/orders/${row.id}`)}
+          onEditRow={(row) => navigate(`/purchases/orders/${row.id}/edit`)}
+          onNew={goNew}
           actions={(row) => (
             <EntityListActions
               onOpen={() => navigate(`/purchases/orders/${row.id}`)}
@@ -386,6 +390,7 @@ export function PurchaseOrderDetailPage() {
     id: 'pdf',
     label: 'Download PDF',
     variant: 'ghost',
+    kbAction: 'purchases.orders.print',
     onClick: async () => {
       setActionError('');
       try {
@@ -417,6 +422,7 @@ export function PurchaseOrderDetailPage() {
         id: 'grn',
         label: 'Receive goods',
         variant: 'primary',
+        kbAction: 'purchases.orders.receive',
         onClick: () => navigate(`/purchases/goods-receipt/new?purchase_order_id=${id}`),
       },
     );

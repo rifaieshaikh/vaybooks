@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useCreateAccessRoleMutation,
   useGetAccessRoleQuery,
@@ -8,6 +8,15 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
+  EntityDetailBack,
+  EntityDetailBanner,
+  EntityDetailForm,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailPanel,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
+  EntityDetailTabs,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -34,6 +43,8 @@ import {
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
 
+type RoleDetailTab = 'details' | 'permissions';
+
 const DEFAULT_ROLE_FILTERS = { name: '', description: '', kind: '' };
 const DEFAULT_ROLE_SORT: SortCriterion[] = [{ key: 'name', desc: false }];
 const ROLE_FILTER_FIELDS: FilterFieldDef[] = [
@@ -52,6 +63,7 @@ const ROLE_FILTER_FIELDS: FilterFieldDef[] = [
 
 export function AccessRolesListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data = [], isLoading, error } = useListAccessRolesQuery();
   const [createRole, createState] = useCreateAccessRoleMutation();
 
@@ -62,6 +74,21 @@ export function AccessRolesListPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState('');
+
+  function openCreate() {
+    setName('');
+    setDescription('');
+    setFormError('');
+    setDialogOpen(true);
+  }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openCreate();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const filtered = useMemo(() => {
     let rows = data.filter((row) => {
@@ -128,15 +155,7 @@ export function AccessRolesListPage() {
         title="Roles"
         count={`${filtered.length} ${filtered.length === 1 ? 'role' : 'roles'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setName('');
-              setDescription('');
-              setFormError('');
-              setDialogOpen(true);
-            }}
-          >
+          <Button type="button" onClick={openCreate}>
             Create custom role
           </Button>
         }
@@ -192,6 +211,9 @@ export function AccessRolesListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/access/roles/${row.id}`)}
+          onNew={openCreate}
           actions={(row) => (
             <EntityListActions onOpen={() => navigate(`/access/roles/${row.id}`)} />
           )}
@@ -241,48 +263,189 @@ export function AccessRolesListPage() {
 
 export function AccessRoleDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useGetAccessRoleQuery(id, { skip: !id });
   const [update, updateState] = useUpdateAccessRoleMutation();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [keysText, setKeysText] = useState('');
+  const [hydrated, setHydrated] = useState(false);
   const [msg, setMsg] = useState('');
+  const [tab, setTab] = useState<RoleDetailTab>('details');
+
+  useEffect(() => {
+    if (!data || hydrated) return;
+    setName(String(data.name || ''));
+    setDescription(String(data.description || ''));
+    setKeysText(Array.isArray(data.permission_keys) ? data.permission_keys.map(String).join('\n') : '');
+    setHydrated(true);
+  }, [data, hydrated]);
+
   async function onSave() {
+    setMsg('');
     try {
-      await update({ id, body: {
-        name: name || String(data?.name || ''),
-        description: description || String(data?.description || ''),
-        permission_keys: (keysText || (Array.isArray(data?.permission_keys) ? data.permission_keys.join('\n') : '')).split(/\n|,/).map((key) => key.trim()).filter(Boolean),
-      } }).unwrap();
+      await update({
+        id,
+        body: {
+          name: name || String(data?.name || ''),
+          description: description || String(data?.description || ''),
+          permission_keys: (keysText ||
+            (Array.isArray(data?.permission_keys) ? data.permission_keys.join('\n') : ''))
+            .split(/\n|,/)
+            .map((key) => key.trim())
+            .filter(Boolean),
+        },
+      }).unwrap();
       setMsg('Saved');
       refetch();
-    } catch (e) { setMsg(extractError(e)); }
+    } catch (e) {
+      setMsg(extractError(e));
+    }
   }
-  if (isLoading) return <p>Loading…</p>;
-  if (error || !data) return <ErrorText>Role not found.</ErrorText>;
+
+  if (isLoading) {
+    return (
+      <EntityDetailPage>
+        <EntityListLoading>Loading role…</EntityListLoading>
+      </EntityDetailPage>
+    );
+  }
+  if (error || !data) {
+    return (
+      <EntityDetailPage>
+        <EntityDetailBack to="/access/roles" label="Roles" />
+        <ErrorText>Role not found.</ErrorText>
+      </EntityDetailPage>
+    );
+  }
+
   const keys = Array.isArray(data.permission_keys) ? data.permission_keys : [];
+  const isSystem = Boolean(data.is_system);
+  const heroActions = !isSystem ? (
+    <Button type="button" onClick={() => void onSave()} disabled={updateState.isLoading}>
+      {updateState.isLoading ? 'Saving…' : 'Save role'}
+    </Button>
+  ) : null;
+
   return (
-    <div>
-      <p>
-        <Link to="/access/roles">← Roles</Link>
-      </p>
-      <h2 style={{ color: 'var(--vb-color-primary, #185c4c)' }}>{asCaption(data.name)}</h2>
-      <p>{asCaption(data.description)}</p>
-      <p>System role: {String(data.is_system)}</p>
-      {!data.is_system ? <div style={{ display: 'grid', gap: 12, maxWidth: 640, marginBottom: 20 }}>
-        <FormRow label="Role name"><input value={name || String(data.name || '')} onChange={(e) => setName(e.target.value)} /></FormRow>
-        <FormRow label="Description"><input value={description || String(data.description || '')} onChange={(e) => setDescription(e.target.value)} /></FormRow>
-        <FormRow label="Permission keys (one per line)"><textarea rows={8} value={keysText || (Array.isArray(data.permission_keys) ? data.permission_keys.join('\n') : '')} onChange={(e) => setKeysText(e.target.value)} /></FormRow>
-        <Button type="button" onClick={onSave} disabled={updateState.isLoading}>{updateState.isLoading ? 'Saving…' : 'Save role'}</Button>
-        {msg ? <p>{msg}</p> : null}
-      </div> : <p>System roles cannot be edited.</p>}
-      <h3>Permissions ({keys.length})</h3>
-      <ul>
-        {keys.slice(0, 50).map((key) => (
-          <li key={String(key)}>{String(key)}</li>
-        ))}
-      </ul>
-      {keys.length > 50 ? <p>…and {keys.length - 50} more</p> : null}
-    </div>
+    <EntityDetailPage>
+      <EntityDetailBack to="/access/roles" label="Roles" />
+
+      <EntityDetailHero
+        kicker="Access · Role"
+        title={asCaption(data.name) || 'Role'}
+        lead={
+          <>
+            <span>{isSystem ? 'System role' : 'Custom role'}</span>
+            {data.description ? (
+              <span className="ed-lead-sep"> · {asCaption(data.description)}</span>
+            ) : null}
+          </>
+        }
+        actions={heroActions}
+      />
+
+      <EntityDetailSnapshot
+        ariaLabel="Role facts"
+        items={[
+          { label: 'Kind', value: isSystem ? 'System' : 'Custom' },
+          { label: 'Permissions', value: String(keys.length) },
+          { label: 'Name', value: name || asCaption(data.name) || '—' },
+        ]}
+      />
+
+      {isSystem ? (
+        <EntityDetailBanner>System roles cannot be edited.</EntityDetailBanner>
+      ) : null}
+
+      {msg === 'Saved' ? <p className="ed-panel-note is-ok">Saved.</p> : null}
+      {msg && msg !== 'Saved' ? <ErrorText>{msg}</ErrorText> : null}
+
+      <EntityDetailTabs
+        value={tab}
+        ariaLabel="Role sections"
+        onChange={(next) => setTab(next as RoleDetailTab)}
+        options={[
+          { id: 'details', label: 'Details' },
+          { id: 'permissions', label: `Permissions (${keys.length})` },
+        ]}
+      />
+
+      {tab === 'details' ? (
+        <EntityDetailPanel
+          key="details"
+          title="Details"
+          note={isSystem ? 'Read-only system role profile.' : 'Update role name and description.'}
+        >
+          <EntityDetailForm>
+            <div className="ed-grid">
+              <FormRow label="Role name">
+                <input
+                  value={isSystem ? asCaption(data.name) : name}
+                  onChange={(e) => setName(e.target.value)}
+                  readOnly={isSystem}
+                  disabled={isSystem}
+                />
+              </FormRow>
+              <FormRow label="Description">
+                <input
+                  value={isSystem ? asCaption(data.description) : description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  readOnly={isSystem}
+                  disabled={isSystem}
+                />
+              </FormRow>
+              <FormRow label="Kind">
+                <select value={isSystem ? 'system' : 'custom'} disabled>
+                  <option value="system">System</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </FormRow>
+            </div>
+          </EntityDetailForm>
+        </EntityDetailPanel>
+      ) : null}
+
+      {tab === 'permissions' ? (
+        <EntityDetailPanel
+          key="permissions"
+          title="Permissions"
+          note={
+            isSystem
+              ? `${keys.length} permission key${keys.length === 1 ? '' : 's'} on this role.`
+              : 'Enter one permission key per line (or comma-separated). Save to apply.'
+          }
+        >
+          {!isSystem ? (
+            <EntityDetailForm>
+              <FormRow label="Permission keys">
+                <textarea rows={8} value={keysText} onChange={(e) => setKeysText(e.target.value)} />
+              </FormRow>
+            </EntityDetailForm>
+          ) : null}
+          {keys.length === 0 ? (
+            <p className="el-muted">No permission keys assigned.</p>
+          ) : (
+            <>
+              <ul>
+                {keys.slice(0, 50).map((key) => (
+                  <li key={String(key)}>{String(key)}</li>
+                ))}
+              </ul>
+              {keys.length > 50 ? <p className="el-muted">…and {keys.length - 50} more</p> : null}
+            </>
+          )}
+        </EntityDetailPanel>
+      ) : null}
+
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/access/roles')}>
+            Back to list
+          </Button>
+        }
+        end={heroActions}
+      />
+    </EntityDetailPage>
   );
 }

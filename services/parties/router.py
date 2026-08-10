@@ -33,8 +33,6 @@ from vaybooks.bms.domain.shared.exceptions import ValidationError, DuplicateCust
 
 router = APIRouter(prefix="/api/parties", tags=["parties"])
 
-DEFAULT_LOCATION = "default"
-
 
 def _svc():
     return get_parties_container()
@@ -61,8 +59,40 @@ def _reg_type(value: str) -> PartyRegistrationType:
 
 
 def _locs(location_ids: List[str] | None) -> List[str]:
-    ids = [str(x).strip() for x in (location_ids or []) if str(x).strip()]
-    return ids or [DEFAULT_LOCATION]
+    """Normalize location ids; never invent a ``default`` id.
+
+    Empty lists stay empty so domain ``require_location_ids`` rejects them
+    (pytest soft-default applies only inside the domain helper).
+    """
+    seen: set[str] = set()
+    out: List[str] = []
+    for raw in location_ids or []:
+        lid = str(raw or "").strip()
+        if not lid or lid == "default" or lid in seen:
+            continue
+        seen.add(lid)
+        out.append(lid)
+    return out
+
+
+def _party_location_filter(
+    location_id: Optional[str] = None,
+    location_ids: Optional[str] = None,
+) -> dict[str, Any] | None:
+    """Build Mongo filter for party ``location_ids`` visibility."""
+    ids: List[str] = []
+    for part in str(location_ids or "").split(","):
+        lid = part.strip()
+        if lid and lid not in ids:
+            ids.append(lid)
+    single = str(location_id or "").strip()
+    if single and single not in ids:
+        ids.insert(0, single)
+    if not ids:
+        return None
+    if len(ids) == 1:
+        return {"location_ids": ids[0]}
+    return {"location_ids": {"$in": ids}}
 
 
 def _publish(event_name: str, payload: dict[str, Any]) -> None:
@@ -134,12 +164,10 @@ def health() -> dict[str, str]:
 def list_customers(
     q: str = Query(default=""),
     location_id: Optional[str] = Query(default=None),
+    location_ids: Optional[str] = Query(default=None),
     _: str = Depends(require_permission("parties.customers.view")),
 ) -> list[dict[str, Any]]:
-    location_filter = None
-    lid = (location_id or "").strip()
-    if lid:
-        location_filter = {"location_ids": lid}
+    location_filter = _party_location_filter(location_id, location_ids)
     rows = _svc().customers.search_customers(q, location_filter=location_filter)
     balances: dict[str, float] = {}
     try:
@@ -345,9 +373,14 @@ def settle_customer(
 
 
 @router.get("/vendors")
-def list_vendors(q: str = Query(default="")) -> list[dict[str, Any]]:
+def list_vendors(
+    q: str = Query(default=""),
+    location_id: Optional[str] = Query(default=None),
+    location_ids: Optional[str] = Query(default=None),
+) -> list[dict[str, Any]]:
+    location_filter = _party_location_filter(location_id, location_ids)
     out = []
-    for r in _svc().vendors.search_vendors(q):
+    for r in _svc().vendors.search_vendors(q, location_filter=location_filter):
         data = entity_dict(r)
         acct = _svc().account_repo.find_vendor_account(str(data.get("id") or ""))
         data["current_balance"] = float(acct.current_balance) if acct else 0.0
@@ -405,9 +438,14 @@ def vendor_summary(vendor_id: str) -> dict[str, Any]:
 
 
 @router.get("/delivery-partners")
-def list_partners(q: str = Query(default="")) -> list[dict[str, Any]]:
+def list_partners(
+    q: str = Query(default=""),
+    location_id: Optional[str] = Query(default=None),
+    location_ids: Optional[str] = Query(default=None),
+) -> list[dict[str, Any]]:
+    location_filter = _party_location_filter(location_id, location_ids)
     out = []
-    for r in _svc().delivery_partners.search_partners(q):
+    for r in _svc().delivery_partners.search_partners(q, location_filter=location_filter):
         data = entity_dict(r)
         acct = _svc().account_repo.find_delivery_partner_account(str(data.get("id") or ""))
         data["current_balance"] = float(acct.current_balance) if acct else 0.0
@@ -511,9 +549,14 @@ def partner_summary(partner_id: str) -> dict[str, Any]:
 
 
 @router.get("/commission-agents")
-def list_agents(q: str = Query(default="")) -> list[dict[str, Any]]:
+def list_agents(
+    q: str = Query(default=""),
+    location_id: Optional[str] = Query(default=None),
+    location_ids: Optional[str] = Query(default=None),
+) -> list[dict[str, Any]]:
+    location_filter = _party_location_filter(location_id, location_ids)
     out = []
-    for r in _svc().commission_agents.search_agents(q):
+    for r in _svc().commission_agents.search_agents(q, location_filter=location_filter):
         data = entity_dict(r)
         acct = _svc().account_repo.find_agent_account(str(data.get("id") or ""))
         data["current_balance"] = float(acct.current_balance) if acct else 0.0
@@ -702,8 +745,18 @@ def list_worker_activity_options(active_only: bool = True) -> list[dict[str, Any
 
 
 @router.get("/workers")
-def list_workers(active_only: bool = True) -> list[dict[str, Any]]:
-    return [entity_dict(r) for r in _svc().workers.list_workers(active_only=active_only)]
+def list_workers(
+    active_only: bool = True,
+    location_id: Optional[str] = Query(default=None),
+    location_ids: Optional[str] = Query(default=None),
+) -> list[dict[str, Any]]:
+    location_filter = _party_location_filter(location_id, location_ids)
+    return [
+        entity_dict(r)
+        for r in _svc().workers.list_workers(
+            active_only=active_only, location_filter=location_filter
+        )
+    ]
 
 
 @router.post("/workers", status_code=201)

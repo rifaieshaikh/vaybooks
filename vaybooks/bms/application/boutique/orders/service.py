@@ -628,10 +628,13 @@ class OrderAppService:
                         "description": item.description,
                         "item_status": item.item_status.value,
                         "order_status": order.order_status.value,
+                        "expected_delivery_date": item.expected_delivery_date
+                        or order.expected_delivery_date,
                         "sell_amount": item.sell_amount,
                         "margin_amount": item.margin_amount,
                         "margin_per_hour": item.margin_per_hour,
                         "mph_snapshot_at": item.mph_snapshot_at,
+                        "measurement_id": item.measurement_id or "",
                     }
                 )
         return rows

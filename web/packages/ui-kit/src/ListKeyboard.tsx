@@ -8,7 +8,34 @@ export type ListKeyboardBindings = {
   open: string;
   edit: string;
   new: string;
+  filtersOpen: string;
+  sortOpen: string;
+  filtersApply: string;
+  filtersClear: string;
+  sortClear: string;
+  prevPage: string;
+  nextPage: string;
+  filtersMtd: string;
+  filtersLast30d: string;
+  /** Document editor save (dialog.save). */
+  save: string;
+  /** Add line in document grid (form.add_line). */
+  addLine: string;
+  /** Remove line in document grid (form.remove_line). */
+  removeLine: string;
+  /** Back / dismiss to list (nav.back). */
+  back: string;
+  /** View row at index 0..8 (list.view_nth.1..9). */
+  viewNth: string[];
+  /** Edit row at index 0..8 (list.edit_nth.1..9). */
+  editNth: string[];
 };
+
+function defaultNth(prefix: 'view' | 'edit'): string[] {
+  return Array.from({ length: 9 }, (_, i) =>
+    prefix === 'view' ? `alt+${i + 1}` : `alt+shift+${i + 1}`,
+  );
+}
 
 export const DEFAULT_LIST_KEYBOARD_BINDINGS: ListKeyboardBindings = {
   search: '/',
@@ -17,6 +44,21 @@ export const DEFAULT_LIST_KEYBOARD_BINDINGS: ListKeyboardBindings = {
   open: 'enter',
   edit: 'e',
   new: 'n',
+  filtersOpen: 'ctrl+alt+f',
+  sortOpen: 'ctrl+shift+s',
+  filtersApply: 'ctrl+enter',
+  filtersClear: 'ctrl+1',
+  sortClear: 'ctrl+2',
+  prevPage: 'alt+left',
+  nextPage: 'alt+right',
+  filtersMtd: 'ctrl+alt+m',
+  filtersLast30d: 'ctrl+alt+0',
+  save: 'ctrl+s',
+  addLine: 'ctrl+shift+.',
+  removeLine: 'ctrl+shift+backspace',
+  back: 'alt+backspace',
+  viewNth: defaultNth('view'),
+  editNth: defaultNth('edit'),
 };
 
 const ListKeyboardBindingsContext = createContext<ListKeyboardBindings>(
@@ -55,6 +97,28 @@ export function listBindingsFromActions(
     open: pick('list.row.open', DEFAULT_LIST_KEYBOARD_BINDINGS.open),
     edit: pick('list.row.edit', DEFAULT_LIST_KEYBOARD_BINDINGS.edit),
     new: pick('list.row.new', DEFAULT_LIST_KEYBOARD_BINDINGS.new),
+    filtersOpen: pick('list.filters.open', DEFAULT_LIST_KEYBOARD_BINDINGS.filtersOpen),
+    sortOpen: pick('list.sort.open', DEFAULT_LIST_KEYBOARD_BINDINGS.sortOpen),
+    filtersApply: pick('list.filters.apply', DEFAULT_LIST_KEYBOARD_BINDINGS.filtersApply),
+    filtersClear: pick('list.filters.clear', DEFAULT_LIST_KEYBOARD_BINDINGS.filtersClear),
+    sortClear: pick('list.sort.clear', DEFAULT_LIST_KEYBOARD_BINDINGS.sortClear),
+    prevPage: pick('list.prev_page', DEFAULT_LIST_KEYBOARD_BINDINGS.prevPage),
+    nextPage: pick('list.next_page', DEFAULT_LIST_KEYBOARD_BINDINGS.nextPage),
+    filtersMtd: pick('list.filters.mtd', DEFAULT_LIST_KEYBOARD_BINDINGS.filtersMtd),
+    filtersLast30d: pick('list.filters.last_30d', DEFAULT_LIST_KEYBOARD_BINDINGS.filtersLast30d),
+    save: pick('dialog.save', DEFAULT_LIST_KEYBOARD_BINDINGS.save),
+    addLine: pick('form.add_line', DEFAULT_LIST_KEYBOARD_BINDINGS.addLine),
+    removeLine: pick('form.remove_line', DEFAULT_LIST_KEYBOARD_BINDINGS.removeLine),
+    back: pick('nav.back', DEFAULT_LIST_KEYBOARD_BINDINGS.back),
+    viewNth: Array.from({ length: 9 }, (_, i) =>
+      pick(`list.view_nth.${i + 1}`, DEFAULT_LIST_KEYBOARD_BINDINGS.viewNth[i] || `alt+${i + 1}`),
+    ),
+    editNth: Array.from({ length: 9 }, (_, i) =>
+      pick(
+        `list.edit_nth.${i + 1}`,
+        DEFAULT_LIST_KEYBOARD_BINDINGS.editNth[i] || `alt+shift+${i + 1}`,
+      ),
+    ),
   };
 }
 
@@ -81,6 +145,12 @@ export function chordMatches(event: string, bound: string): boolean {
   if (b === 'arrowup' && e === 'k') return true;
   if (b === 'down' && (e === 'arrowdown' || e === 'j')) return true;
   if (b === 'up' && (e === 'arrowup' || e === 'k')) return true;
+  if (b === 'alt+left' && (e === 'alt+arrowleft' || e === 'alt+left')) return true;
+  if (b === 'alt+right' && (e === 'alt+arrowright' || e === 'alt+right')) return true;
+  if (b === 'alt+arrowleft' && (e === 'alt+left' || e === 'alt+arrowleft')) return true;
+  if (b === 'alt+arrowright' && (e === 'alt+right' || e === 'alt+arrowright')) return true;
+  if (b === 'ctrl+shift+.' && (e === 'ctrl+shift+.' || e === 'ctrl+shift+period')) return true;
+  if (b === 'ctrl+shift+backspace' && e === 'ctrl+shift+backspace') return true;
   return false;
 }
 
@@ -96,8 +166,8 @@ export function formatChordHint(chord: string): string {
       if (part === 'meta') return 'Meta';
       if (part === 'arrowdown') return '↓';
       if (part === 'arrowup') return '↑';
-      if (part === 'arrowleft') return '←';
-      if (part === 'arrowright') return '→';
+      if (part === 'arrowleft' || part === 'left') return '←';
+      if (part === 'arrowright' || part === 'right') return '→';
       if (part === 'enter') return 'Enter';
       if (part === 'escape') return 'Esc';
       if (part === ' ') return 'Space';

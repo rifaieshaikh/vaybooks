@@ -3,7 +3,7 @@ import {
   useListBoutiqueMeasurementSectionsQuery,
   useListBoutiqueMeasurementSpecsQuery,
 } from '@vaybooks/store';
-import { FormRow } from '@vaybooks/ui-kit';
+import { EntityDetailPanel, FormRow } from '@vaybooks/ui-kit';
 import { asCaption } from './utils';
 
 const PERSON_TYPES = ['Men', 'Women', 'Boy Child', 'Girl Child', 'Infant'];
@@ -142,7 +142,7 @@ export function MeasurementForm({
   const extraCount = applicableSpecs.length - coreCount;
 
   const metaFields = (
-    <div className={layout === 'detail' ? 'md-grid' : undefined} style={layout === 'compact' ? { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 } : undefined}>
+    <div className={layout === 'detail' ? 'ed-grid' : undefined} style={layout === 'compact' ? { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 } : undefined}>
       <FormRow label="Person type">
         <select
           value={personType}
@@ -193,7 +193,7 @@ export function MeasurementForm({
   );
 
   const notesFields = (
-    <div className={layout === 'detail' ? 'md-grid md-grid-2' : undefined} style={layout === 'compact' ? { display: 'grid', gap: 10 } : undefined}>
+    <div className={layout === 'detail' ? 'ed-grid ed-grid-2' : undefined} style={layout === 'compact' ? { display: 'grid', gap: 10 } : undefined}>
       <FormRow label="Notes">
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
       </FormRow>
@@ -204,19 +204,19 @@ export function MeasurementForm({
   );
 
   const status = (
-    <div className="md-status">
-      <span className="md-pill">
+    <div className="ed-status">
+      <span className="ed-pill">
         {filledCount}/{applicableSpecs.length} filled
       </span>
-      <span className="md-pill">
+      <span className="ed-pill">
         {coreCount} core · {extraCount} extra
       </span>
       {missingRequired.length ? (
-        <span className="md-pill is-warn">
+        <span className="ed-pill is-warn">
           Missing: {missingRequired.map((s) => asCaption(s.label || s.key)).join(', ')}
         </span>
       ) : (
-        <span className="md-pill">Required complete</span>
+        <span className="ed-pill">Required complete</span>
       )}
     </div>
   );
@@ -229,14 +229,14 @@ export function MeasurementForm({
     );
     if (!fields.length) return null;
     return (
-      <div key={section.key} className={layout === 'detail' ? 'md-section' : undefined} style={layout === 'compact' ? { display: 'grid', gap: 8 } : undefined}>
-        <div className={layout === 'detail' ? 'md-section-head' : undefined}>
+      <div key={section.key} className={layout === 'detail' ? 'ed-section' : undefined} style={layout === 'compact' ? { display: 'grid', gap: 8 } : undefined}>
+        <div className={layout === 'detail' ? 'ed-section-head' : undefined}>
           <h3 style={layout === 'compact' ? { margin: '8px 0 0', color: 'var(--vb-color-primary, #185c4c)' } : undefined}>
             {section.label}
           </h3>
           {layout === 'detail' ? <span>{fields.length} fields</span> : null}
         </div>
-        <div className={layout === 'detail' ? 'md-grid' : undefined} style={layout === 'compact' ? { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 } : undefined}>
+        <div className={layout === 'detail' ? 'ed-grid' : undefined} style={layout === 'compact' ? { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 } : undefined}>
           {fields.map((field) => {
             const key = String(field.key);
             const label = `${asCaption(field.label || key)}${field.required ? ' *' : ''}${
@@ -278,31 +278,34 @@ export function MeasurementForm({
 
   if (layout === 'detail') {
     return (
-      <div className="md-form">
-        <section className="md-panel">
-          <h2>Wearer & session</h2>
-          <p className="md-panel-note">Who was measured and how the sheet should be interpreted.</p>
+      <div className="ed-form">
+        <EntityDetailPanel
+          title="Wearer & session"
+          note="Who was measured and how the sheet should be interpreted."
+        >
           {metaFields}
-        </section>
+        </EntityDetailPanel>
 
-        <section className="md-panel">
-          <h2>Body measurements</h2>
-          <p className="md-panel-note">Values for {personType}. Unit defaults to {unit}.</p>
+        <EntityDetailPanel
+          title="Body measurements"
+          note={<>Values for {personType}. Unit defaults to {unit}.</>}
+        >
           {status}
           {measureSections}
-        </section>
+        </EntityDetailPanel>
 
-        <section className="md-panel">
-          <h2>Notes</h2>
-          <p className="md-panel-note">Internal notes stay on the record; print notes appear on the PDF.</p>
+        <EntityDetailPanel
+          title="Notes"
+          note="Internal notes stay on the record; print notes appear on the PDF."
+        >
           {notesFields}
-        </section>
+        </EntityDetailPanel>
       </div>
     );
   }
 
   return (
-    <div className="md-form" style={{ display: 'grid', gap: 10 }}>
+    <div className="ed-form" style={{ display: 'grid', gap: 10 }}>
       {metaFields}
       {notesFields}
       {status}

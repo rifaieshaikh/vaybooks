@@ -1,0 +1,167 @@
+/** Boutique-only detail widgets (progress, task rows). Shared chrome lives in EntityDetail.css. */
+
+.bdx-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 140px;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--ed-muted, #5c736a);
+}
+
+.bdx-progress-track {
+  flex: 1;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--ed-soft, #eef5f1);
+  overflow: hidden;
+}
+
+.bdx-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ed-primary, #185c4c);
+  transition: width 0.25s ease;
+}
+
+.bdx-task-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.45rem;
+  margin-bottom: 0.85rem;
+}
+
+.bdx-task-total {
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  background: #f6f8f7;
+  border: 1px solid var(--ed-line, #d5e3dc);
+}
+
+.bdx-task-total.is-sum {
+  background: var(--ed-soft, #eef5f1);
+  border-color: rgba(24, 92, 76, 0.25);
+}
+
+.bdx-task-total span {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--ed-muted, #5c736a);
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.bdx-task-total strong {
+  font-size: 0.95rem;
+  color: var(--ed-ink, #14241f);
+}
+
+.bdx-task-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.bdx-task-row {
+  border: 1px solid var(--ed-line, #d5e3dc);
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.75rem 0.85rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.bdx-task-row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.bdx-task-row-top strong {
+  font-size: 0.95rem;
+}
+
+.bdx-task-meta {
+  font-size: 0.82rem;
+  color: var(--ed-muted, #5c736a);
+}
+
+.bdx-task-row-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
+}
+
+.bdx-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 650;
+  background: var(--ed-soft, #eef5f1);
+  color: var(--ed-primary, #185c4c);
+}
+
+/* Order detail: main + schedule rail */
+.bdx-order-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .bdx-order-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bdx-order-side {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.bdx-order-side h3 {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--ed-primary, #185c4c);
+}
+
+.bdx-order-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+}
+
+.bdx-order-row span {
+  color: var(--ed-muted, #5c736a);
+}
+
+.bdx-order-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.bdx-order-inline input {
+  flex: 1;
+  min-width: 8rem;
+}
+
+.bdx-progress-mini {
+  margin-top: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--ed-soft, #eef5f1);
+  overflow: hidden;
+}
+
+.bdx-progress-mini > div {
+  height: 100%;
+  background: var(--ed-primary, #185c4c);
+  border-radius: inherit;
+}

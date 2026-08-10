@@ -6,6 +6,7 @@ import {
   useCreateFinanceJournalMutation,
   useCreateFinancePaymentMutation,
   useCreateFinanceReceiptMutation,
+  useGetVendorSummaryQuery,
   useListAccountingInvoicesQuery,
   useListFinanceAccountsQuery,
   useListFinanceCreditNotesQuery,
@@ -154,6 +155,7 @@ function VoucherListShell({
   title,
   countText,
   actions,
+  onNew,
   list,
   isLoading,
   error,
@@ -167,6 +169,7 @@ function VoucherListShell({
   title: string;
   countText: string;
   actions?: ReactNode;
+  onNew?: () => void;
   list: ReturnType<typeof useVoucherList>;
   isLoading: boolean;
   error: unknown;
@@ -233,6 +236,8 @@ function VoucherListShell({
           columns={VOUCHER_COLUMNS}
           rows={list.pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onNew={onNew}
         />
       ) : null}
 
@@ -327,6 +332,11 @@ export function ReceiptsListPage() {
     }
   }
 
+  function openCreate() {
+    setFormError('');
+    setOpen(true);
+  }
+
   return (
     <VoucherListShell
       title="Receipts"
@@ -337,14 +347,9 @@ export function ReceiptsListPage() {
       loadingLabel="Loading receipts…"
       emptyLabel="No receipts found."
       errorLabel="Failed to load receipts."
+      onNew={openCreate}
       actions={
-        <Button
-          type="button"
-          onClick={() => {
-            setFormError('');
-            setOpen(true);
-          }}
-        >
+        <Button type="button" onClick={openCreate}>
           Record Receipt
         </Button>
       }
@@ -395,8 +400,11 @@ export function ReceiptsListPage() {
 }
 
 export function PaymentsListPage() {
+  const [params, setParams] = useSearchParams();
+  const vendorIdParam = params.get('vendor_id') || '';
   const { data = [], isLoading, error, refetch } = useListFinancePaymentsQuery();
   const { data: accounts = [] } = useListFinanceAccountsQuery();
+  const vendorSummary = useGetVendorSummaryQuery(vendorIdParam, { skip: !vendorIdParam });
   const [createPayment, createState] = useCreateFinancePaymentMutation();
   const list = useVoucherList(data);
   const [open, setOpen] = useState(false);
@@ -410,6 +418,24 @@ export function PaymentsListPage() {
     description: '',
     location_id: 'default',
   });
+
+  useEffect(() => {
+    const vendorAccountId = String(vendorSummary.data?.account_id || '');
+    if (vendorIdParam) {
+      setForm((f) => ({
+        ...f,
+        payment_kind: 'vendor',
+        vendor_account_id: vendorAccountId,
+      }));
+    }
+    if (params.get('new') === '1') {
+      setFormError('');
+      setOpen(true);
+      const next = new URLSearchParams(params);
+      next.delete('new');
+      setParams(next, { replace: true });
+    }
+  }, [params, vendorIdParam, vendorSummary.data?.account_id, setParams]);
 
   async function submit() {
     setFormError('');
@@ -426,6 +452,11 @@ export function PaymentsListPage() {
     }
   }
 
+  function openCreate() {
+    setFormError('');
+    setOpen(true);
+  }
+
   return (
     <VoucherListShell
       title="Payments"
@@ -437,14 +468,9 @@ export function PaymentsListPage() {
       emptyLabel="No payments found."
       errorLabel="Failed to load payments."
       typeChips={PAYMENT_TYPE_CHIPS}
+      onNew={openCreate}
       actions={
-        <Button
-          type="button"
-          onClick={() => {
-            setFormError('');
-            setOpen(true);
-          }}
-        >
+        <Button type="button" data-kb-action="vendors.record_payment" onClick={openCreate}>
           Record Payment
         </Button>
       }
@@ -562,6 +588,11 @@ function NotesPage({
     }
   }
 
+  function openCreate() {
+    setFormError('');
+    setOpen(true);
+  }
+
   return (
     <VoucherListShell
       title={title}
@@ -572,14 +603,9 @@ function NotesPage({
       loadingLabel="Loading notes…"
       emptyLabel="No notes found."
       errorLabel="Failed to load notes."
+      onNew={openCreate}
       actions={
-        <Button
-          type="button"
-          onClick={() => {
-            setFormError('');
-            setOpen(true);
-          }}
-        >
+        <Button type="button" onClick={openCreate}>
           {`Create ${kind === 'credit' ? 'Credit' : 'Debit'} Note`}
         </Button>
       }
@@ -722,6 +748,11 @@ export function JournalListPage() {
     }
   }
 
+  function openCreate() {
+    setFormError('');
+    setOpen(true);
+  }
+
   return (
     <VoucherListShell
       title="Journal"
@@ -732,14 +763,9 @@ export function JournalListPage() {
       loadingLabel="Loading journal…"
       emptyLabel="No journal entries found."
       errorLabel="Failed to load journal."
+      onNew={openCreate}
       actions={
-        <Button
-          type="button"
-          onClick={() => {
-            setFormError('');
-            setOpen(true);
-          }}
-        >
+        <Button type="button" onClick={openCreate}>
           Journal Entry
         </Button>
       }

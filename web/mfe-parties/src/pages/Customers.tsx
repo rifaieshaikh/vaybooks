@@ -2,6 +2,7 @@ import {
   Button,
   EntityListActions,
   EntityListEmpty,
+  EntityListFilterSort,
   EntityListFoot,
   EntityListHero,
   EntityListLoading,
@@ -10,9 +11,7 @@ import {
   EntityListRefreshing,
   EntityListTable,
   ErrorText,
-  FiltersDialog,
   PaginationBar,
-  SortDialog,
   displayName,
   formatBalance,
   matchesRegex,
@@ -21,7 +20,6 @@ import {
   sortRows,
   type EntityListColumn,
   type FilterFieldDef,
-  type FilterValues,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import {
@@ -30,7 +28,7 @@ import {
   useListCustomersQuery,
   useListPartySegmentsQuery,
 } from '@vaybooks/store';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import {
   CustomerFormFields,
@@ -40,6 +38,7 @@ import {
 } from '../components/CustomerFormFields';
 import { Modal } from '../components/Modal';
 import { REGISTRATION_TYPES, type PartyFormValues } from '../components/PartyFields';
+import { usePartyListLocationFilter, usePartyLocationIds } from '../components/PartyLocationFields';
 
 export { CustomerDetailPage } from './CustomerDetailPage';
 
@@ -112,9 +111,13 @@ function outstandingLabel(balance: number): string {
 
 export function CustomersListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const can = useCan();
   const canCreate = can('parties.customers.create');
-  const { data = [], isLoading, isFetching, error, refetch } = useListCustomersQuery();
+  const { ready: locReady, params: locParams } = usePartyListLocationFilter();
+  const { data = [], isLoading, isFetching, error, refetch } = useListCustomersQuery(locParams || undefined, {
+    skip: !locReady,
+  });
   const { data: segments = [] } = useListPartySegmentsQuery({ applies_to: 'customer', active_only: true });
   const [createCustomer, createState] = useCreateCustomerMutation();
 
@@ -124,13 +127,10 @@ export function CustomersListPage() {
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(12);
   const [filters, setFilters] = useState({ ...DEFAULT_CUSTOMER_FILTERS });
 
-  const [panel, setPanel] = useState<'filters' | 'sort' | null>(null);
-  const [filterDraft, setFilterDraft] = useState<FilterValues>({ ...DEFAULT_CUSTOMER_FILTERS });
-  const [sortDraft, setSortDraft] = useState<SortCriterion[]>(DEFAULT_CUSTOMER_SORT);
-
   const [addOpen, setAddOpen] = useState(false);
   const [values, setValues] = useState<PartyFormValues>(emptyCustomerForm());
   const [formError, setFormError] = useState('');
+  const locationState = usePartyLocationIds({ mode: 'create', resetKey: addOpen });
 
   const segmentOptions = useMemo(
     () =>
@@ -147,7 +147,7 @@ export function CustomersListPage() {
   }, [segmentOptions]);
 
   /** Advanced dialog only — status/attention live on the segmented control. */
-  const advancedFilterFields: FilterFieldDef[] = useMemo(
+  const filterFields: FilterFieldDef[] = useMemo(
     () => [
       { key: 'customer_name', label: 'Customer name', type: 'text', placeholder: 'Name contains…' },
       { key: 'phone_number', label: 'Phone', type: 'text', placeholder: 'Phone contains…' },
@@ -179,13 +179,23 @@ export function CustomersListPage() {
           { value: 'without', label: 'Without orders' },
         ],
       },
+      {
+        key: 'attention',
+        label: 'Attention',
+        type: 'select',
+        options: [{ value: 'due', label: 'Due' }],
+      },
+      {
+        key: 'is_blacklisted',
+        label: 'Blacklisted',
+        type: 'select',
+        options: [
+          { value: 'active', label: 'Active' },
+          { value: 'blacklisted', label: 'Blacklisted' },
+        ],
+      },
     ],
     [segmentOptions],
-  );
-
-  const advancedFilterCount = useMemo(
-    () => advancedFilterFields.filter((f) => Boolean(filters[f.key as keyof typeof filters])).length,
-    [advancedFilterFields, filters],
   );
 
   const filtered = useMemo(() => {
@@ -242,14 +252,6 @@ export function CustomersListPage() {
     if (page > pages) setPage(pages);
   }, [page, pages]);
 
-  useEffect(() => {
-    if (panel === 'filters') setFilterDraft({ ...filters });
-  }, [panel, filters]);
-
-  useEffect(() => {
-    if (panel === 'sort') setSortDraft(sort.length ? sort : DEFAULT_CUSTOMER_SORT);
-  }, [panel, sort]);
-
   function setField(name: string, value: string) {
     setValues((p) => ({ ...p, [name]: value }));
     if (formError) setFormError('');
@@ -260,6 +262,14 @@ export function CustomersListPage() {
     setValues(emptyCustomerForm());
     setAddOpen(true);
   }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openAdd();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   function setQuickChip(next: QuickChip) {
     setFilters((prev) => {
@@ -280,9 +290,14 @@ export function CustomersListPage() {
       setFormError(validation);
       return;
     }
+    const loc = locationState.resolveForSave();
+    if (loc.error) {
+      setFormError(loc.error);
+      return;
+    }
     setFormError('');
     try {
-      const created = await createCustomer(customerBody(values)).unwrap();
+      const created = await createCustomer(customerBody(values, loc.locationIds)).unwrap();
       setAddOpen(false);
       const id = created?.id != null ? String(created.id) : '';
       if (id) {
@@ -423,15 +438,23 @@ export function CustomersListPage() {
           />
         }
         tools={
-          <div className="el-tool-links">
-            <button type="button" className="el-tool-link" onClick={() => setPanel('filters')}>
-              More filters
-              {advancedFilterCount > 0 ? <span className="el-tool-badge">{advancedFilterCount}</span> : null}
-            </button>
-            <button type="button" className="el-tool-link" onClick={() => setPanel('sort')}>
-              Sort
-            </button>
-          </div>
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_CUSTOMER_FILTERS}
+            excludeKeys={['attention', 'is_blacklisted']}
+            onFiltersChange={(next) => {
+              setFilters(next as typeof filters);
+              setPage(1);
+            }}
+            sort={sort}
+            defaultSort={DEFAULT_CUSTOMER_SORT}
+            sortOptions={SORT_OPTIONS}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
+          />
         }
         summary={
           !isLoading && !error ? (
@@ -487,6 +510,9 @@ export function CustomersListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => openCustomer(String(row.id))}
+          onNew={canCreate ? openAdd : undefined}
           actions={(row) => (
             <EntityListActions onOpen={() => openCustomer(String(row.id))} />
           )}
@@ -525,54 +551,6 @@ export function CustomersListPage() {
 
       {isFetching && !isLoading ? <EntityListRefreshing /> : null}
 
-      <FiltersDialog
-        open={panel === 'filters'}
-        fields={advancedFilterFields}
-        draft={filterDraft}
-        onDraftChange={setFilterDraft}
-        onClose={() => setPanel(null)}
-        onApply={() => {
-          setFilters((prev) => ({
-            ...prev,
-            ...Object.fromEntries(advancedFilterFields.map((f) => [f.key, filterDraft[f.key] || ''])),
-          }));
-          setPage(1);
-          setPanel(null);
-        }}
-        onClear={() => {
-          setFilters((prev) => ({
-            ...prev,
-            customer_name: '',
-            phone_number: '',
-            alternate_phone_number: '',
-            gstin: '',
-            registration_type: '',
-            segment_id: '',
-            has_orders: '',
-          }));
-          setPage(1);
-          setPanel(null);
-        }}
-      />
-
-      <SortDialog
-        open={panel === 'sort'}
-        sortOptions={SORT_OPTIONS}
-        draft={sortDraft.length ? sortDraft : DEFAULT_CUSTOMER_SORT}
-        onDraftChange={setSortDraft}
-        onClose={() => setPanel(null)}
-        onApply={() => {
-          setSort(sortDraft.length ? sortDraft : DEFAULT_CUSTOMER_SORT);
-          setPage(1);
-          setPanel(null);
-        }}
-        onClear={() => {
-          setSort([...DEFAULT_CUSTOMER_SORT]);
-          setPage(1);
-          setPanel(null);
-        }}
-      />
-
       <Modal
         title="Add Customer"
         open={addOpen}
@@ -580,6 +558,21 @@ export function CustomersListPage() {
         wide
         footer={
           <>
+            <Button
+              type="button"
+              variant="ghost"
+              data-kb-action="customers.open_existing"
+              onClick={() => {
+                setAddOpen(false);
+                requestAnimationFrame(() => {
+                  const search = document.querySelector<HTMLInputElement>('.el-search input');
+                  search?.focus();
+                  search?.select?.();
+                });
+              }}
+            >
+              Search existing
+            </Button>
             <Button type="button" onClick={() => void submitForm()} disabled={saving}>
               {saving ? 'Saving…' : 'Create Customer'}
             </Button>
@@ -590,7 +583,17 @@ export function CustomersListPage() {
         }
       >
         {formError ? <ErrorText>{formError}</ErrorText> : null}
-        <CustomerFormFields values={values} onChange={setField} segmentOptions={segmentOptions} />
+        <CustomerFormFields
+          values={values}
+          onChange={setField}
+          segmentOptions={segmentOptions}
+          locationPicker={{
+            showPicker: locationState.showPicker,
+            locationIds: locationState.locationIds,
+            setLocationIds: locationState.setLocationIds,
+            accessible: locationState.accessible,
+          }}
+        />
       </Modal>
     </EntityListPage>
   );

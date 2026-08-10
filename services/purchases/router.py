@@ -736,6 +736,18 @@ def update_bill(bill_id: str, body: PurchaseBillWrite) -> dict[str, Any]:
         raise _http_err(exc) from exc
 
 
+@router.delete("/bills/{bill_id}", status_code=204)
+def delete_bill(bill_id: str) -> None:
+    try:
+        if not _svc().get_purchase_bill(bill_id):
+            raise HTTPException(status_code=404, detail="Purchase bill not found")
+        _svc().delete_purchase_bill(bill_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
 @router.get("/returns")
 def list_returns(
     *,

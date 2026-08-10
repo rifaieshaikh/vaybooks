@@ -163,6 +163,7 @@ export function ActivityCompleteControls({
         <div className="ow-actions" style={{ marginTop: 0 }}>
           <Button
             type="submit"
+            data-kb-action="items.activity.mark_done"
             disabled={completeState.isLoading || (needsTime && !hasTaskLogged)}
             title={needsTime && !hasTaskLogged ? 'Record a task first' : undefined}
           >
@@ -190,12 +191,17 @@ export function ActivityCompleteControls({
             <div className="ow-act-row-actions">
               {open ? null : (
                 <>
-                  <Button type="button" onClick={() => setOpen(true)}>
+                  <Button
+                    type="button"
+                    data-kb-action="items.activity.complete"
+                    onClick={() => setOpen(true)}
+                  >
                     Complete
                   </Button>
                   <Button
                     type="button"
                     variant="ghost"
+                    data-kb-action="items.activity.skip"
                     disabled={skipState.isLoading}
                     onClick={() => void onSkip()}
                   >
@@ -223,12 +229,17 @@ export function ActivityCompleteControls({
       </div>
       {!done && !readOnly && !open ? (
         <div className="ow-actions" style={{ marginTop: 0 }}>
-          <Button type="button" onClick={() => setOpen(true)}>
+          <Button
+            type="button"
+            data-kb-action="items.activity.complete"
+            onClick={() => setOpen(true)}
+          >
             Complete
           </Button>
           <Button
             type="button"
             variant="ghost"
+            data-kb-action="items.activity.skip"
             disabled={skipState.isLoading}
             onClick={() => void onSkip()}
           >

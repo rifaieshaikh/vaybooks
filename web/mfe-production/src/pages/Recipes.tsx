@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   useCreateRecipeMutation,
   useListInventoryProductsQuery,
@@ -48,6 +49,7 @@ const FILTER_FIELDS: FilterFieldDef[] = [
 ];
 
 export function ProductionRecipesPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data = [], isLoading, error, refetch } = useListRecipesQuery();
   const { data: products = [] } = useListInventoryProductsQuery();
   const [createRecipe, createState] = useCreateRecipeMutation();
@@ -112,6 +114,19 @@ export function ProductionRecipesPage() {
     [],
   );
 
+  function openCreate() {
+    setFormError('');
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openCreate();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   async function onCreate() {
     setFormError('');
     if (!name.trim() || !inputId || !outputId) {
@@ -142,13 +157,7 @@ export function ProductionRecipesPage() {
         title="Recipes"
         count={`${filtered.length} ${filtered.length === 1 ? 'recipe' : 'recipes'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setOpen(true);
-            }}
-          >
+          <Button type="button" onClick={openCreate}>
             New recipe
           </Button>
         }
@@ -200,7 +209,13 @@ export function ProductionRecipesPage() {
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          keyboardNav
+          onNew={openCreate}
+        />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (

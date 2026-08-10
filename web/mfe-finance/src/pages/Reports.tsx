@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
+  baseApi,
+  useAppDispatch,
   useFinanceReportsCatalogQuery,
   useFinanceTrialBalanceQuery,
   useRunFinanceReportMutation,
@@ -168,7 +170,7 @@ export function FinanceReportsPage() {
     setRunError('');
     if (!reportType) {
       setRunError('Choose a report type');
-      return;
+      return null;
     }
     try {
       const result = await runReport({ report_type: reportType, filters: {} }).unwrap();
@@ -176,11 +178,24 @@ export function FinanceReportsPage() {
       setRows(nextRows);
       setRowCount(typeof result.row_count === 'number' ? result.row_count : nextRows.length);
       setHasRun(true);
+      return nextRows;
     } catch (e: unknown) {
       setRunError(extractError(e));
       setRows([]);
       setRowCount(null);
       setHasRun(true);
+      return null;
+    }
+  }
+
+  async function exportReportCsv() {
+    let exportRows = rows;
+    if (exportRows.length === 0 && reportType) {
+      const next = await runSelectedReport();
+      if (next) exportRows = next;
+    }
+    if (exportRows.length > 0) {
+      downloadCsv(`finance-${reportType}.csv`, exportRows);
     }
   }
 
@@ -195,6 +210,7 @@ export function FinanceReportsPage() {
           <FormRow label="Report type">
             <select
               value={reportType}
+              data-kb-action="reports.select"
               onChange={(e) => setReportType(e.target.value)}
               style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
             >
@@ -210,8 +226,14 @@ export function FinanceReportsPage() {
         <Button type="button" onClick={() => void runSelectedReport()} disabled={running}>
           {running ? 'Running…' : 'Run'}
         </Button>
-        {hasRun && rows.length > 0 ? (
-          <Button type="button" variant="ghost" onClick={() => downloadCsv(`finance-${reportType}.csv`, rows)}>
+        {reportType ? (
+          <Button
+            type="button"
+            variant="ghost"
+            data-kb-action="reports.export"
+            onClick={() => void exportReportCsv()}
+            disabled={running}
+          >
             Download CSV
           </Button>
         ) : null}
@@ -231,27 +253,86 @@ export function FinanceReportsPage() {
 }
 
 export function ExportBackupPage() {
-  const exports = [
-    { entity: 'accounts', label: 'Accounts CSV', hint: 'Chart of accounts with balances' },
-    { entity: 'vouchers', label: 'Vouchers CSV', hint: 'All posted vouchers' },
-    { entity: 'trial-balance', label: 'Trial Balance CSV', hint: 'Debit/credit balances' },
+  const dispatch = useAppDispatch();
+  const restoreInputRef = useRef<HTMLInputElement>(null);
+  const [restoreMsg, setRestoreMsg] = useState('');
+  const [exportBusy, setExportBusy] = useState<string | null>(null);
+
+  const financeExports = [
+    { entity: 'accounts', label: 'Accounts CSV', hint: 'Chart of accounts with balances', kb: 'export.backup.save_disk' },
+    { entity: 'vouchers', label: 'Vouchers CSV', hint: 'All posted vouchers', kb: 'export.backup.json' },
+    { entity: 'trial-balance', label: 'Trial Balance CSV', hint: 'Debit/credit balances', kb: 'export.backup.zip' },
   ];
+
+  const clientExports = [
+    { id: 'customers', label: 'Customers CSV', hint: 'Party master export', kb: 'export.csv.customers' },
+    { id: 'orders', label: 'Orders CSV', hint: 'Boutique orders export', kb: 'export.csv.orders' },
+    { id: 'products', label: 'Products CSV', hint: 'Inventory products export', kb: 'export.csv.products' },
+    { id: 'vendors', label: 'Vendors CSV', hint: 'Vendor master export', kb: 'export.csv.vendors' },
+  ] as const;
+
+  function pagedRows(data: unknown): Record<string, unknown>[] {
+    if (Array.isArray(data)) return data as Record<string, unknown>[];
+    if (data && typeof data === 'object') {
+      const items = (data as { items?: unknown }).items;
+      if (Array.isArray(items)) return items as Record<string, unknown>[];
+    }
+    return [];
+  }
+
+  async function exportClientCsv(id: (typeof clientExports)[number]['id']) {
+    setExportBusy(id);
+    try {
+      let rows: Record<string, unknown>[] = [];
+      if (id === 'customers') {
+        rows = (await dispatch(baseApi.endpoints.listCustomers.initiate(undefined)).unwrap()) as Record<
+          string,
+          unknown
+        >[];
+      } else if (id === 'vendors') {
+        rows = (await dispatch(baseApi.endpoints.listVendors.initiate(undefined)).unwrap()) as Record<
+          string,
+          unknown
+        >[];
+      } else if (id === 'products') {
+        rows = (await dispatch(baseApi.endpoints.listInventoryProducts.initiate(undefined)).unwrap()) as Record<
+          string,
+          unknown
+        >[];
+      } else if (id === 'orders') {
+        const page = await dispatch(
+          baseApi.endpoints.listBoutiqueOrders.initiate({ page: 1, page_size: 500 }),
+        ).unwrap();
+        rows = pagedRows(page);
+      }
+      if (rows.length === 0) {
+        window.alert(`No ${id} to export.`);
+        return;
+      }
+      downloadCsv(`${id}.csv`, rows);
+    } catch {
+      window.alert(`Failed to export ${id}.`);
+    } finally {
+      setExportBusy(null);
+    }
+  }
 
   return (
     <div>
       <h2 style={{ margin: '0 0 8px', color: 'var(--vb-color-primary, #185c4c)' }}>Export / Backup</h2>
       <p style={{ color: '#667', marginTop: 0 }}>
-        Download key finance entities as CSV. Full Drive backup remains out of scope for this wave.
+        Download finance entities from the server, or export party/inventory lists as CSV from the API.
       </p>
+
+      <h3 style={{ margin: '24px 0 12px', fontSize: '1rem' }}>Finance exports</h3>
       <div
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
           gap: 12,
-          marginTop: 20,
         }}
       >
-        {exports.map((item) => (
+        {financeExports.map((item) => (
           <div
             key={item.entity}
             style={{
@@ -267,6 +348,7 @@ export function ExportBackupPage() {
             <div style={{ fontSize: 13, color: '#667' }}>{item.hint}</div>
             <Button
               type="button"
+              data-kb-action={item.kb}
               onClick={() => {
                 window.open(`/api/finance/export?entity=${encodeURIComponent(item.entity)}`, '_blank');
               }}
@@ -276,6 +358,64 @@ export function ExportBackupPage() {
           </div>
         ))}
       </div>
+
+      <h3 style={{ margin: '24px 0 12px', fontSize: '1rem' }}>Master data CSV</h3>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 12,
+        }}
+      >
+        {clientExports.map((item) => (
+          <div
+            key={item.id}
+            style={{
+              border: '1px solid #d9e3de',
+              borderRadius: 10,
+              background: '#fff',
+              padding: '1rem 1.1rem',
+              display: 'grid',
+              gap: 10,
+            }}
+          >
+            <div style={{ fontWeight: 650 }}>{item.label}</div>
+            <div style={{ fontSize: 13, color: '#667' }}>{item.hint}</div>
+            <Button
+              type="button"
+              data-kb-action={item.kb}
+              disabled={exportBusy === item.id}
+              onClick={() => void exportClientCsv(item.id)}
+            >
+              {exportBusy === item.id ? 'Exporting…' : 'Download CSV'}
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <h3 style={{ margin: '24px 0 12px', fontSize: '1rem' }}>Restore</h3>
+      <p style={{ color: '#667', marginTop: 0 }}>
+        Full ZIP backup restore is available in the desktop app only — not on web.
+      </p>
+      <input
+        ref={restoreInputRef}
+        type="file"
+        accept=".zip,.json"
+        hidden
+        onChange={() => {
+          setRestoreMsg('ZIP backup restore is desktop-only and is not available in the web app.');
+          if (restoreInputRef.current) restoreInputRef.current.value = '';
+        }}
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        data-kb-action="export.backup.restore"
+        onClick={() => restoreInputRef.current?.click()}
+      >
+        Choose backup file…
+      </Button>
+      {restoreMsg ? <p style={{ marginTop: 12, color: '#667' }}>{restoreMsg}</p> : null}
     </div>
   );
 }

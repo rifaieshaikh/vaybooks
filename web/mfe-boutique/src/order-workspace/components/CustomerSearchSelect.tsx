@@ -141,6 +141,7 @@ export function CustomerSearchSelect({
           type="button"
           variant="ghost"
           disabled={disabled}
+          data-kb-action={creating ? 'dialog.open_existing' : undefined}
           onClick={() => {
             onCreatingChange(!creating);
             if (!creating) onSelectExisting('');

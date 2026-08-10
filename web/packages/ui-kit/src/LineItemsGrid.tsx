@@ -1,7 +1,8 @@
-import type { KeyboardEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent } from 'react';
 import { DiscountInput, type DiscountMode } from './DiscountInput';
 import { SearchableSelect } from './SearchableSelect';
 import { formatInr, focusDocumentSave, deFocusables } from './DocumentEditor';
+import { chordMatches, eventChord, useListKeyboardBindings } from './ListKeyboard';
 import './DocumentEditor.css';
 
 export type LineProductOption = {
@@ -120,6 +121,8 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
   const rows = ensureTrailingBlank(lines, allowServices);
   const productOptions = toSelectOptions(products);
   const serviceOptions = toSelectOptions(services);
+  const bindings = useListKeyboardBindings();
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   function trimTrailingBlanks(list: T[]): T[] {
     const copy = [...list];
@@ -168,8 +171,46 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
     focusDocumentSave(root.closest('.de-page'));
   }
 
+  useEffect(() => {
+    if (disabled) return;
+    function onKeyDown(e: globalThis.KeyboardEvent) {
+      const page = wrapRef.current?.closest('.de-page');
+      if (!page) return;
+      const target = e.target;
+      if (!(target instanceof Node) || !page.contains(target)) return;
+
+      const chord = eventChord(e);
+      if (!chord) return;
+
+      if (chordMatches(chord, bindings.addLine)) {
+        e.preventDefault();
+        const next = ensureTrailingBlank(
+          [...trimTrailingBlanks(rows as T[]), newBlankLine(allowServices) as T],
+          allowServices,
+        ) as T[];
+        onChange(next);
+        return;
+      }
+      if (chordMatches(chord, bindings.removeLine)) {
+        e.preventDefault();
+        const el = target instanceof Element ? target : null;
+        const tr = el?.closest('tr');
+        const tbody = wrapRef.current?.querySelector('tbody');
+        const trs = tbody ? Array.from(tbody.querySelectorAll('tr')) : [];
+        let idx = tr && tbody ? trs.indexOf(tr as HTMLTableRowElement) : -1;
+        if (idx < 0) {
+          idx = rows.length - 1;
+          while (idx > 0 && !lineHasItem(rows[idx], allowServices)) idx -= 1;
+        }
+        if (idx >= 0) removeAt(idx);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [allowServices, bindings.addLine, bindings.removeLine, disabled, onChange, rows]);
+
   return (
-    <div className="de-grid-wrap">
+    <div className="de-grid-wrap" ref={wrapRef}>
       <table className="de-grid">
         <thead>
           <tr>

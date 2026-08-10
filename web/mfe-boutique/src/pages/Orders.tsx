@@ -184,6 +184,9 @@ export function BoutiqueOrdersListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => openOrder(row)}
+          onNew={() => navigate('/boutique/orders/workspace')}
           actions={(row) => <EntityListActions onOpen={() => openOrder(row)} />}
         />
       ) : null}

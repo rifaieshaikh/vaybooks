@@ -88,6 +88,7 @@ export function OpsStep({ orderId, order, onSaved, onModalOpenChange }: Props) {
           type="button"
           disabled={!canComplete || completeState.isLoading}
           title={canComplete ? undefined : 'Complete when status is Delivered'}
+          data-kb-action="orders.mark_complete"
           onClick={() => void onComplete()}
         >
           Complete order
@@ -96,6 +97,7 @@ export function OpsStep({ orderId, order, onSaved, onModalOpenChange }: Props) {
           type="button"
           variant="ghost"
           disabled={status === 'Cancelled' || status === 'Completed'}
+          data-kb-action="orders.cancel"
           onClick={() => {
             setCancelOpen(true);
             onModalOpenChange?.(true);

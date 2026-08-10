@@ -245,6 +245,9 @@ export function BusinessActivitiesPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={(row) => openEdit(row)}
+          onNew={openCreate}
           actions={(row) => (
             <EntityListActions
               onEdit={() => openEdit(row)}

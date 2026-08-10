@@ -388,6 +388,7 @@ export function SalesOrderDetailPage() {
       id: 'dn',
       label: 'Delivery note',
       variant: 'primary',
+      kbAction: 'sales.orders.deliver',
       onClick: () => navigate(`/sales/delivery-notes/new?sales_order_id=${id}`),
     },
     {

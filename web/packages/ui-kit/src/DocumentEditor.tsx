@@ -1,5 +1,6 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Button } from './controls';
+import { chordMatches, eventChord, useListKeyboardBindings } from './ListKeyboard';
 import './DocumentEditor.css';
 
 export type DocumentEditorProps = {
@@ -57,18 +58,28 @@ export function DocumentEditor({
   body,
   footer,
 }: DocumentEditorProps) {
+  const bindings = useListKeyboardBindings();
+  const pageRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      const chord = eventChord(e);
+      if (chord && chordMatches(chord, bindings.save)) {
         e.preventDefault();
         if (!saving) onSave();
+        return;
+      }
+
+      if (chord && chordMatches(chord, bindings.back)) {
+        e.preventDefault();
+        onCancel();
         return;
       }
 
       if (e.key !== 'Enter' || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
-      const page = target.closest('.de-page');
+      const page = target.closest('.de-page') || pageRef.current;
       if (!page) return;
       if (target.tagName === 'TEXTAREA') return;
 
@@ -83,7 +94,6 @@ export function DocumentEditor({
       if (!header || !header.contains(target)) return;
 
       const fields = deFocusables(header);
-      // Prefer the actual input inside SearchableSelect when the event bubbled oddly
       const current =
         fields.find((el) => el === target || el.contains(target)) ??
         (fields.includes(target) ? target : null);
@@ -102,10 +112,10 @@ export function DocumentEditor({
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onSave, saving]);
+  }, [bindings.back, bindings.save, onCancel, onSave, saving]);
 
   return (
-    <div className="de-page">
+    <div className="de-page" ref={pageRef}>
       <header className="de-header">
         <h1 className="de-title">{title}</h1>
         {children ? <div className="de-header-fields">{children}</div> : null}

@@ -21,6 +21,7 @@ import {
   EntityListTable,
   ErrorText,
   PaginationBar,
+  StatusPill,
   displayName,
   type CalendarCategory,
   type CalendarEvent,
@@ -41,7 +42,9 @@ import {
   sortQueryParams,
 } from '../pagedList';
 import { asCaption } from '../utils';
+import { boutiqueItemStatusTone, boutiqueTaskStatus } from '../boutiqueListHelpers';
 import { boutiqueOrderPath } from '../order-workspace/types';
+import '../BoutiqueList.css';
 
 const TASK_TYPES = [
   { id: 'activity', label: 'Activity' },
@@ -50,18 +53,22 @@ const TASK_TYPES = [
 ] as const;
 
 const DEFAULT_TASK_FILTERS = {
+  q: '',
   worker_name: '',
   activity_name: '',
   order_number: '',
   task_type: 'activity',
+  status: '',
 };
 const DEFAULT_LOG_FILTERS = {
+  q: '',
   worker_name: '',
   activity_name: '',
   order_number: '',
   task_type: '',
 };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'work_date', desc: true }];
+const TASK_STATUSES = ['Created', 'Completed'] as const;
 
 function useTaskModalFromQuery() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -107,11 +114,13 @@ export function BoutiqueTimePage() {
   const [syncMsg, setSyncMsg] = useState('');
   const modal = useTaskModalFromQuery();
 
-  const { data, isLoading, error, refetch } = useListBoutiqueTimeEntriesQuery({
+  const { data, isLoading, error, isFetching, refetch } = useListBoutiqueTimeEntriesQuery({
+    q: filters.q || undefined,
     worker_name: filters.worker_name || undefined,
     activity_name: filters.activity_name || undefined,
     order_number: filters.order_number || undefined,
     task_type: 'activity',
+    status: filters.status || undefined,
     ...sortQueryParams(sort),
     page,
     page_size: LIST_PAGE_SIZE,
@@ -124,6 +133,18 @@ export function BoutiqueTimePage() {
     () => pageRows.reduce((sum, row) => sum + Number(row.duration_minutes || 0), 0),
     [pageRows],
   );
+  const hasActiveFilters = Boolean(
+    filters.q || filters.worker_name || filters.activity_name || filters.order_number || filters.status,
+  );
+  const pagePulse = useMemo(() => {
+    let created = 0;
+    let completed = 0;
+    for (const row of pageRows) {
+      if (boutiqueTaskStatus(row) === 'Completed') completed += 1;
+      else created += 1;
+    }
+    return { created, completed };
+  }, [pageRows]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
@@ -140,6 +161,12 @@ export function BoutiqueTimePage() {
     refetch();
   }
 
+  function openRecord() {
+    modal.setEditingEntry(null);
+    modal.setPrefill(undefined);
+    modal.setOpen(true);
+  }
+
   type TimeRow = (typeof pageRows)[number];
 
   const columns: EntityListColumn<TimeRow>[] = useMemo(
@@ -149,33 +176,36 @@ export function BoutiqueTimePage() {
         header: 'Task',
         render: (row) => {
           const activity = displayName(row, ['activity_name'], 'Task');
-          const status = asCaption(row.status) || (asCaption(row.start_time) ? 'Completed' : 'Created');
           const date = asCaption(row.work_date).slice(0, 10) || 'No date';
           const est = Number(row.estimated_hours || 0);
           return (
-            <div className="el-customer">
-              <div className="el-customer-meta">
-                <span className="el-customer-name">
-                  {activity}
-                  {est > 0 ? ` · ${est}h est` : ''}
-                </span>
-                <span className="el-customer-sub">
-                  {status} · {date} ·{' '}
-                  {asCaption(row.assignee_name) || asCaption(row.worker_name) || 'Unassigned'} ·{' '}
-                  {asCaption(row.order_number) || 'No order'} · Bill{' '}
-                  {asCaption(row.bill_number) || '—'}
-                </span>
+            <div className="bl-primary">
+              <div className="bl-primary-title">
+                {activity}
+                {est > 0 ? ` · ${est}h est` : ''}
+              </div>
+              <div className="bl-primary-sub">
+                {date} · {asCaption(row.assignee_name) || asCaption(row.worker_name) || 'Unassigned'} ·{' '}
+                {asCaption(row.order_number) || 'No order'}
               </div>
             </div>
           );
         },
       },
       {
+        id: 'bill',
+        header: 'Bill',
+        render: (row) => {
+          const bill = asCaption(row.bill_number);
+          return <span className={bill ? undefined : 'el-muted'}>{bill || '—'}</span>;
+        },
+      },
+      {
         id: 'status',
         header: 'Status',
         render: (row) => {
-          const status = asCaption(row.status) || (asCaption(row.start_time) ? 'Completed' : 'Created');
-          return <span>{status}</span>;
+          const status = boutiqueTaskStatus(row);
+          return <StatusPill status={status} tone={boutiqueItemStatusTone(status)} />;
         },
       },
       {
@@ -185,7 +215,7 @@ export function BoutiqueTimePage() {
         headerClassName: 'el-col-num',
         render: (row) => {
           const mins = Number(row.duration_minutes ?? 0);
-          if (!mins && !asCaption(row.start_time)) return '—';
+          if (!mins && !asCaption(row.start_time)) return <span className="el-muted">—</span>;
           return formatDurationLabel(mins);
         },
       },
@@ -204,13 +234,16 @@ export function BoutiqueTimePage() {
   );
 
   return (
-    <EntityListPage>
+    <EntityListPage className="bl-page">
       <EntityListHero
         kicker="Boutique"
         title="Tasks"
         count={`${total} ${total === 1 ? 'task' : 'tasks'} · ${formatDurationLabel(totalMinutes)}`}
         actions={
           <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
             <Button type="button" variant="ghost" onClick={() => navigate('/boutique/time-log')}>
               Time log
             </Button>
@@ -236,25 +269,51 @@ export function BoutiqueTimePage() {
             >
               {syncState.isLoading ? 'Syncing…' : 'Sync tasks'}
             </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                modal.setEditingEntry(null);
-                modal.setPrefill(undefined);
-                modal.setOpen(true);
-              }}
-            >
+            <Button type="button" onClick={openRecord}>
               Record task
             </Button>
           </>
+        }
+        search={
+          <input
+            type="search"
+            value={filters.q}
+            onChange={(e) => {
+              setFilters((prev) => ({ ...prev, q: e.target.value }));
+              setPage(1);
+            }}
+            placeholder="Search worker, activity, order, or bill…"
+            aria-label="Search tasks"
+          />
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel="Status"
+            value={filters.status || 'all'}
+            onChange={(nextId) => {
+              setFilters((prev) => ({ ...prev, status: nextId === 'all' ? '' : nextId }));
+              setPage(1);
+            }}
+            options={[
+              { id: 'all', label: 'All' },
+              ...TASK_STATUSES.map((s) => ({ id: s, label: s })),
+            ]}
+          />
         }
         tools={
           <EntityListFilterSort
             filterFields={filterFields}
             filters={filters}
             defaultFilters={DEFAULT_TASK_FILTERS}
+            excludeKeys={['q', 'status', 'task_type']}
             onFiltersChange={(next) => {
-              setFilters(next as typeof filters);
+              setFilters({
+                ...DEFAULT_TASK_FILTERS,
+                ...next,
+                q: filters.q,
+                status: filters.status,
+                task_type: 'activity',
+              });
               setPage(1);
             }}
             sort={sort}
@@ -270,19 +329,51 @@ export function BoutiqueTimePage() {
             }}
           />
         }
+        summary={
+          !isLoading && pageRows.length > 0 ? (
+            <div className="el-pulse">
+              <span>
+                <strong>{pagePulse.created}</strong> open
+              </span>
+              <span>
+                <strong>{pagePulse.completed}</strong> logged
+              </span>
+              <span className="el-muted">
+                on this page{isFetching ? ' · Updating…' : ''}
+              </span>
+            </div>
+          ) : null
+        }
       />
 
+      {syncMsg ? <p className="bl-sync-note">{syncMsg}</p> : null}
       {isLoading ? <EntityListLoading>Loading tasks…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load tasks.</ErrorText> : null}
-      {syncMsg ? <p style={{ color: '#667', marginBottom: 8 }}>{syncMsg}</p> : null}
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>No tasks found.</strong>
-          <span>
-            {' '}
-            Confirm an order to create tasks for required activities, or click Sync tasks for open
-            orders.
-          </span>
+          <strong>{hasActiveFilters ? 'No matching tasks' : 'No tasks yet'}</strong>
+          <p>
+            {hasActiveFilters
+              ? 'Clear search or status filters to see more tasks.'
+              : 'Confirm an order to create tasks for required activities, or sync open orders.'}
+          </p>
+          <div className="bl-empty-cta">
+            {hasActiveFilters ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setFilters({ ...DEFAULT_TASK_FILTERS });
+                  setPage(1);
+                }}
+              >
+                Clear filters
+              </Button>
+            ) : null}
+            <Button type="button" onClick={openRecord}>
+              Record task
+            </Button>
+          </div>
         </EntityListEmpty>
       ) : null}
 
@@ -291,12 +382,12 @@ export function BoutiqueTimePage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/boutique/time/${String(row.id)}`)}
+          onNew={openRecord}
           actions={(row) => (
             <EntityListActions
-              onOpen={() => {
-                modal.setEditingEntry(row);
-                modal.setOpen(true);
-              }}
+              onOpen={() => navigate(`/boutique/time/${String(row.id)}`)}
               onDelete={() => void onDelete(String(row.id))}
             />
           )}
@@ -338,7 +429,8 @@ export function BoutiqueTimeLogPage() {
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
 
-  const { data, isLoading, error, refetch } = useListBoutiqueTimeEntriesQuery({
+  const { data, isLoading, error, isFetching, refetch } = useListBoutiqueTimeEntriesQuery({
+    q: filters.q || undefined,
     worker_name: filters.worker_name || undefined,
     activity_name: filters.activity_name || undefined,
     order_number: filters.order_number || undefined,
@@ -355,22 +447,26 @@ export function BoutiqueTimeLogPage() {
     () => pageRows.reduce((sum, row) => sum + Number(row.duration_minutes || 0), 0),
     [pageRows],
   );
+  const hasActiveFilters = Boolean(
+    filters.q ||
+      filters.worker_name ||
+      filters.activity_name ||
+      filters.order_number ||
+      filters.task_type,
+  );
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
       { key: 'worker_name', label: 'Worker', type: 'text' },
       { key: 'activity_name', label: 'Activity', type: 'text' },
       { key: 'order_number', label: 'Order #', type: 'text' },
-      {
-        key: 'task_type',
-        label: 'Type',
-        type: 'select',
-        allLabel: 'All types',
-        options: TASK_TYPES.map((t) => ({ value: t.id, label: t.label })),
-      },
     ],
     [],
   );
+
+  function openEntry(row: Record<string, unknown>) {
+    navigate(`/boutique/time/${String(row.id)}?from=log`);
+  }
 
   async function onDelete(id: string) {
     if (!window.confirm('Delete this time log entry?')) return;
@@ -389,20 +485,29 @@ export function BoutiqueTimeLogPage() {
           const activity = displayName(row, ['activity_name'], 'Entry');
           const date = asCaption(row.work_date).slice(0, 10) || 'No date';
           const taskType = String(row.task_type || 'activity');
+          const typeLabel =
+            TASK_TYPES.find((t) => t.id === taskType)?.label || taskType;
           return (
-            <div className="el-customer">
-              <div className="el-customer-meta">
-                <span className="el-customer-name">
-                  {date} · {activity}
-                </span>
-                <span className="el-customer-sub">
-                  {taskType} ·{' '}
-                  {asCaption(row.assignee_name) || asCaption(row.worker_name) || 'No worker'} ·{' '}
-                  {asCaption(row.order_number) || 'No order'}
-                </span>
+            <div className="bl-primary">
+              <div className="bl-primary-title">
+                {date} · {activity}
+              </div>
+              <div className="bl-primary-sub">
+                {typeLabel} ·{' '}
+                {asCaption(row.assignee_name) || asCaption(row.worker_name) || 'No worker'} ·{' '}
+                {asCaption(row.order_number) || 'No order'}
+                {asCaption(row.bill_number) ? ` · Bill ${asCaption(row.bill_number)}` : ''}
               </div>
             </div>
           );
+        },
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => {
+          const status = boutiqueTaskStatus(row);
+          return <StatusPill status={status} tone={boutiqueItemStatusTone(status)} />;
         },
       },
       {
@@ -410,7 +515,11 @@ export function BoutiqueTimeLogPage() {
         header: 'Time taken',
         className: 'el-num',
         headerClassName: 'el-col-num',
-        render: (row) => formatDurationLabel(Number(row.duration_minutes ?? 0)),
+        render: (row) => {
+          const mins = Number(row.duration_minutes ?? 0);
+          if (!mins && !asCaption(row.start_time)) return <span className="el-muted">—</span>;
+          return formatDurationLabel(mins);
+        },
       },
       {
         id: 'window',
@@ -427,13 +536,16 @@ export function BoutiqueTimeLogPage() {
   );
 
   return (
-    <EntityListPage>
+    <EntityListPage className="bl-page">
       <EntityListHero
         kicker="Boutique"
         title="Time log"
         count={`${total} ${total === 1 ? 'entry' : 'entries'} · ${formatDurationLabel(totalMinutes)}`}
         actions={
           <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
             <Button type="button" variant="ghost" onClick={() => navigate('/boutique/time')}>
               Tasks
             </Button>
@@ -441,6 +553,18 @@ export function BoutiqueTimeLogPage() {
               Record task
             </Button>
           </>
+        }
+        search={
+          <input
+            type="search"
+            value={filters.q}
+            onChange={(e) => {
+              setFilters((prev) => ({ ...prev, q: e.target.value }));
+              setPage(1);
+            }}
+            placeholder="Search worker, activity, order, or bill…"
+            aria-label="Search time log"
+          />
         }
         chips={
           <EntityListQuickFilters
@@ -461,9 +585,14 @@ export function BoutiqueTimeLogPage() {
             filterFields={filterFields}
             filters={filters}
             defaultFilters={DEFAULT_LOG_FILTERS}
-            excludeKeys={['task_type']}
+            excludeKeys={['q', 'task_type']}
             onFiltersChange={(next) => {
-              setFilters(next as typeof filters);
+              setFilters({
+                ...DEFAULT_LOG_FILTERS,
+                ...next,
+                q: filters.q,
+                task_type: filters.task_type,
+              });
               setPage(1);
             }}
             sort={sort}
@@ -479,18 +608,50 @@ export function BoutiqueTimeLogPage() {
             }}
           />
         }
+        summary={
+          !isLoading && pageRows.length > 0 ? (
+            <div className="el-pulse">
+              <span>
+                <strong>{formatDurationLabel(totalMinutes)}</strong> on this page
+              </span>
+              <span className="el-muted">{isFetching ? 'Updating…' : 'Logged time'}</span>
+            </div>
+          ) : null
+        }
       />
 
-      <p style={{ margin: '0 0 12px', fontSize: 13, color: '#667' }}>
-        Chronological log of time taken across tasks, ETD, and delivery milestones. Manage activity
-        work on <Link to="/boutique/time">Tasks</Link>.
+      <p className="bl-sync-note">
+        Chronological log of time taken across tasks, ETD, and delivery. Manage activity work on{' '}
+        <Link to="/boutique/time">Tasks</Link>.
       </p>
 
       {isLoading ? <EntityListLoading>Loading time log…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load time log.</ErrorText> : null}
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>No time log entries found.</strong>
+          <strong>{hasActiveFilters ? 'No matching entries' : 'No time logged yet'}</strong>
+          <p>
+            {hasActiveFilters
+              ? 'Clear search or type filters to see more entries.'
+              : 'Record task time from Tasks, or open an item and log work there.'}
+          </p>
+          <div className="bl-empty-cta">
+            {hasActiveFilters ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setFilters({ ...DEFAULT_LOG_FILTERS });
+                  setPage(1);
+                }}
+              >
+                Clear filters
+              </Button>
+            ) : null}
+            <Button type="button" onClick={() => navigate('/boutique/time?new=1')}>
+              Record task
+            </Button>
+          </div>
         </EntityListEmpty>
       ) : null}
 
@@ -499,19 +660,12 @@ export function BoutiqueTimeLogPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => openEntry(row)}
+          onNew={() => navigate('/boutique/time?new=1')}
           actions={(row) => (
             <EntityListActions
-              onOpen={() => {
-                const orderId = row.order_id != null ? String(row.order_id) : '';
-                const billId = row.bill_id != null ? String(row.bill_id) : '';
-                if (orderId && billId) {
-                  navigate(
-                    `/boutique/items/${billId}?orderId=${encodeURIComponent(orderId)}&tab=tasks`,
-                  );
-                  return;
-                }
-                navigate('/boutique/time');
-              }}
+              onOpen={() => openEntry(row)}
               onDelete={() => void onDelete(String(row.id))}
             />
           )}

@@ -540,13 +540,25 @@ export function PaginationBar({
       {rangeLabel ? <span style={{ fontSize: 13, color: '#667' }}>{rangeLabel}</span> : null}
       {pageCount > 1 ? (
         <>
-          <Button type="button" variant="ghost" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={page <= 1}
+            data-el-page-prev=""
+            onClick={() => onPage(page - 1)}
+          >
             Previous
           </Button>
           <span style={{ fontSize: 13, alignSelf: 'center' }}>
             Page {page} / {pageCount}
           </span>
-          <Button type="button" variant="ghost" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={page >= pageCount}
+            data-el-page-next=""
+            onClick={() => onPage(page + 1)}
+          >
             Next
           </Button>
         </>

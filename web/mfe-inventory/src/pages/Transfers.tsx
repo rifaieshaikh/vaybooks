@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   useCancelInventoryTransferMutation,
   useCreateInventoryTransferMutation,
@@ -12,6 +12,13 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
+  EntityDetailBack,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailPanel,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
+  EntityDetailTabs,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -26,15 +33,19 @@ import {
   Modal,
   PAGE_SIZE,
   PaginationBar,
+  StatusPill,
   TextInput,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  statusPillTone,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
+
+type TransferDetailTab = 'overview' | 'lines';
 
 type TransferLineDraft = { product_id: string; qty: string };
 
@@ -276,6 +287,9 @@ export function TransfersListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/inventory/transfers/${String(row.id)}`)}
+          onNew={openNew}
           actions={(row) => (
             <EntityListActions onOpen={() => navigate(`/inventory/transfers/${String(row.id)}`)} />
           )}
@@ -399,19 +413,13 @@ export function TransfersListPage() {
 /** Streamlit parity: transfer detail with lifecycle actions (dispatch / receive / cancel). */
 export function TransferDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useGetInventoryTransferQuery(id, { skip: !id });
   const [dispatchTransfer, dispatchState] = useDispatchInventoryTransferMutation();
   const [receiveTransfer, receiveState] = useReceiveInventoryTransferMutation();
   const [cancelTransfer, cancelState] = useCancelInventoryTransferMutation();
   const [actionError, setActionError] = useState('');
-
-  if (isLoading) return <p>Loading…</p>;
-  if (error || !data) return <p style={{ color: '#b00020' }}>Transfer not found.</p>;
-
-  const status = String(data.status || '');
-  const lines = Array.isArray(data.lines) ? (data.lines as Record<string, unknown>[]) : [];
-  const label = statusLabel(status);
-  const tone = statusTone(status);
+  const [tab, setTab] = useState<TransferDetailTab>('overview');
 
   async function run(action: () => Promise<unknown>) {
     setActionError('');
@@ -423,80 +431,168 @@ export function TransferDetailPage() {
     }
   }
 
+  if (isLoading) {
+    return (
+      <EntityDetailPage>
+        <EntityListLoading>Loading transfer…</EntityListLoading>
+      </EntityDetailPage>
+    );
+  }
+  if (error || !data) {
+    return (
+      <EntityDetailPage>
+        <EntityDetailBack to="/inventory/transfers" label="Transfers" />
+        <ErrorText>Transfer not found.</ErrorText>
+      </EntityDetailPage>
+    );
+  }
+
+  const status = String(data.status || '');
+  const lines = Array.isArray(data.lines) ? (data.lines as Record<string, unknown>[]) : [];
+  const label = statusLabel(status);
+  const fromLabel = String(data.from_location_name || data.from_location_id || '—');
+  const toLabel = String(data.to_location_name || data.to_location_id || '—');
+  const busy = dispatchState.isLoading || receiveState.isLoading || cancelState.isLoading;
+
+  const heroActions = (
+    <>
+      <Button type="button" variant="ghost" onClick={() => void refetch()} disabled={busy}>
+        Refresh
+      </Button>
+      {status === 'Draft' ? (
+        <Button
+          type="button"
+          disabled={dispatchState.isLoading}
+          onClick={() => void run(() => dispatchTransfer(id).unwrap())}
+        >
+          Dispatch
+        </Button>
+      ) : null}
+      {status === 'In Transit' || status === 'Draft' ? (
+        <Button
+          type="button"
+          disabled={receiveState.isLoading}
+          onClick={() => void run(() => receiveTransfer(id).unwrap())}
+        >
+          Receive
+        </Button>
+      ) : null}
+      {status !== 'Received' && status !== 'Cancelled' ? (
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={cancelState.isLoading}
+          onClick={() => void run(() => cancelTransfer(id).unwrap())}
+        >
+          Cancel
+        </Button>
+      ) : null}
+    </>
+  );
+
   return (
-    <div>
-      <p>
-        <Link to="/inventory/transfers">← Transfers</Link>
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>{String(data.transfer_number || id)}</h2>
-        <span className={tone}>{label}</span>
-      </div>
-      <p style={{ color: '#567' }}>
-        {String(data.from_location_name || data.from_location_id || '—')} →{' '}
-        {String(data.to_location_name || data.to_location_id || '—')} · {String(data.transfer_date || '')}
-      </p>
-      {data.notes ? <p>Notes: {String(data.notes)}</p> : null}
+    <EntityDetailPage>
+      <EntityDetailBack to="/inventory/transfers" label="Transfers" />
+
+      <EntityDetailHero
+        kicker="Inventory · Transfer"
+        title={String(data.transfer_number || id)}
+        lead={
+          <>
+            <StatusPill status={label} tone={statusPillTone(status)} />
+            <span className="ed-lead-sep">
+              {' '}
+              · {fromLabel} → {toLabel}
+            </span>
+          </>
+        }
+        actions={heroActions}
+      />
+
+      <EntityDetailSnapshot
+        ariaLabel="Transfer facts"
+        items={[
+          { label: 'Status', value: label },
+          { label: 'From', value: fromLabel },
+          { label: 'To', value: toLabel },
+          { label: 'Date', value: String(data.transfer_date || '—') },
+          { label: 'Lines', value: lines.length },
+        ]}
+      />
 
       {actionError ? <ErrorText>{actionError}</ErrorText> : null}
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0 20px' }}>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-        {status === 'Draft' && (
-          <Button type="button" disabled={dispatchState.isLoading} onClick={() => void run(() => dispatchTransfer(id).unwrap())}>
-            Dispatch
-          </Button>
-        )}
-        {(status === 'In Transit' || status === 'Draft') && (
-          <Button type="button" disabled={receiveState.isLoading} onClick={() => void run(() => receiveTransfer(id).unwrap())}>
-            Receive
-          </Button>
-        )}
-        {status !== 'Received' && status !== 'Cancelled' && (
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={cancelState.isLoading}
-            onClick={() => void run(() => cancelTransfer(id).unwrap())}
-          >
-            Cancel
-          </Button>
-        )}
-      </div>
+      <EntityDetailTabs
+        value={tab}
+        ariaLabel="Transfer sections"
+        onChange={(next) => setTab(next as TransferDetailTab)}
+        options={[
+          { id: 'overview', label: 'Overview' },
+          { id: 'lines', label: `Lines (${lines.length})` },
+        ]}
+      />
 
-      <div style={{ fontWeight: 650, marginBottom: 8 }}>Lines</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-        <thead>
-          <tr>
-            <th style={{ textAlign: 'left', borderBottom: '2px solid var(--vb-color-primary, #185c4c)', padding: '0.5rem' }}>
-              Product
-            </th>
-            <th style={{ textAlign: 'left', borderBottom: '2px solid var(--vb-color-primary, #185c4c)', padding: '0.5rem' }}>
-              Qty
-            </th>
-          </tr>
-        </thead>
-        <tbody>
+      {tab === 'overview' ? (
+        <EntityDetailPanel title="Overview" note="Route and notes for this stock transfer.">
+          <div className="ed-grid ed-grid-2">
+            <FormRow label="From location">
+              <TextInput value={fromLabel} disabled />
+            </FormRow>
+            <FormRow label="To location">
+              <TextInput value={toLabel} disabled />
+            </FormRow>
+            <FormRow label="Transfer date">
+              <TextInput value={String(data.transfer_date || '')} disabled />
+            </FormRow>
+            <FormRow label="Status">
+              <TextInput value={label} disabled />
+            </FormRow>
+          </div>
+          <FormRow label="Notes">
+            <TextInput value={String(data.notes || '')} disabled />
+          </FormRow>
+        </EntityDetailPanel>
+      ) : null}
+
+      {tab === 'lines' ? (
+        <EntityDetailPanel title="Lines" note="Products and quantities on this transfer.">
           {lines.length === 0 ? (
-            <tr>
-              <td colSpan={2} style={{ padding: '1rem', color: '#666' }}>
-                No lines
-              </td>
-            </tr>
+            <p className="ed-panel-note">No lines</p>
           ) : (
-            lines.map((line) => (
-              <tr key={String(line.id || line.product_id)}>
-                <td style={{ borderBottom: '1px solid #eee', padding: '0.5rem' }}>
-                  {String(line.product_name || line.product_id)}
-                </td>
-                <td style={{ borderBottom: '1px solid #eee', padding: '0.5rem' }}>{Number(line.qty ?? 0)}</td>
-              </tr>
-            ))
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', borderBottom: '2px solid var(--ed-primary, #185c4c)', padding: '0.5rem' }}>
+                    Product
+                  </th>
+                  <th style={{ textAlign: 'left', borderBottom: '2px solid var(--ed-primary, #185c4c)', padding: '0.5rem' }}>
+                    Qty
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((line) => (
+                  <tr key={String(line.id || line.product_id)}>
+                    <td style={{ borderBottom: '1px solid #eee', padding: '0.5rem' }}>
+                      {String(line.product_name || line.product_id)}
+                    </td>
+                    <td style={{ borderBottom: '1px solid #eee', padding: '0.5rem' }}>{Number(line.qty ?? 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
-        </tbody>
-      </table>
-    </div>
+        </EntityDetailPanel>
+      ) : null}
+
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/inventory/transfers')}>
+            Back to list
+          </Button>
+        }
+        end={heroActions}
+      />
+    </EntityDetailPage>
   );
 }

@@ -421,6 +421,19 @@ export function DeliveryNoteDetailPage() {
     });
   }
 
+  actions.push({
+    id: 'invoice-from-dn',
+    label: 'Create invoice',
+    variant: 'primary',
+    kbAction: 'sales.deliveries.create_invoice',
+    onClick: () =>
+      navigate(
+        soId
+          ? `/sales/invoices/new?delivery_note_id=${id}&sales_order_id=${soId}`
+          : `/sales/invoices/new?delivery_note_id=${id}`,
+      ),
+  });
+
   const related = [
     soId ? { id: 'so', label: `Order ${soLabel}`, to: `/sales/orders/${soId}` } : null,
     invId ? { id: 'inv', label: `Invoice ${invLabel}`, to: `/sales/invoices/${invId}` } : null,

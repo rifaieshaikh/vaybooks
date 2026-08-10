@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useGetKeyboardShortcutsQuery } from '@vaybooks/store';
+import { hasActiveDetailKeyboardBack } from '@vaybooks/ui-kit';
 
 /** Streamlit parent shortcut keys → React shell routes. */
 const PARENT_ROUTES: Record<string, string> = {
@@ -119,7 +120,7 @@ const PARENT_ROUTES: Record<string, string> = {
   system_logs: '/system/logs',
 };
 
-/** Action shortcut keys → create/editor routes (Streamlit F1–F5 parity). */
+/** Global create / jump routes (no path id required). */
 const ACTION_ROUTES: Record<string, string> = {
   'purchases.orders.create': '/purchases/orders/new',
   'purchases.bills.create': '/purchases/bills/new',
@@ -131,9 +132,36 @@ const ACTION_ROUTES: Record<string, string> = {
   'sales.returns.create': '/sales/returns/new',
   'boutique.orders.create': '/boutique/orders/workspace',
   'parties.customers.create': '/parties/customers?new=1',
+  'parties.vendors.create': '/parties/vendors?new=1',
+  'customers.add': '/parties/customers?new=1',
+  'vendors.add': '/parties/vendors?new=1',
+  'orders.add': '/boutique/orders/workspace',
+  'export.csv.customers': '/finance/export-backup',
+  'export.csv.orders': '/finance/export-backup',
+  'export.csv.products': '/finance/export-backup',
+  'export.csv.vendors': '/finance/export-backup',
+  'export.backup.json': '/finance/export-backup',
+  'export.backup.zip': '/finance/export-backup',
+  'export.backup.save_disk': '/finance/export-backup',
+  'export.backup.restore': '/finance/export-backup',
+  'migration.download_template': '/migration',
+  'migration.apply_profile': '/migration',
+  'migration.dry_run': '/migration',
+  'migration.confirm_import': '/migration',
+  'migration.download_errors': '/migration',
+  'system.updates.check': '/system/updates',
+  'system.logs.refresh': '/system/logs',
+  'reports.export': '/finance/reports',
+  'reports.select': '/finance/reports',
+  'settings.business.save': '/business-settings',
+  'settings.system.save': '/system/settings',
+  'dashboard.period.today': '/mtd-dashboard?period=today',
+  'dashboard.period.last_7d': '/mtd-dashboard?period=last_7d',
+  'dashboard.period.mtd': '/mtd-dashboard?period=mtd',
+  'dashboard.period.last_30d': '/mtd-dashboard?period=last_30d',
+  'dashboard.period.quarter': '/mtd-dashboard?period=quarter',
 };
 
-/** Current list path → create path for list.primary (Ctrl+Shift+N). */
 const LIST_PRIMARY_NEW: Record<string, string> = {
   '/sales/estimates': '/sales/estimates/new',
   '/sales/quotations': '/sales/quotations/new',
@@ -147,7 +175,53 @@ const LIST_PRIMARY_NEW: Record<string, string> = {
   '/purchases/returns': '/purchases/returns/new',
   '/parties/customers': '/parties/customers?new=1',
   '/parties/vendors': '/parties/vendors?new=1',
+  '/parties/delivery-partners': '/parties/delivery-partners?new=1',
+  '/parties/commission-agents': '/parties/commission-agents?new=1',
+  '/parties/employees': '/parties/employees?new=1',
+  '/inventory/products': '/inventory/products?new=1',
+  '/inventory/categories': '/inventory/categories?new=1',
+  '/boutique/orders': '/boutique/orders/workspace',
+  '/boutique/items': '/boutique/items?new=1',
+  '/crm/leads': '/crm/leads?new=1',
+  '/crm/enquiries': '/crm/enquiries?new=1',
+  '/crm/activities': '/crm/activities?new=1',
+  '/finance/accounts': '/finance/accounts?new=1',
+  '/production/batches': '/production/batches?new=1',
+  '/production/recipes': '/production/recipes?new=1',
+  '/projects/list': '/projects/list?new=1',
+  '/projects/enquiries': '/projects/enquiries?new=1',
+  '/access/users': '/access/users?new=1',
+  '/access/roles': '/access/roles?new=1',
+  '/access/plans': '/access/plans?new=1',
+  '/business/tasks': '/business/tasks?new=1',
+  '/settings/discounts': '/settings/discounts?new=1',
+  '/settings/services': '/settings/services?new=1',
+  '/settings-locations': '/settings-locations?new=1',
+  '/settings/measurement-specs': '/settings/measurement-specs?new=1',
 };
+
+const LIST_CHROME_ACTIONS = new Set([
+  'list.search.focus',
+  'list.row.next',
+  'list.row.prev',
+  'list.row.open',
+  'list.row.edit',
+  'list.row.new',
+  'list.filters.open',
+  'list.sort.open',
+  'list.filters.apply',
+  'list.filters.clear',
+  'list.sort.clear',
+  'list.filters.mtd',
+  'list.filters.last_30d',
+  'list.prev_page',
+  'list.next_page',
+]);
+
+for (let i = 1; i <= 9; i += 1) {
+  LIST_CHROME_ACTIONS.add(`list.view_nth.${i}`);
+  LIST_CHROME_ACTIONS.add(`list.edit_nth.${i}`);
+}
 
 function eventChord(e: KeyboardEvent): string {
   const parts: string[] = [];
@@ -167,11 +241,9 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return target.isContentEditable;
 }
 
-/** F-keys and modifier chords should work even while typing (Streamlit parity). */
 function allowWhileTyping(chord: string): boolean {
   if (/^f\d{1,2}$/.test(chord)) return true;
   if (chord.startsWith('ctrl+') || chord.startsWith('alt+') || chord.startsWith('meta+')) {
-    // Let Ctrl+S be handled by DocumentEditor; still allow other ctrl chords for nav/create
     if (chord === 'ctrl+s' || chord === 'meta+s') return false;
     return true;
   }
@@ -180,21 +252,91 @@ function allowWhileTyping(chord: string): boolean {
 
 function normalizePath(pathname: string): string {
   const p = pathname.replace(/\/+$/, '') || '/';
-  // Strip /:id and /:id/edit for list.primary lookup
   const parts = p.split('/');
   if (parts.length >= 4 && (parts[parts.length - 1] === 'edit' || parts[parts.length - 1] === 'new')) {
     return parts.slice(0, -1).join('/') || '/';
   }
   if (parts.length >= 4) {
-    // /sales/invoices/:id → /sales/invoices
     const last = parts[parts.length - 1];
     if (last && last !== 'new' && !['orders', 'bills', 'returns', 'estimates', 'quotations'].includes(last)) {
-      // likely an id
       const maybeList = parts.slice(0, -1).join('/');
       if (LIST_PRIMARY_NEW[maybeList]) return maybeList;
     }
   }
   return p;
+}
+
+function pathId(pathname: string, prefix: string): string | null {
+  const re = new RegExp(`^${prefix}/([^/]+)(?:/|$)`);
+  const m = pathname.match(re);
+  return m?.[1] && m[1] !== 'new' && m[1] !== 'workspace' ? m[1] : null;
+}
+
+/** Context-aware action → route (needs entity id from URL). */
+function resolveContextRoute(actionId: string, pathname: string): string | null {
+  const soId = pathId(pathname, '/sales/orders');
+  if (actionId === 'sales.orders.deliver' && soId) {
+    return `/sales/delivery-notes/new?sales_order_id=${soId}`;
+  }
+
+  const dnId = pathId(pathname, '/sales/delivery-notes');
+  if (actionId === 'sales.deliveries.create_invoice' && dnId) {
+    return `/sales/invoices/new?delivery_note_id=${dnId}`;
+  }
+
+  const poId = pathId(pathname, '/purchases/orders');
+  if (actionId === 'purchases.orders.receive' && poId) {
+    return `/purchases/goods-receipt/new?purchase_order_id=${poId}`;
+  }
+
+  const acctId = pathId(pathname, '/finance/accounts');
+  if (actionId === 'finance.accounts.ledger' && acctId) {
+    return `/finance/accounts/${acctId}?tab=ledger`;
+  }
+
+  const boutId = pathId(pathname, '/boutique/orders');
+  if (boutId) {
+    if (actionId === 'orders.record_invoice' || actionId === 'orders.record_delivery') {
+      return `/boutique/orders/${boutId}?tab=billing`;
+    }
+    if (actionId === 'orders.record_receipt') {
+      return `/boutique/orders/${boutId}?tab=money&money=receipts`;
+    }
+    if (actionId === 'orders.record_payment') {
+      return `/boutique/orders/${boutId}?tab=money&money=payments`;
+    }
+    if (actionId === 'orders.record_refund') {
+      return `/boutique/orders/${boutId}?tab=money&money=refunds`;
+    }
+    if (actionId === 'items.expense.add') {
+      return `/boutique/orders/${boutId}?tab=money&money=expenses`;
+    }
+  }
+
+  const itemId = pathId(pathname, '/boutique/items');
+  if (itemId && actionId === 'items.time.add') {
+    return `/boutique/items/${itemId}?task=1`;
+  }
+
+  const custId = pathId(pathname, '/parties/customers');
+  if (actionId === 'customers.view_orders' && custId) {
+    return `/boutique/orders?customer_id=${custId}`;
+  }
+  if (actionId === 'customers.back') return '/parties/customers';
+
+  const vendId = pathId(pathname, '/parties/vendors');
+  if (actionId === 'vendors.record_payment' && vendId) {
+    return `/finance/payments?new=1&vendor_id=${vendId}`;
+  }
+
+  return null;
+}
+
+function clickKbAction(actionId: string): boolean {
+  const el = document.querySelector<HTMLElement>(`[data-kb-action="${actionId}"]`);
+  if (!el || (el instanceof HTMLButtonElement && el.disabled)) return false;
+  el.click();
+  return true;
 }
 
 export function useShellKeyboardShortcuts(enabled = true) {
@@ -207,7 +349,6 @@ export function useShellKeyboardShortcuts(enabled = true) {
     const parents = (data.parents || {}) as Record<string, string>;
     const actions = (data.actions || {}) as Record<string, string>;
 
-    // Parents first, then actions overwrite (creates take precedence on shared chords).
     const chordToRoute = new Map<string, string>();
     const chordToAction = new Map<string, string>();
     for (const [key, chord] of Object.entries(parents)) {
@@ -229,8 +370,8 @@ export function useShellKeyboardShortcuts(enabled = true) {
       const typing = isTypingTarget(e.target);
       if (typing && !allowWhileTyping(chord)) return;
 
-      // list.primary → create on current list
       const actionId = chordToAction.get(chord);
+
       if (actionId === 'list.primary') {
         const listPath = normalizePath(location.pathname);
         const createPath = LIST_PRIMARY_NEW[listPath];
@@ -241,26 +382,83 @@ export function useShellKeyboardShortcuts(enabled = true) {
         return;
       }
 
-      // nav.back
-      if (actionId === 'nav.back') {
+      if (actionId === 'nav.back' || actionId === 'customers.back') {
+        if (document.querySelector('.dd-page, .de-page') || hasActiveDetailKeyboardBack()) return;
         e.preventDefault();
-        navigate(-1);
+        if (actionId === 'customers.back') navigate('/parties/customers');
+        else navigate(-1);
         return;
       }
 
-      // dialog.save is handled by DocumentEditor (Ctrl+S)
-      if (actionId === 'dialog.save') return;
-
-      // List row / search chords are handled by EntityListTable via ListKeyboardBindingsProvider
       if (
-        actionId === 'list.search.focus' ||
-        actionId === 'list.row.next' ||
-        actionId === 'list.row.prev' ||
-        actionId === 'list.row.open' ||
-        actionId === 'list.row.edit' ||
-        actionId === 'list.row.new'
+        actionId === 'dialog.save' ||
+        actionId === 'form.add_line' ||
+        actionId === 'form.remove_line' ||
+        actionId === 'settings.business.save' ||
+        actionId === 'settings.system.save' ||
+        actionId === 'customers.create' ||
+        actionId === 'customers.save'
       ) {
+        // Prefer explicit save button on page when present
+        if (actionId && clickKbAction(actionId)) {
+          e.preventDefault();
+          return;
+        }
+        if (
+          actionId === 'dialog.save' ||
+          actionId === 'form.add_line' ||
+          actionId === 'form.remove_line'
+        ) {
+          return;
+        }
+      }
+
+      if (actionId && LIST_CHROME_ACTIONS.has(actionId)) {
         return;
+      }
+
+      // Page-local buttons annotated with data-kb-action
+      if (actionId && clickKbAction(actionId)) {
+        e.preventDefault();
+        return;
+      }
+
+      if (actionId === 'reports.select') {
+        const sel = document.querySelector<HTMLSelectElement>('[data-kb-action="reports.select"]');
+        if (sel) {
+          e.preventDefault();
+          sel.focus();
+          return;
+        }
+      }
+
+      // Context routes that need the current entity id
+      if (actionId) {
+        const ctx = resolveContextRoute(actionId, location.pathname);
+        if (ctx) {
+          e.preventDefault();
+          navigate(ctx);
+          return;
+        }
+      }
+
+      // dialog.open_existing → focus list search / open-existing control
+      if (
+        actionId === 'dialog.open_existing' ||
+        actionId === 'customers.open_existing' ||
+        actionId === 'vendors.open_existing'
+      ) {
+        if (clickKbAction('dialog.open_existing') || clickKbAction(actionId)) {
+          e.preventDefault();
+          return;
+        }
+        const search = document.querySelector<HTMLInputElement>('.el-search input');
+        if (search) {
+          e.preventDefault();
+          search.focus();
+          search.select?.();
+          return;
+        }
       }
 
       const route = chordToRoute.get(chord);

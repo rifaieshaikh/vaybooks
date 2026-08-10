@@ -348,6 +348,9 @@ def _item_row(row: dict[str, Any]) -> dict[str, Any]:
     data["item_status"] = status.value if hasattr(status, "value") else str(status or "")
     ostatus = data.get("order_status")
     data["order_status"] = ostatus.value if hasattr(ostatus, "value") else str(ostatus or "")
+    etd = data.get("expected_delivery_date")
+    if hasattr(etd, "isoformat"):
+        data["expected_delivery_date"] = etd.isoformat()
     data["id"] = data.get("item_id") or data.get("id")
     data["caption"] = " · ".join(
         b
@@ -1089,6 +1092,32 @@ def skip_activity(order_id: str, activity_id: str, body: ActivityAction) -> dict
         raise _http_err(exc) from exc
 
 
+class ItemActivityWrite(BaseModel):
+    activity_id: str = Field(min_length=1)
+
+
+@router.post("/orders/{order_id}/items/{item_id}/activities", status_code=201)
+def add_item_activity(order_id: str, item_id: str, body: ItemActivityWrite) -> dict[str, Any]:
+    try:
+        order = _c().orders.add_activity_to_item(order_id, item_id, body.activity_id)
+        return _order_dict(order)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.delete("/orders/{order_id}/activities/{activity_id}")
+def remove_item_activity(order_id: str, activity_id: str) -> dict[str, Any]:
+    try:
+        _require_activity_on_order(order_id, activity_id)
+        return _order_dict(_c().orders.remove_activity_from_item(order_id, activity_id))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
 @router.post("/orders/{order_id}/advances", status_code=201)
 def record_advance(order_id: str, body: AdvanceWrite) -> dict[str, Any]:
     try:
@@ -1568,6 +1597,7 @@ def list_measurement_sections(*, active_only: bool = True) -> list[dict[str, Any
 @router.get("/measurements")
 def list_measurements(
     *,
+    q: str = "",
     customer_id: Optional[str] = None,
     measurement_number: str = "",
     wearer_name: str = "",
@@ -1591,6 +1621,17 @@ def list_measurements(
                 "wearer_name": wearer_name,
             },
         )
+        needle = (q or "").strip().lower()
+        if needle:
+            filtered = [
+                r
+                for r in filtered
+                if needle in str(r.get("measurement_number") or "").lower()
+                or needle in str(r.get("wearer_name") or "").lower()
+                or needle in str(r.get("person_type") or "").lower()
+                or needle in str(r.get("customer_id") or "").lower()
+                or needle in str(r.get("caption") or "").lower()
+            ]
         sorted_rows = sort_dicts(filtered, sort_by, sort_desc=sort_desc)
         return paged_result(sorted_rows, page=page, page_size=page_size)
     except Exception as exc:
@@ -1711,6 +1752,7 @@ def sync_activity_tasks(*, order_id: Optional[str] = None) -> dict[str, Any]:
 @router.get("/time-entries")
 def list_time_entries(
     *,
+    q: str = "",
     bill_number: str = "",
     order_number: str = "",
     worker_name: str = "",
@@ -1734,6 +1776,17 @@ def list_time_entries(
             work_date_to=_parse_date(work_date_to),
         )
         rows = [_time_dict(e) for e in entries]
+        needle = (q or "").strip().lower()
+        if needle:
+            rows = [
+                r
+                for r in rows
+                if needle in str(r.get("worker_name") or "").lower()
+                or needle in str(r.get("assignee_name") or "").lower()
+                or needle in str(r.get("order_number") or "").lower()
+                or needle in str(r.get("activity_name") or "").lower()
+                or needle in str(r.get("bill_number") or "").lower()
+            ]
         if task_type.strip():
             want = task_type.strip().lower()
             rows = [
@@ -1791,6 +1844,19 @@ def create_time_entry(body: TimeEntryWrite) -> dict[str, Any]:
             assignee_worker_id=body.assignee_worker_id,
             assignee_name=body.assignee_name or body.worker_name,
         )
+        return _time_dict(entry)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/time-entries/{entry_id}")
+def get_time_entry(entry_id: str) -> dict[str, Any]:
+    try:
+        entry = _c().time_tracking.get_entry(entry_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="time entry not found")
         return _time_dict(entry)
     except HTTPException:
         raise

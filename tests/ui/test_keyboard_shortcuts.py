@@ -69,6 +69,13 @@ def test_default_actions_include_list_roles():
     assert actions["list.sort.clear"] == "ctrl+2"
     assert actions["dialog.save"] == "ctrl+s"
     assert actions["purchases.orders.create"] == "f1"
+    assert actions["boutique.orders.create"] == "f9"
+    assert actions["parties.customers.create"] == "ctrl+shift+n"
+    assert actions["parties.vendors.create"] == "f10"
+    assert actions["list.view_nth.1"] == "alt+1"
+    assert actions["list.edit_nth.1"] == "alt+shift+1"
+    assert actions["reports.export"] == "ctrl+shift+e"
+    assert actions["reports.select"] == "f11"
 
 
 def test_list_chords_do_not_collide_with_parents():

@@ -1,13 +1,22 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useCreateFinanceAccountMutation,
+  useDeleteFinanceAccountMutation,
   useGetFinanceAccountQuery,
   useListFinanceAccountsQuery,
   useUpdateFinanceAccountMutation,
 } from '@vaybooks/store';
 import {
   Button,
+  EntityDetailBack,
+  EntityDetailForm,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailPanel,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
+  EntityDetailTabs,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -34,6 +43,8 @@ import {
 } from '@vaybooks/ui-kit';
 import { ACCOUNT_TYPES, asCaption, extractError, formatMoney } from '../utils';
 
+type AccountDetailTab = 'overview' | 'ledger';
+
 type AccountForm = {
   account_name: string;
   account_type: string;
@@ -59,6 +70,7 @@ const DEFAULT_SORT: SortCriterion[] = [{ key: 'account_name', desc: false }];
 
 export function AccountsListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data = [], isLoading, error, refetch } = useListFinanceAccountsQuery();
   const [createAccount, createState] = useCreateFinanceAccountMutation();
   const [updateAccount, updateState] = useUpdateFinanceAccountMutation();
@@ -117,6 +129,14 @@ export function AccountsListPage() {
     setForm(emptyForm());
     setDialog('add');
   }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openAdd();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   function openEdit(row: AccountRow) {
     setFormError('');
@@ -279,6 +299,10 @@ export function AccountsListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/finance/accounts/${row.id}`)}
+          onEditRow={(row) => openEdit(row)}
+          onNew={openAdd}
           actions={(row) => (
             <EntityListActions
               onOpen={() => navigate(`/finance/accounts/${row.id}`)}
@@ -374,55 +398,184 @@ export function AccountsListPage() {
 
 export function AccountDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const tab: AccountDetailTab = tabParam === 'ledger' ? 'ledger' : 'overview';
+
+  function setTab(next: AccountDetailTab) {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'overview') params.delete('tab');
+    else params.set('tab', next);
+    setSearchParams(params, { replace: true });
+  }
+
   const { data, isLoading, error } = useGetFinanceAccountQuery(id, { skip: !id });
+  const [deleteAccount, deleteState] = useDeleteFinanceAccountMutation();
   const ledger = useMemo(
     () => (data && Array.isArray(data.ledger) ? (data.ledger as Record<string, unknown>[]) : []),
     [data],
   );
 
-  if (isLoading) return <p>Loading…</p>;
-  if (error || !data) return <ErrorText>Account not found.</ErrorText>;
+  if (isLoading) {
+    return (
+      <EntityDetailPage>
+        <EntityListLoading>Loading account…</EntityListLoading>
+      </EntityDetailPage>
+    );
+  }
+  if (error || !data) {
+    return (
+      <EntityDetailPage>
+        <EntityDetailBack to="/finance/accounts" label="Accounts" />
+        <ErrorText>Account not found.</ErrorText>
+      </EntityDetailPage>
+    );
+  }
+
+  const balance = formatMoney(Number(data.balance ?? data.current_balance ?? 0));
+  const accountType = asCaption(data.account_type) || '—';
+  const inactive = data.is_active === false;
+  const flags = [
+    data.is_store_account ? 'Store' : null,
+    data.is_salary_account ? 'Salary' : null,
+    data.is_protected ? 'Protected' : null,
+    inactive ? 'Inactive' : 'Active',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
-    <div>
-      <p>
-        <Link to="/finance/accounts">← Accounts</Link>
-      </p>
-      <h2 style={{ margin: '8px 0 4px', color: 'var(--vb-color-primary, #185c4c)' }}>
-        {String(data.account_name || '')}
-      </h2>
-      <p style={{ color: '#667', marginTop: 0 }}>
-        {String(data.account_type || '')} · Balance {formatMoney(Number(data.balance ?? data.current_balance ?? 0))}
-        {data.is_protected ? ' · Protected' : ''}
-      </p>
+    <EntityDetailPage>
+      <EntityDetailBack to="/finance/accounts" label="Accounts" />
 
-      <h3 style={{ color: 'var(--vb-color-primary, #185c4c)' }}>Ledger</h3>
-      {ledger.length === 0 ? (
-        <p style={{ color: '#667' }}>No ledger lines yet.</p>
-      ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '1px solid #d9e3de' }}>
-              <th style={{ padding: 8 }}>Date</th>
-              <th style={{ padding: 8 }}>Voucher</th>
-              <th style={{ padding: 8 }}>Description</th>
-              <th style={{ padding: 8 }}>Debit</th>
-              <th style={{ padding: 8 }}>Credit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ledger.map((line, i) => (
-              <tr key={i} style={{ borderBottom: '1px solid #eef2f0' }}>
-                <td style={{ padding: 8 }}>{String(line.voucher_date || '').slice(0, 10)}</td>
-                <td style={{ padding: 8 }}>{String(line.voucher_number || '')}</td>
-                <td style={{ padding: 8 }}>{asCaption(line.description)}</td>
-                <td style={{ padding: 8 }}>{formatMoney(Number(line.debit ?? 0))}</td>
-                <td style={{ padding: 8 }}>{formatMoney(Number(line.credit ?? 0))}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
+      <EntityDetailHero
+        kicker="Finance · Account"
+        title={asCaption(data.account_name) || 'Account'}
+        lead={
+          <>
+            <span>{accountType}</span>
+            <span className="ed-lead-sep"> · Balance {balance}</span>
+            {data.is_protected ? <span className="ed-lead-sep"> · Protected</span> : null}
+          </>
+        }
+        actions={
+          !data.is_protected ? (
+            <Button
+              type="button"
+              variant="ghost"
+              data-kb-action="finance.accounts.delete"
+              disabled={deleteState.isLoading}
+              onClick={async () => {
+                if (!window.confirm('Delete this account? This cannot be undone.')) return;
+                try {
+                  await deleteAccount(id).unwrap();
+                  navigate('/finance/accounts');
+                } catch {
+                  window.alert('Failed to delete account.');
+                }
+              }}
+            >
+              {deleteState.isLoading ? 'Deleting…' : 'Delete'}
+            </Button>
+          ) : undefined
+        }
+      />
+
+      <EntityDetailSnapshot
+        ariaLabel="Account facts"
+        items={[
+          { label: 'Type', value: accountType },
+          { label: 'Balance', value: balance },
+          {
+            label: 'Opening',
+            value: formatMoney(Number(data.opening_balance ?? 0)),
+          },
+          { label: 'Status', value: flags || '—' },
+        ]}
+      />
+
+      <EntityDetailTabs
+        value={tab}
+        ariaLabel="Account sections"
+        onChange={(next) => setTab(next as AccountDetailTab)}
+        options={[
+          { id: 'overview', label: 'Overview' },
+          { id: 'ledger', label: `Ledger (${ledger.length})` },
+        ]}
+      />
+
+      {tab === 'overview' ? (
+        <EntityDetailPanel key="overview" title="Overview" note="Account profile and flags.">
+          <EntityDetailForm>
+            <div className="ed-grid">
+              <FormRow label="Name">
+                <input value={asCaption(data.account_name)} readOnly disabled />
+              </FormRow>
+              <FormRow label="Type">
+                <input value={accountType} readOnly disabled />
+              </FormRow>
+              <FormRow label="Opening balance">
+                <input value={formatMoney(Number(data.opening_balance ?? 0))} readOnly disabled />
+              </FormRow>
+              <FormRow label="Current balance">
+                <input value={balance} readOnly disabled />
+              </FormRow>
+              <FormRow label="Store account">
+                <input value={data.is_store_account ? 'Yes' : 'No'} readOnly disabled />
+              </FormRow>
+              <FormRow label="Salary account">
+                <input value={data.is_salary_account ? 'Yes' : 'No'} readOnly disabled />
+              </FormRow>
+              <FormRow label="Active">
+                <input value={inactive ? 'No' : 'Yes'} readOnly disabled />
+              </FormRow>
+              <FormRow label="Protected">
+                <input value={data.is_protected ? 'Yes' : 'No'} readOnly disabled />
+              </FormRow>
+            </div>
+          </EntityDetailForm>
+        </EntityDetailPanel>
+      ) : null}
+
+      {tab === 'ledger' ? (
+        <EntityDetailPanel key="ledger" title="Ledger" note="Posted voucher lines for this account.">
+          {ledger.length === 0 ? (
+            <p className="el-muted">No ledger lines yet.</p>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', borderBottom: '1px solid #d9e3de' }}>
+                  <th style={{ padding: 8 }}>Date</th>
+                  <th style={{ padding: 8 }}>Voucher</th>
+                  <th style={{ padding: 8 }}>Description</th>
+                  <th style={{ padding: 8 }}>Debit</th>
+                  <th style={{ padding: 8 }}>Credit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ledger.map((line, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #eef2f0' }}>
+                    <td style={{ padding: 8 }}>{String(line.voucher_date || '').slice(0, 10)}</td>
+                    <td style={{ padding: 8 }}>{String(line.voucher_number || '')}</td>
+                    <td style={{ padding: 8 }}>{asCaption(line.description)}</td>
+                    <td style={{ padding: 8 }}>{formatMoney(Number(line.debit ?? 0))}</td>
+                    <td style={{ padding: 8 }}>{formatMoney(Number(line.credit ?? 0))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </EntityDetailPanel>
+      ) : null}
+
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/finance/accounts')}>
+            Back to list
+          </Button>
+        }
+      />
+    </EntityDetailPage>
   );
 }

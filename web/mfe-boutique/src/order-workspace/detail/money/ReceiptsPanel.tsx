@@ -101,7 +101,7 @@ export function ReceiptsPanel({ orderId, readOnly, onDone }: Props) {
             <TextInput value={description} onChange={(e) => setDescription(e.target.value)} />
           </FormRow>
           <div className="ow-actions">
-            <Button type="submit" disabled={createState.isLoading}>
+            <Button type="submit" data-kb-action="orders.record_receipt" disabled={createState.isLoading}>
               {createState.isLoading ? 'Saving…' : 'Record receipt'}
             </Button>
           </div>

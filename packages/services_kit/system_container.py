@@ -156,6 +156,25 @@ class SystemUpdatesStore:
         self._col.insert_one(doc)
         return self.status()
 
+    def install(self) -> dict[str, Any]:
+        """Record an install request (web stub — desktop installer runs locally)."""
+        now = datetime.now(timezone.utc)
+        status = self.status()
+        doc = {
+            "_id": uuid4().hex,
+            "checked_at": now,
+            "installed_at": now,
+            "current_version": status.get("current_version") or "0.0.0",
+            "latest_version": status.get("latest_version") or status.get("current_version") or "0.0.0",
+            "update_available": False,
+            "notes": "Install requested from web (no desktop installer payload)",
+        }
+        self._col.insert_one(doc)
+        out = self.status()
+        out["install_requested"] = True
+        out["notes"] = doc["notes"]
+        return out
+
 
 def _mongo_uri() -> str:
     from packages.services_kit.mongo_env import mongo_uri

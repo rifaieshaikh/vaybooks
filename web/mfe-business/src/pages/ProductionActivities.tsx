@@ -82,6 +82,26 @@ export function ProductionActivitiesPage() {
     [],
   );
 
+  function openCreate() {
+    setEditingId(null);
+    setName('');
+    setCategory(CATEGORIES[0]);
+    setRate('100');
+    setIsActive(true);
+    setFormError('');
+    setOpen(true);
+  }
+
+  function openEdit(row: ActivityRow) {
+    setEditingId(String(row.id));
+    setName(asCaption(row.activity_name));
+    setCategory(asCaption(row.activity_category) || CATEGORIES[0]);
+    setRate(String(row.default_hourly_expense ?? 0));
+    setIsActive(row.is_active !== false);
+    setFormError('');
+    setOpen(true);
+  }
+
   async function onSave() {
     setFormError('');
     if (!name.trim()) {
@@ -120,18 +140,7 @@ export function ProductionActivitiesPage() {
         title="Activities"
         count={`${data.length} ${data.length === 1 ? 'activity' : 'activities'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setEditingId(null);
-              setName('');
-              setCategory(CATEGORIES[0]);
-              setRate('100');
-              setIsActive(true);
-              setFormError('');
-              setOpen(true);
-            }}
-          >
+          <Button type="button" onClick={openCreate}>
             Add activity
           </Button>
         }
@@ -148,16 +157,12 @@ export function ProductionActivitiesPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={(row) => openEdit(row)}
+          onNew={openCreate}
           actions={(row) => (
             <EntityListActions
-              onEdit={() => {
-                setEditingId(String(row.id));
-                setName(asCaption(row.activity_name));
-                setCategory(asCaption(row.activity_category) || CATEGORIES[0]);
-                setRate(String(row.default_hourly_expense ?? 0));
-                setIsActive(row.is_active !== false);
-                setOpen(true);
-              }}
+              onEdit={() => openEdit(row)}
               onDelete={() => void deactivate(String(row.id)).then(() => refetch())}
             />
           )}

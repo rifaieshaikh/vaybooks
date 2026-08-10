@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from './controls';
 import { formatInr } from './DocumentEditor';
+import { useDetailKeyboardBack } from './useDetailKeyboardBack';
 import './DocumentEditor.css';
 
 export type DocumentDetailAction = {
@@ -11,6 +12,8 @@ export type DocumentDetailAction = {
   variant?: 'primary' | 'ghost';
   disabled?: boolean;
   title?: string;
+  /** Settings action id for shell keyboard dispatcher (`data-kb-action`). */
+  kbAction?: string;
 };
 
 export type DocumentDetailLine = {
@@ -86,6 +89,7 @@ export function DocumentDetail({
   linesEmptyLabel = 'No line items on this document',
   summary,
 }: DocumentDetailProps) {
+  useDetailKeyboardBack(backTo);
   const primaryActions = (actions || []).filter((a) => a.variant === 'primary');
   const secondaryActions = (actions || []).filter((a) => a.variant !== 'primary');
   const showTaxCols = (lines || []).some(
@@ -121,6 +125,7 @@ export function DocumentDetail({
                 variant="ghost"
                 disabled={a.disabled}
                 title={a.title}
+                data-kb-action={a.kbAction}
                 onClick={a.onClick}
               >
                 {a.label}
@@ -133,6 +138,7 @@ export function DocumentDetail({
                 variant="primary"
                 disabled={a.disabled}
                 title={a.title}
+                data-kb-action={a.kbAction}
                 onClick={a.onClick}
               >
                 {a.label}

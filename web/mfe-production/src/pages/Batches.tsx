@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useAddBatchCostMutation,
   useCancelBatchMutation,
@@ -15,6 +15,13 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
+  EntityDetailBack,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailPanel,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
+  EntityDetailTabs,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -29,17 +36,21 @@ import {
   Modal,
   PAGE_SIZE,
   PaginationBar,
+  StatusPill,
   TextInput,
   displayName,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  statusPillTone,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError, formatMoney } from '../utils';
+
+type BatchDetailTab = 'stages' | 'costs';
 
 const BATCH_STATUSES = ['Draft', 'In Progress', 'Posted', 'Cancelled'] as const;
 
@@ -58,6 +69,7 @@ const FILTER_FIELDS: FilterFieldDef[] = [
 
 export function ProductionBatchesListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data = [], isLoading, error, refetch } = useListBatchesQuery();
   const { data: recipes = [] } = useListRecipesQuery({ active_only: true });
   const { data: locations = [] } = useListInventoryLocationsQuery();
@@ -71,6 +83,15 @@ export function ProductionBatchesListPage() {
   const [locationId, setLocationId] = useState('');
   const [planned, setPlanned] = useState('1');
   const [batchDate, setBatchDate] = useState('');
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    setFormError('');
+    setOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const filtered = useMemo(() => {
     const rows = data.filter((row) => {
@@ -213,6 +234,12 @@ export function ProductionBatchesListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/production/batches/${String(row.id)}`)}
+          onNew={() => {
+            setFormError('');
+            setOpen(true);
+          }}
           actions={(row) => (
             <EntityListActions onOpen={() => navigate(`/production/batches/${String(row.id)}`)} />
           )}
@@ -295,6 +322,7 @@ export function ProductionBatchDetailPage() {
   const [addCost, addCostState] = useAddBatchCostMutation();
   const [removeCost, removeCostState] = useRemoveBatchCostMutation();
   const [actionError, setActionError] = useState('');
+  const [tab, setTab] = useState<BatchDetailTab>('stages');
   const [costOpen, setCostOpen] = useState(false);
   const [costType, setCostType] = useState('');
   const [costAmount, setCostAmount] = useState('');
@@ -357,15 +385,19 @@ export function ProductionBatchDetailPage() {
     }
   }
 
-  if (isLoading) return <p>Loading…</p>;
+  if (isLoading) {
+    return (
+      <EntityDetailPage>
+        <EntityListLoading>Loading batch…</EntityListLoading>
+      </EntityDetailPage>
+    );
+  }
   if (error || !data) {
     return (
-      <div>
+      <EntityDetailPage>
+        <EntityDetailBack to="/production/batches" label="Batches" />
         <ErrorText>Batch not found.</ErrorText>
-        <Button type="button" variant="ghost" onClick={() => navigate('/production/batches')}>
-          Back
-        </Button>
-      </div>
+      </EntityDetailPage>
     );
   }
 
@@ -378,87 +410,143 @@ export function ProductionBatchDetailPage() {
     cancelState.isLoading ||
     addCostState.isLoading ||
     removeCostState.isLoading;
+  const status = asCaption(data.status) || '—';
+
+  const heroActions = (
+    <>
+      <Button type="button" variant="ghost" onClick={() => void refetch()} disabled={busy}>
+        Refresh
+      </Button>
+      <Button type="button" onClick={() => void run('complete')} disabled={busy}>
+        Complete
+      </Button>
+      <Button type="button" onClick={() => void run('post')} disabled={busy}>
+        Post
+      </Button>
+      <Button type="button" variant="ghost" onClick={() => void run('cancel')} disabled={busy}>
+        Cancel
+      </Button>
+    </>
+  );
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div>
-          <Link to="/production/batches" style={{ color: '#567' }}>
-            ← Batches
-          </Link>
-          <h2 style={{ margin: '8px 0 0', color: 'var(--vb-color-primary, #185c4c)' }}>
-            {asCaption(data.batch_number)}
-          </h2>
-          <p style={{ color: '#667', marginTop: 6 }}>
-            {asCaption(data.recipe_name)} · {asCaption(data.status)} ·{' '}
-            {String(data.batch_date || '').slice(0, 10)}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Button type="button" onClick={() => void run('complete')} disabled={busy}>
-            Complete
-          </Button>
-          <Button type="button" onClick={() => void run('post')} disabled={busy}>
-            Post
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => void run('cancel')} disabled={busy}>
-            Cancel
-          </Button>
-        </div>
-      </div>
+    <EntityDetailPage>
+      <EntityDetailBack to="/production/batches" label="Batches" />
+
+      <EntityDetailHero
+        kicker="Production · Batch"
+        title={asCaption(data.batch_number) || id}
+        lead={
+          <>
+            <StatusPill status={status} tone={statusPillTone(status)} />
+            <span className="ed-lead-sep"> · {asCaption(data.recipe_name) || '—'}</span>
+            <span className="ed-lead-sep"> · {String(data.batch_date || '').slice(0, 10) || '—'}</span>
+          </>
+        }
+        actions={heroActions}
+      />
+
+      <EntityDetailSnapshot
+        ariaLabel="Batch facts"
+        items={[
+          { label: 'Status', value: status },
+          { label: 'Recipe', value: asCaption(data.recipe_name) || '—' },
+          { label: 'Total cost', value: formatMoney(Number(data.total_cost ?? 0)) },
+          { label: 'Expected sales', value: formatMoney(Number(data.expected_sales_value ?? 0)) },
+          { label: 'Margin', value: formatMoney(Number(data.batch_margin ?? 0)) },
+        ]}
+      />
+
       {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-      <div style={{ marginTop: 20, display: 'grid', gap: 8 }}>
-        <div>Total cost: {formatMoney(Number(data.total_cost ?? 0))}</div>
-        <div>Expected sales: {formatMoney(Number(data.expected_sales_value ?? 0))}</div>
-        <div>Margin: {formatMoney(Number(data.batch_margin ?? 0))}</div>
-      </div>
-      <h3 style={{ marginTop: 28, color: 'var(--vb-color-primary, #185c4c)' }}>Stages</h3>
-      {stages.length === 0 ? (
-        <p style={{ color: '#667' }}>No stages on this batch.</p>
-      ) : (
-        <ul>
-          {stages.map((s) => (
-            <li key={String(s.id)} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-              <span>
-                {asCaption(s.name)} — {s.completed ? 'Done' : 'Open'}
-              </span>
-              {!s.completed ? (
-                <Button type="button" variant="ghost" onClick={() => void onCompleteStage(String(s.id))} disabled={busy}>
-                  Complete stage
-                </Button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginTop: 28 }}>
-        <h3 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Costs</h3>
-        <Button type="button" variant="ghost" onClick={() => setCostOpen(true)} disabled={busy}>
-          Add cost
-        </Button>
-      </div>
-      {costs.length === 0 ? (
-        <p style={{ color: '#667' }}>No additional costs recorded.</p>
-      ) : (
-        <ul>
-          {costs.map((cost) => (
-            <li key={String(cost.id)} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-              <span>
-                {asCaption(cost.cost_type)} — {formatMoney(Number(cost.amount ?? 0))}
-                {cost.description ? ` · ${asCaption(cost.description)}` : ''}
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => void onRemoveCost(String(cost.id))}
-                disabled={busy}
-              >
-                Remove
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
+
+      <EntityDetailTabs
+        value={tab}
+        ariaLabel="Batch sections"
+        onChange={(next) => setTab(next as BatchDetailTab)}
+        options={[
+          { id: 'stages', label: `Stages (${stages.length})` },
+          { id: 'costs', label: `Costs (${costs.length})` },
+        ]}
+      />
+
+      {tab === 'stages' ? (
+        <EntityDetailPanel title="Stages" note="Mark production stages complete as work finishes.">
+          {stages.length === 0 ? (
+            <p className="ed-panel-note">No stages on this batch.</p>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {stages.map((s) => (
+                <li
+                  key={String(s.id)}
+                  style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}
+                >
+                  <span>
+                    {asCaption(s.name)} — {s.completed ? 'Done' : 'Open'}
+                  </span>
+                  {!s.completed ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => void onCompleteStage(String(s.id))}
+                      disabled={busy}
+                    >
+                      Complete stage
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </EntityDetailPanel>
+      ) : null}
+
+      {tab === 'costs' ? (
+        <EntityDetailPanel
+          title="Costs"
+          note="Additional costs applied to this batch."
+          headerEnd={
+            <Button type="button" variant="ghost" onClick={() => setCostOpen(true)} disabled={busy}>
+              Add cost
+            </Button>
+          }
+        >
+          {costs.length === 0 ? (
+            <p className="ed-panel-note">No additional costs recorded.</p>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {costs.map((cost) => (
+                <li
+                  key={String(cost.id)}
+                  style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}
+                >
+                  <span>
+                    {asCaption(cost.cost_type)} — {formatMoney(Number(cost.amount ?? 0))}
+                    {cost.description ? ` · ${asCaption(cost.description)}` : ''}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => void onRemoveCost(String(cost.id))}
+                    disabled={busy}
+                  >
+                    Remove
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </EntityDetailPanel>
+      ) : null}
+
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/production/batches')}>
+            Back to list
+          </Button>
+        }
+        end={heroActions}
+      />
+
       <Modal
         open={costOpen}
         title="Add batch cost"
@@ -486,6 +574,6 @@ export function ProductionBatchDetailPage() {
           </FormRow>
         </div>
       </Modal>
-    </div>
+    </EntityDetailPage>
   );
 }

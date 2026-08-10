@@ -113,6 +113,17 @@ export function BusinessTimePage() {
     [],
   );
 
+  function openCreate() {
+    setFormError('');
+    setTaskId('');
+    setWorkerId('');
+    setWorkDate('');
+    setStartTime('09:00');
+    setEndTime('11:00');
+    setNotes('');
+    setOpen(true);
+  }
+
   async function onCreate() {
     setFormError('');
     if (!taskId || !workerId || !workDate) {
@@ -152,19 +163,7 @@ export function BusinessTimePage() {
         title="Time log"
         count={`${filtered.length} ${filtered.length === 1 ? 'entry' : 'entries'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setTaskId('');
-              setWorkerId('');
-              setWorkDate('');
-              setStartTime('09:00');
-              setEndTime('11:00');
-              setNotes('');
-              setOpen(true);
-            }}
-          >
+          <Button type="button" onClick={openCreate}>
             Log time
           </Button>
         }
@@ -205,6 +204,8 @@ export function BusinessTimePage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onNew={openCreate}
           actions={(row) => (
             <EntityListActions onDelete={() => void onDelete(String(row.id))} />
           )}

@@ -8,8 +8,25 @@ import {
   useListBoutiqueOrderExpensesQuery,
   usePatchBoutiqueOrderMutation,
 } from '@vaybooks/store';
-import { Button, ErrorText, FormRow, Modal, TextInput } from '@vaybooks/ui-kit';
+import {
+  Button,
+  EntityDetailBack,
+  EntityDetailBanner,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailPanel,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
+  EntityDetailTabs,
+  EntityListLoading,
+  ErrorText,
+  FormRow,
+  Modal,
+  StatusPill,
+  TextInput,
+} from '@vaybooks/ui-kit';
 import { itemIsReadyForInvoice } from '../../activityDefaults';
+import { boutiqueItemStatusTone } from '../../boutiqueListHelpers';
 import { asCaption, extractError, formatMoney } from '../../utils';
 import {
   activitiesOf,
@@ -32,6 +49,7 @@ import { GarmentsTab } from './tabs/GarmentsTab';
 import { MoneyTab } from './tabs/MoneyTab';
 import { OverviewTab } from './tabs/OverviewTab';
 import '../OrderWorkspace.css';
+import '../../BoutiqueDetailExtras.css';
 
 export function BoutiqueOrderDetailPage() {
   const { id = '' } = useParams();
@@ -115,117 +133,111 @@ export function BoutiqueOrderDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="ow">
-        <p className="ow-lead">Loading order…</p>
-      </div>
+      <EntityDetailPage>
+        <EntityListLoading>Loading order…</EntityListLoading>
+      </EntityDetailPage>
     );
   }
 
   if (error || !order) {
     return (
-      <div className="ow">
+      <EntityDetailPage>
+        <EntityDetailBack to="/boutique/orders" label="Orders" />
         <ErrorText>Order not found.</ErrorText>
-        <p>
-          <Link to="/boutique/orders" className="ow-chip">
-            ← Orders
-          </Link>
-        </p>
-      </div>
+      </EntityDetailPage>
     );
   }
 
   if (isDraft(order)) {
     return (
-      <div className="ow">
-        <p className="ow-lead">Opening draft in workspace…</p>
-      </div>
+      <EntityDetailPage>
+        <EntityListLoading>Opening draft in workspace…</EntityListLoading>
+      </EntityDetailPage>
     );
   }
 
+  const orderNumber = asCaption(order.order_number) || id;
+  const customerName = asCaption(order.customer_name) || 'Customer';
+  const phone = asCaption(order.phone_number);
+  const etdLabel = asCaption(order.expected_delivery_date).slice(0, 10) || '—';
+
   return (
-    <div className="ow od">
-      <header className="ow-header">
-        <div className="ow-brand">
-          <p className="od-kicker">
-            <Link to="/boutique/orders">Orders</Link>
-            <span aria-hidden> / </span>
-            Customization
-          </p>
-          <h1>{asCaption(order.order_number) || id}</h1>
-          <p>
-            {asCaption(order.customer_name) || 'Customer'}
-            {asCaption(order.phone_number) ? ` · ${asCaption(order.phone_number)}` : ''}
-            {' · '}
-            ETD {asCaption(order.expected_delivery_date).slice(0, 10) || '—'}
-          </p>
-        </div>
-        <div className="ow-header-actions">
-          <span className={`ow-chip${terminal ? '' : ' is-live'}`}>{status || '—'}</span>
-          <Button
-            type="button"
-            disabled={!canComplete || completeState.isLoading || terminal}
-            onClick={() => void run(() => completeOrder(id).unwrap())}
-          >
-            Complete
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={terminal || cancelState.isLoading}
-            onClick={() => setCancelOpen(true)}
-          >
-            Cancel
-          </Button>
-        </div>
-      </header>
+    <EntityDetailPage>
+      <EntityDetailBack to="/boutique/orders" label="Orders" />
+
+      <EntityDetailHero
+        kicker="Boutique · Order"
+        title={orderNumber}
+        lead={
+          <>
+            <StatusPill status={status || '—'} tone={boutiqueItemStatusTone(status)} />
+            <span className="ed-lead-sep"> · {customerName}</span>
+            {phone ? <span className="ed-lead-sep"> · {phone}</span> : null}
+            <span className="ed-lead-sep"> · ETD {etdLabel}</span>
+          </>
+        }
+        actions={
+          <>
+            <Button type="button" variant="ghost" onClick={() => void refresh()}>
+              Refresh
+            </Button>
+            <Button
+              type="button"
+              disabled={!canComplete || completeState.isLoading || terminal}
+              data-kb-action="orders.mark_complete"
+              onClick={() => void run(() => completeOrder(id).unwrap())}
+            >
+              Complete
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={terminal || cancelState.isLoading}
+              data-kb-action="orders.cancel"
+              onClick={() => setCancelOpen(true)}
+            >
+              Cancel
+            </Button>
+          </>
+        }
+      />
+
+      <EntityDetailSnapshot
+        ariaLabel="Order progress"
+        items={[
+          {
+            label: 'Progress',
+            value: `${progress.done}/${progress.total || 0} · ${progress.pct}%`,
+          },
+          {
+            label: 'Ready to invoice',
+            value: `${progress.ready}/${items.length} garments`,
+          },
+          {
+            label: 'Estimate',
+            value: formatMoney(Number(financials?.estimate_total ?? estimateTotal)),
+          },
+          {
+            label: 'Advance',
+            value: formatMoney(Number(financials?.advance_amount ?? order.advance_amount ?? 0)),
+          },
+        ]}
+      />
+
+      <EntityDetailTabs
+        value={tab}
+        ariaLabel="Order sections"
+        onChange={(id) => setTab(id as DetailTab)}
+        options={DETAIL_TABS.map((t) => ({ id: t.id, label: t.label }))}
+      />
 
       {errorMsg ? <ErrorText>{errorMsg}</ErrorText> : null}
+      {terminal ? (
+        <EntityDetailBanner>This order is closed. Money and garment edits are locked.</EntityDetailBanner>
+      ) : null}
 
-      <section className="od-hero-stats" aria-label="Order progress">
-        <div className="od-stat">
-          <span>Progress</span>
-          <strong>
-            {progress.done}/{progress.total || 0} activities
-          </strong>
-          <div className="ow-garment-ops-bar od-bar">
-            <div style={{ width: `${progress.pct}%` }} />
-          </div>
-        </div>
-        <div className="od-stat">
-          <span>Ready to invoice</span>
-          <strong>
-            {progress.ready}/{items.length} garments
-          </strong>
-        </div>
-        <div className="od-stat">
-          <span>Estimate</span>
-          <strong>
-            {formatMoney(Number(financials?.estimate_total ?? estimateTotal))}
-          </strong>
-        </div>
-        <div className="od-stat">
-          <span>Advance</span>
-          <strong>
-            {formatMoney(Number(financials?.advance_amount ?? order.advance_amount ?? 0))}
-          </strong>
-        </div>
-      </section>
-
-      <nav className="ow-stepper od-tabs" aria-label="Order detail tabs">
-        {DETAIL_TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={`ow-step${tab === t.id ? ' is-current' : ''}`}
-            onClick={() => setTab(t.id)}
-          >
-            <span className="ow-step-label">{t.label}</span>
-          </button>
-        ))}
-      </nav>
-
-      <div className="ow-layout od-layout" style={{ marginTop: '1.1rem' }}>
-        <div className="ow-main">
+      <div className="bdx-order-layout">
+        <div>
           {tab === 'overview' ? (
             <OverviewTab orderId={id} order={order} onJump={setTab} />
           ) : null}
@@ -252,66 +264,66 @@ export function BoutiqueOrderDetailPage() {
           ) : null}
         </div>
 
-        <aside className="ow-summary od-side">
-          <h3>Schedule</h3>
-          <FormRow label="Expected delivery">
-            <div className="od-inline">
-              <TextInput
-                type="date"
-                value={etd}
-                disabled={terminal}
-                onChange={(e) => setEtd(e.target.value)}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={terminal || !etd || patchState.isLoading}
-                onClick={() =>
-                  void run(() =>
-                    patchOrder({ id, body: { expected_delivery_date: etd } }).unwrap(),
-                  )
-                }
-              >
-                Save
-              </Button>
+        <aside className="bdx-order-side">
+          <EntityDetailPanel title="Schedule">
+            <FormRow label="Expected delivery">
+              <div className="bdx-order-inline">
+                <TextInput
+                  type="date"
+                  value={etd}
+                  disabled={terminal}
+                  onChange={(e) => setEtd(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={terminal || !etd || patchState.isLoading}
+                  onClick={() =>
+                    void run(() =>
+                      patchOrder({ id, body: { expected_delivery_date: etd } }).unwrap(),
+                    )
+                  }
+                >
+                  Save
+                </Button>
+              </div>
+            </FormRow>
+          </EntityDetailPanel>
+
+          <EntityDetailPanel title="Money pulse">
+            <div className="bdx-order-row">
+              <span>Unapplied advance</span>
+              <strong>{formatMoney(Number(financials?.unapplied_advance ?? 0))}</strong>
             </div>
-          </FormRow>
-
-          <h3 style={{ marginTop: '1.1rem' }}>Money pulse</h3>
-          <div className="ow-summary-row">
-            <span>Unapplied advance</span>
-            <strong>{formatMoney(Number(financials?.unapplied_advance ?? 0))}</strong>
-          </div>
-          <div className="ow-summary-row">
-            <span>Expenses</span>
-            <strong>{formatMoney(Number(financials?.expense_selling_total ?? 0))}</strong>
-          </div>
-          <div className="ow-summary-row">
-            <span>Refundable receipts</span>
-            <strong>{formatMoney(Number(financials?.refundable_payments ?? 0))}</strong>
-          </div>
-
-          <div className="ow-actions" style={{ marginTop: '0.85rem', flexWrap: 'wrap' }}>
-            <button type="button" className="ow-chip" onClick={() => setTab('money', 'advance')}>
-              Advance
-            </button>
-            <button type="button" className="ow-chip" onClick={() => setTab('money', 'expenses')}>
-              Expenses
-            </button>
-            <button type="button" className="ow-chip" onClick={() => setTab('money', 'refunds')}>
-              Refunds
-            </button>
-          </div>
-
-          {asCaption(order.customer_id) ? (
-            <div style={{ marginTop: '1.1rem' }}>
-              <Link to={`/parties/customers/${String(order.customer_id)}`} className="ow-chip">
-                Customer profile
-              </Link>
+            <div className="bdx-order-row">
+              <span>Expenses</span>
+              <strong>{formatMoney(Number(financials?.expense_selling_total ?? 0))}</strong>
             </div>
-          ) : null}
+            <div className="bdx-order-row">
+              <span>Refundable receipts</span>
+              <strong>{formatMoney(Number(financials?.refundable_payments ?? 0))}</strong>
+            </div>
+            {asCaption(order.customer_id) ? (
+              <div className="ed-link-row">
+                <Link to={`/parties/customers/${String(order.customer_id)}`}>Customer profile</Link>
+              </div>
+            ) : null}
+          </EntityDetailPanel>
         </aside>
       </div>
+
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/boutique/orders')}>
+            Back to list
+          </Button>
+        }
+        end={
+          <Button type="button" variant="ghost" onClick={() => void refresh()}>
+            Refresh
+          </Button>
+        }
+      />
 
       <Modal
         open={cancelOpen}
@@ -341,6 +353,6 @@ export function BoutiqueOrderDetailPage() {
           This marks the order cancelled. Use Money → Refunds for unused advance if needed.
         </p>
       </Modal>
-    </div>
+    </EntityDetailPage>
   );
 }

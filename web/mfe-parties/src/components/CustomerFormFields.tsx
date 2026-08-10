@@ -1,11 +1,11 @@
 import { FormRow, TextInput } from '@vaybooks/ui-kit';
 import type { CSSProperties } from 'react';
+import { PartyAddressTaxFields, type PartyFormValues } from './PartyFields';
 import {
-  LocationIdsField,
-  PartyAddressTaxFields,
-  parseLocationIds,
-  type PartyFormValues,
-} from './PartyFields';
+  PartyLocationPicker,
+  usePartyLocationIds,
+  type AccessibleLocation,
+} from './PartyLocationFields';
 
 const responsiveRow: CSSProperties = {
   display: 'grid',
@@ -17,22 +17,22 @@ export function CustomerFormFields({
   values,
   onChange,
   segmentOptions,
+  locationPicker,
 }: {
   values: PartyFormValues;
   onChange: (name: string, value: string) => void;
   segmentOptions: { id: string; name: string }[];
+  locationPicker?: {
+    showPicker: boolean;
+    locationIds: string[];
+    setLocationIds: (next: string[]) => void;
+    accessible: AccessibleLocation[];
+  };
 }) {
   const selectedSegments = (values.segment_ids || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-
-  function toggleSegment(id: string) {
-    const set = new Set(selectedSegments);
-    if (set.has(id)) set.delete(id);
-    else set.add(id);
-    onChange('segment_ids', Array.from(set).join(','));
-  }
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
@@ -90,29 +90,27 @@ export function CustomerFormFields({
             No party segments defined yet. Add them under Parties → Segments.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {segmentOptions.map((s) => {
-              const on = selectedSegments.includes(s.id);
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => toggleSegment(s.id)}
-                  style={{
-                    border: `1px solid ${on ? '#185c4c' : '#c5d4ce'}`,
-                    background: on ? '#eef6f2' : '#fff',
-                    color: '#185c4c',
-                    borderRadius: 999,
-                    padding: '0.25rem 0.7rem',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                  }}
-                >
+          <FormRow label="Segments">
+            <select
+              multiple
+              value={selectedSegments}
+              onChange={(e) =>
+                onChange(
+                  'segment_ids',
+                  Array.from(e.target.selectedOptions)
+                    .map((o) => o.value)
+                    .join(','),
+                )
+              }
+              style={{ minHeight: 72, padding: 6, borderRadius: 4, border: '1px solid #ccc' }}
+            >
+              {segmentOptions.map((s) => (
+                <option key={s.id} value={s.id}>
                   {s.name}
-                </button>
-              );
-            })}
-          </div>
+                </option>
+              ))}
+            </select>
+          </FormRow>
         )}
       </section>
 
@@ -132,10 +130,14 @@ export function CustomerFormFields({
         </FormRow>
       </details>
 
-      <LocationIdsField
-        value={values.location_ids || 'default'}
-        onChange={(v) => onChange('location_ids', v)}
-      />
+      {locationPicker ? (
+        <PartyLocationPicker
+          showPicker={locationPicker.showPicker}
+          locationIds={locationPicker.locationIds}
+          setLocationIds={locationPicker.setLocationIds}
+          accessible={locationPicker.accessible}
+        />
+      ) : null}
     </div>
   );
 }
@@ -149,7 +151,7 @@ export function validateCustomerForm(v: PartyFormValues): string | null {
   return null;
 }
 
-export function customerBody(v: PartyFormValues) {
+export function customerBody(v: PartyFormValues, locationIds: string[]) {
   const segment_ids = (v.segment_ids || '')
     .split(',')
     .map((s) => s.trim())
@@ -171,7 +173,7 @@ export function customerBody(v: PartyFormValues) {
     registration_type: v.registration_type || 'Unregistered',
     msme_number: v.msme_number || '',
     notes: v.notes || '',
-    location_ids: parseLocationIds(v.location_ids || 'default'),
+    location_ids: locationIds,
     is_commission_agent: v.is_commission_agent === 'true',
     segment_ids,
   };
@@ -181,10 +183,13 @@ export function emptyCustomerForm(): PartyFormValues {
   return {
     country: 'India',
     registration_type: 'Unregistered',
-    location_ids: 'default',
     is_commission_agent: 'false',
     segment_ids: '',
   };
+}
+
+export function customerLocationIds(data: Record<string, unknown>): string[] {
+  return Array.isArray(data.location_ids) ? (data.location_ids as string[]).map(String) : [];
 }
 
 export function customerToForm(data: Record<string, unknown>): PartyFormValues {
@@ -205,10 +210,9 @@ export function customerToForm(data: Record<string, unknown>): PartyFormValues {
     registration_type: String(data.registration_type || 'Unregistered'),
     msme_number: String(data.msme_number || ''),
     notes: String(data.notes || ''),
-    location_ids: Array.isArray(data.location_ids)
-      ? (data.location_ids as string[]).join(', ')
-      : 'default',
     is_commission_agent: data.is_commission_agent ? 'true' : 'false',
     segment_ids: Array.isArray(data.segment_ids) ? (data.segment_ids as string[]).join(',') : '',
   };
 }
+
+export { usePartyLocationIds };

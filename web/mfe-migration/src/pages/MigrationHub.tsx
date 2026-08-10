@@ -58,6 +58,7 @@ export function MigrationHubPage() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [profileName, setProfileName] = useState('');
+  const [selectedProfileId, setSelectedProfileId] = useState('');
   const [duplicatePolicy, setDuplicatePolicy] = useState<DuplicatePolicy>('skip');
   const [error, setError] = useState('');
   const entitiesQ = useListMigrationEntitiesQuery();
@@ -234,6 +235,7 @@ export function MigrationHubPage() {
             <Button
               type="button"
               variant="ghost"
+              data-kb-action="migration.download_template"
               onClick={() => download(`${entity}-template.csv`, templateQ.data?.csv || '', 'text/csv')}
               disabled={!templateQ.data?.csv}
             >
@@ -278,11 +280,8 @@ export function MigrationHubPage() {
             </Button>
             <FormRow label="Load mapping profile">
               <select
-                value=""
-                onChange={(event) => {
-                  const profile = profiles.find((item) => item.id === event.target.value);
-                  if (profile) setMapping(profile.mapping);
-                }}
+                value={selectedProfileId}
+                onChange={(event) => setSelectedProfileId(event.target.value)}
                 style={inputStyle}
               >
                 <option value="">Choose a saved profile</option>
@@ -293,12 +292,29 @@ export function MigrationHubPage() {
                 ))}
               </select>
             </FormRow>
+            <Button
+              type="button"
+              variant="ghost"
+              data-kb-action="migration.apply_profile"
+              disabled={!selectedProfileId}
+              onClick={() => {
+                const profile = profiles.find((item) => item.id === selectedProfileId);
+                if (profile) setMapping(profile.mapping);
+              }}
+            >
+              Apply profile
+            </Button>
           </div>
           <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
             <Button type="button" variant="ghost" onClick={() => setStep(0)}>
               Back
             </Button>
-            <Button type="button" onClick={onPreview} disabled={isBusy || !Object.keys(mapping).length}>
+            <Button
+              type="button"
+              data-kb-action="migration.dry_run"
+              onClick={onPreview}
+              disabled={isBusy || !Object.keys(mapping).length}
+            >
               {previewState.isLoading ? 'Validating…' : 'Run dry-run'}
             </Button>
           </div>
@@ -323,7 +339,12 @@ export function MigrationHubPage() {
                 ))}
               </ul>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <Button type="button" variant="ghost" onClick={() => downloadIssues(preview.issues, 'migration-preview-issues.json')}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  data-kb-action="migration.download_errors"
+                  onClick={() => downloadIssues(preview.issues, 'migration-preview-issues.json')}
+                >
                   Download issues JSON
                 </Button>
                 <Button type="button" variant="ghost" onClick={() => downloadIssuesText(preview.issues, 'migration-preview-issues.txt')}>
@@ -349,7 +370,12 @@ export function MigrationHubPage() {
             <Button type="button" variant="ghost" onClick={() => setStep(1)}>
               Back to mapping
             </Button>
-            <Button type="button" onClick={onRun} disabled={isBusy || !preview.can_import}>
+            <Button
+              type="button"
+              data-kb-action="migration.confirm_import"
+              onClick={onRun}
+              disabled={isBusy || !preview.can_import}
+            >
               {runState.isLoading ? 'Importing…' : 'Confirm import'}
             </Button>
           </div>

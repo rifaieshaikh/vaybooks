@@ -7,7 +7,7 @@ import {
   useListWorkersQuery,
   useUpdateBoutiqueTimeEntryMutation,
 } from '@vaybooks/store';
-import { Button, ErrorText, FormRow, Modal, TextInput } from '@vaybooks/ui-kit';
+import { Button, EntityDetailForm, ErrorText, FormRow, Modal, TextInput } from '@vaybooks/ui-kit';
 import { LIST_FETCH_ALL_SIZE, pagedItems } from '../pagedList';
 import { asCaption, extractError } from '../utils';
 import {
@@ -236,7 +236,7 @@ export function TaskEntryModal({
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 10 }}>
+      <EntityDetailForm>
         {formError ? <ErrorText>{formError}</ErrorText> : null}
         <FormRow label="Order *">
           <select
@@ -247,7 +247,6 @@ export function TaskEntryModal({
               setBillId('');
               setActivityId('');
             }}
-            style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
           >
             <option value="">Select order</option>
             {orders.map((o) => (
@@ -265,7 +264,6 @@ export function TaskEntryModal({
               setBillId(e.target.value);
               setActivityId('');
             }}
-            style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
           >
             <option value="">Select item</option>
             {items.map((item) => (
@@ -280,7 +278,6 @@ export function TaskEntryModal({
             value={activityId}
             disabled={!billId || isEdit}
             onChange={(e) => setActivityId(e.target.value)}
-            style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
           >
             <option value="">Select activity</option>
             {activitiesForBill.map((act) => (
@@ -304,7 +301,6 @@ export function TaskEntryModal({
               const match = eligibleWorkers.find((w) => String(w.id) === id);
               setWorkerName(match ? asCaption(match.worker_name) : '');
             }}
-            style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
           >
             <option value="">Unassigned</option>
             {eligibleWorkers.map((w) => (
@@ -319,10 +315,9 @@ export function TaskEntryModal({
             type="date"
             value={workDate}
             onChange={(e) => setWorkDate(e.target.value)}
-            style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
           />
         </FormRow>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div className="ed-grid">
           <FormRow label="Start">
             <TextInput value={startTime} onChange={(e) => setStartTime(e.target.value)} placeholder="09:00" />
           </FormRow>
@@ -337,13 +332,13 @@ export function TaskEntryModal({
           </FormRow>
         </div>
         {computed ? (
-          <p style={{ margin: 0, fontSize: 13, color: '#667' }}>
+          <p className="ed-hint">
             Ends {computed.endTime}
             {computed.endsNextDay ? ' (next day)' : ''} ·{' '}
             {formatDurationLabel(Math.round(Number(hoursTaken) * 60))}
           </p>
         ) : isPlaceholder ? (
-          <p style={{ margin: 0, fontSize: 13, color: '#667' }}>
+          <p className="ed-hint">
             Assign an employee now, or enter time taken to complete the task.
           </p>
         ) : (
@@ -352,7 +347,7 @@ export function TaskEntryModal({
         <FormRow label="Notes">
           <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
         </FormRow>
-      </div>
+      </EntityDetailForm>
     </Modal>
   );
 }

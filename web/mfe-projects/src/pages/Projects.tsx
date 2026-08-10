@@ -29,6 +29,13 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
+  EntityDetailBack,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailPanel,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
+  EntityDetailTabs,
   EntityListActions,
   EntityListEmpty,
   EntityListFoot,
@@ -46,24 +53,25 @@ import {
   matchesRegex,
   pageCount,
   paginate,
+  useDetailKeyboardBack,
   type EntityListColumn,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
 
-const TABS = [
-  'Overview',
-  'BOQ',
-  'Budget',
-  'Measurements',
-  'Billing',
-  'Time',
-  'Expenses',
-  'Documents',
-  'DPR',
-  'Portal',
-  'Site',
+const PROJECT_WORKSPACE_TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'boq', label: 'BOQ' },
+  { id: 'budget', label: 'Budget' },
+  { id: 'measurements', label: 'Measurements' },
+  { id: 'billing', label: 'Billing' },
+  { id: 'time', label: 'Time' },
+  { id: 'expenses', label: 'Expenses' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'dpr', label: 'DPR' },
+  { id: 'portal', label: 'Portal' },
+  { id: 'site', label: 'Site' },
 ] as const;
-type Tab = (typeof TABS)[number];
+type ProjectWorkspaceTab = (typeof PROJECT_WORKSPACE_TABS)[number]['id'];
 
 const PROJECT_STATUS_CHIPS = [
   { id: 'all', label: 'All' },
@@ -76,7 +84,7 @@ const PROJECT_STATUS_CHIPS = [
 
 export function ProjectsListPage() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setSearchParams] = useSearchParams();
   const { data = [], isLoading, error, refetch } = useListProjectsQuery();
   const { data: customers = [] } = useListCustomersQuery();
   const [createProject, createState] = useCreateProjectMutation();
@@ -95,14 +103,16 @@ export function ProjectsListPage() {
   useEffect(() => {
     const cid = params.get('customer_id') || '';
     if (cid) setCustomerId(cid);
-    if (params.get('new') === '1') {
-      setFormError('');
-      setName('');
-      setContractValue('0');
-      setLocationId('loc-main');
-      setOpen(true);
-    }
-  }, [params]);
+    if (params.get('new') !== '1') return;
+    setFormError('');
+    setName('');
+    setContractValue('0');
+    setLocationId('loc-main');
+    setOpen(true);
+    const next = new URLSearchParams(params);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [params, setSearchParams]);
 
   const filterCustomerId = params.get('customer_id') || '';
 
@@ -250,6 +260,9 @@ export function ProjectsListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/projects/list/${row.id}`)}
+          onNew={openCreate}
           actions={(row) => (
             <EntityListActions onOpen={() => navigate(`/projects/list/${row.id}`)} />
           )}
@@ -314,8 +327,8 @@ export function ProjectsListPage() {
   );
 }
 
-function ProjectWorkspaceTabs({ projectId }: { projectId: string }) {
-  const [tab, setTab] = useState<Tab>('Overview');
+function ProjectWorkspaceSection({ projectId }: { projectId: string }) {
+  const [tab, setTab] = useState<ProjectWorkspaceTab>('overview');
   const [msg, setMsg] = useState('');
   const { data: workspace } = useGetProjectWorkspaceQuery(projectId);
   const { data: boq = [] } = useListProjectBoqQuery(projectId);
@@ -352,324 +365,421 @@ function ProjectWorkspaceTabs({ projectId }: { projectId: string }) {
   }
 
   const budgetLines = Array.isArray(budget?.lines) ? (budget!.lines as Record<string, unknown>[]) : [];
+  const activeTab = PROJECT_WORKSPACE_TABS.some((t) => t.id === tab) ? tab : 'overview';
 
   return (
-    <div style={{ display: 'grid', gap: 16, marginTop: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <h3 style={{ margin: 0 }}>Workspace</h3>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Link to={`/projects/portal/${projectId}`}>Portal page</Link>
-          <Link to={`/projects/site-mobile/${projectId}`}>Site mobile</Link>
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {TABS.map((t) => (
-          <Button key={t} type="button" variant={t === tab ? undefined : 'ghost'} onClick={() => setTab(t)}>
-            {t}
-          </Button>
-        ))}
-      </div>
+    <>
+      <EntityDetailTabs
+        value={activeTab}
+        ariaLabel="Project workspace sections"
+        onChange={(next) => setTab(next as ProjectWorkspaceTab)}
+        options={[...PROJECT_WORKSPACE_TABS]}
+      />
+
       {msg ? <p>{msg}</p> : null}
 
-      {tab === 'Overview' && (
-        <p>
-          Progress: {asCaption(workspace?.progress)} · BOQ {boq.length} · Measurements {measurements.length} ·
-          RA {ra.length} · Docs {docs.length}
-        </p>
-      )}
-
-      {tab === 'BOQ' && (
-        <div style={{ display: 'grid', gap: 8 }}>
-          <Button
-            type="button"
-            onClick={() =>
-              run('BOQ item added', () =>
-                createBoq({
-                  projectId,
-                  body: { code: `B${boq.length + 1}`, description: 'Work item', qty: 1, rate: 100 },
-                }).unwrap(),
-              )
-            }
-          >
-            Add BOQ item
-          </Button>
-          <ul>
-            {boq.map((row) => (
-              <li key={String(row.id)}>
-                {asCaption(row.code)} · {asCaption(row.description)} · qty {asCaption(row.estimated_qty || row.qty)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {tab === 'Budget' && (
-        <div style={{ display: 'grid', gap: 8, maxWidth: 420 }}>
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
-            {JSON.stringify(budget?.summary || {}, null, 2)}
-          </pre>
-          <FormRow label="Amount">
-            <input value={budgetAmt} onChange={(e) => setBudgetAmt(e.target.value)} />
-          </FormRow>
-          <Button
-            type="button"
-            onClick={() =>
-              run('Budget line added', () =>
-                addBudget({
-                  projectId,
-                  body: { cost_category: 'General', amount: Number(budgetAmt) || 0 },
-                }).unwrap(),
-              )
-            }
-          >
-            Add budget line
-          </Button>
-          <ul>
-            {budgetLines.map((line) => (
-              <li key={String(line.id)}>
-                {asCaption(line.cost_category)} · {asCaption(line.amount)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {tab === 'Measurements' && (
-        <div style={{ display: 'grid', gap: 8 }}>
-          <Button
-            type="button"
-            disabled={!boq[0]}
-            onClick={() =>
-              run('Measurement created', () =>
-                createMeas({
-                  projectId,
-                  body: { boq_item_id: String(boq[0].id), quantity: 1 },
-                }).unwrap(),
-              )
-            }
-          >
-            Add measurement from first BOQ
-          </Button>
-          <ul>
-            {measurements.map((m) => (
-              <li key={String(m.id)} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <span>
-                  {asCaption(m.id).slice(0, 8)} · qty {asCaption(m.quantity)} · {asCaption(m.status)}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() =>
-                    run('Submitted', () =>
-                      submitMeas({ projectId, measurementId: String(m.id) }).unwrap(),
-                    )
-                  }
-                >
-                  Submit
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() =>
-                    run('Certified', () =>
-                      certifyMeas({
-                        projectId,
-                        measurementId: String(m.id),
-                        body: { actor: 'web' },
-                      }).unwrap(),
-                    )
-                  }
-                >
-                  Certify
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {tab === 'Billing' && (
-        <div style={{ display: 'grid', gap: 8 }}>
-          <Button
-            type="button"
-            onClick={() =>
-              run('RA created', () =>
-                createRa({
-                  projectId,
-                  body: {
-                    claim_amount: 1000,
-                    description: 'RA claim',
-                    measurement_ids: measurements
-                      .filter((m) => /certif/i.test(String(m.status || '')))
-                      .map((m) => String(m.id)),
-                  },
-                }).unwrap(),
-              )
-            }
-          >
-            Create RA (from certified if any)
-          </Button>
-          <ul>
-            {ra.map((bill) => (
-              <li key={String(bill.id)} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span>
-                  {asCaption(bill.ra_number || bill.id)} · {asCaption(bill.status)} ·{' '}
-                  {asCaption(bill.claim_amount || bill.amount)}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() =>
-                    run('RA submitted', () =>
-                      submitRa({ projectId, raId: String(bill.id) }).unwrap(),
-                    )
-                  }
-                >
-                  Submit
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {tab === 'Time' && (
-        <ul>
-          {time.map((row) => (
-            <li key={String(row.id)}>
-              {asCaption(row.work_date)} · {asCaption(row.hours)}h · {asCaption(row.worker_id)}
-            </li>
-          ))}
-          {!time.length ? <p style={{ color: '#667' }}>No time entries.</p> : null}
-        </ul>
-      )}
-
-      {tab === 'Expenses' && (
-        <div style={{ display: 'grid', gap: 8, maxWidth: 360 }}>
-          <FormRow label="Amount">
-            <input value={expenseAmt} onChange={(e) => setExpenseAmt(e.target.value)} />
-          </FormRow>
-          <Button
-            type="button"
-            onClick={() =>
-              run('Expense added', () =>
-                createExpense({
-                  projectId,
-                  body: { amount: Number(expenseAmt) || 0, category: 'Material', description: 'Site cost' },
-                }).unwrap(),
-              )
-            }
-          >
-            Add expense
-          </Button>
-        </div>
-      )}
-
-      {tab === 'Documents' && (
-        <div style={{ display: 'grid', gap: 8 }}>
-          <Button
-            type="button"
-            onClick={() =>
-              run('Document uploaded', () =>
-                uploadDoc({
-                  projectId,
-                  body: {
-                    name: `note-${Date.now()}.txt`,
-                    category: 'Other',
-                    content_type: 'text/plain',
-                    data_base64: btoa('workspace upload'),
-                  },
-                }).unwrap(),
-              )
-            }
-          >
-            Upload sample note
-          </Button>
-          <ul>
-            {docs.map((d) => (
-              <li key={String(d.id)}>
-                {asCaption(d.name)} · {asCaption(d.category)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {tab === 'DPR' && (
-        <div style={{ display: 'grid', gap: 8 }}>
-          <Button
-            type="button"
-            onClick={() => run('DPR created', () => createDpr({ projectId, body: { notes: 'Site progress' } }).unwrap())}
-          >
-            Create DPR
-          </Button>
-          <ul>
-            {dprs.map((d) => (
-              <li key={String(d.id)}>
-                {asCaption(d.report_date)} · {asCaption(d.notes)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {tab === 'Portal' && (
-        <div style={{ display: 'grid', gap: 8 }}>
-          <Button
-            type="button"
-            onClick={() =>
-              run('Token created', () => createPortal({ projectId, body: { label: 'Client portal' } }).unwrap())
-            }
-          >
-            Create portal token
-          </Button>
-          <ul>
-            {tokens.map((t) => (
-              <li key={String(t.id)}>
-                {asCaption(t.label || t.token)} · {asCaption(t.scope)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {tab === 'Site' && (
-        <div>
-          <p>
-            Site measurements: {Array.isArray(site?.measurements) ? site!.measurements.length : 0} · DPRs:{' '}
-            {Array.isArray(site?.dprs) ? site!.dprs.length : 0} · Time:{' '}
-            {Array.isArray(site?.time_entries) ? site!.time_entries.length : 0}
+      {activeTab === 'overview' ? (
+        <EntityDetailPanel key="overview" title="Overview">
+          <p style={{ margin: 0 }}>
+            Progress: {asCaption(workspace?.progress)} · BOQ {boq.length} · Measurements {measurements.length} ·
+            RA {ra.length} · Docs {docs.length}
           </p>
-          <Link to={`/projects/site-mobile/${projectId}`}>Open dedicated site-mobile page</Link>
-        </div>
-      )}
-    </div>
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'boq' ? (
+        <EntityDetailPanel key="boq" title="BOQ">
+          <div style={{ display: 'grid', gap: 8 }}>
+            <Button
+              type="button"
+              onClick={() =>
+                run('BOQ item added', () =>
+                  createBoq({
+                    projectId,
+                    body: { code: `B${boq.length + 1}`, description: 'Work item', qty: 1, rate: 100 },
+                  }).unwrap(),
+                )
+              }
+            >
+              Add BOQ item
+            </Button>
+            <ul>
+              {boq.map((row) => (
+                <li key={String(row.id)}>
+                  {asCaption(row.code)} · {asCaption(row.description)} · qty{' '}
+                  {asCaption(row.estimated_qty || row.qty)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'budget' ? (
+        <EntityDetailPanel key="budget" title="Budget">
+          <div style={{ display: 'grid', gap: 8, maxWidth: 420 }}>
+            <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
+              {JSON.stringify(budget?.summary || {}, null, 2)}
+            </pre>
+            <FormRow label="Amount">
+              <input value={budgetAmt} onChange={(e) => setBudgetAmt(e.target.value)} />
+            </FormRow>
+            <Button
+              type="button"
+              onClick={() =>
+                run('Budget line added', () =>
+                  addBudget({
+                    projectId,
+                    body: { cost_category: 'General', amount: Number(budgetAmt) || 0 },
+                  }).unwrap(),
+                )
+              }
+            >
+              Add budget line
+            </Button>
+            <ul>
+              {budgetLines.map((line) => (
+                <li key={String(line.id)}>
+                  {asCaption(line.cost_category)} · {asCaption(line.amount)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'measurements' ? (
+        <EntityDetailPanel key="measurements" title="Measurements">
+          <div style={{ display: 'grid', gap: 8 }}>
+            <Button
+              type="button"
+              disabled={!boq[0]}
+              onClick={() =>
+                run('Measurement created', () =>
+                  createMeas({
+                    projectId,
+                    body: { boq_item_id: String(boq[0].id), quantity: 1 },
+                  }).unwrap(),
+                )
+              }
+            >
+              Add measurement from first BOQ
+            </Button>
+            <ul>
+              {measurements.map((m) => (
+                <li
+                  key={String(m.id)}
+                  style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}
+                >
+                  <span>
+                    {asCaption(m.id).slice(0, 8)} · qty {asCaption(m.quantity)} · {asCaption(m.status)}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() =>
+                      run('Submitted', () =>
+                        submitMeas({ projectId, measurementId: String(m.id) }).unwrap(),
+                      )
+                    }
+                  >
+                    Submit
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() =>
+                      run('Certified', () =>
+                        certifyMeas({
+                          projectId,
+                          measurementId: String(m.id),
+                          body: { actor: 'web' },
+                        }).unwrap(),
+                      )
+                    }
+                  >
+                    Certify
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'billing' ? (
+        <EntityDetailPanel key="billing" title="Billing">
+          <div style={{ display: 'grid', gap: 8 }}>
+            <Button
+              type="button"
+              onClick={() =>
+                run('RA created', () =>
+                  createRa({
+                    projectId,
+                    body: {
+                      claim_amount: 1000,
+                      description: 'RA claim',
+                      measurement_ids: measurements
+                        .filter((m) => /certif/i.test(String(m.status || '')))
+                        .map((m) => String(m.id)),
+                    },
+                  }).unwrap(),
+                )
+              }
+            >
+              Create RA (from certified if any)
+            </Button>
+            <ul>
+              {ra.map((bill) => (
+                <li key={String(bill.id)} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span>
+                    {asCaption(bill.ra_number || bill.id)} · {asCaption(bill.status)} ·{' '}
+                    {asCaption(bill.claim_amount || bill.amount)}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() =>
+                      run('RA submitted', () =>
+                        submitRa({ projectId, raId: String(bill.id) }).unwrap(),
+                      )
+                    }
+                  >
+                    Submit
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'time' ? (
+        <EntityDetailPanel key="time" title="Time">
+          <ul>
+            {time.map((row) => (
+              <li key={String(row.id)}>
+                {asCaption(row.work_date)} · {asCaption(row.hours)}h · {asCaption(row.worker_id)}
+              </li>
+            ))}
+            {!time.length ? <p style={{ color: '#667' }}>No time entries.</p> : null}
+          </ul>
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'expenses' ? (
+        <EntityDetailPanel key="expenses" title="Expenses">
+          <div style={{ display: 'grid', gap: 8, maxWidth: 360 }}>
+            <FormRow label="Amount">
+              <input value={expenseAmt} onChange={(e) => setExpenseAmt(e.target.value)} />
+            </FormRow>
+            <Button
+              type="button"
+              onClick={() =>
+                run('Expense added', () =>
+                  createExpense({
+                    projectId,
+                    body: {
+                      amount: Number(expenseAmt) || 0,
+                      category: 'Material',
+                      description: 'Site cost',
+                    },
+                  }).unwrap(),
+                )
+              }
+            >
+              Add expense
+            </Button>
+          </div>
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'documents' ? (
+        <EntityDetailPanel key="documents" title="Documents">
+          <div style={{ display: 'grid', gap: 8 }}>
+            <Button
+              type="button"
+              onClick={() =>
+                run('Document uploaded', () =>
+                  uploadDoc({
+                    projectId,
+                    body: {
+                      name: `note-${Date.now()}.txt`,
+                      category: 'Other',
+                      content_type: 'text/plain',
+                      data_base64: btoa('workspace upload'),
+                    },
+                  }).unwrap(),
+                )
+              }
+            >
+              Upload sample note
+            </Button>
+            <ul>
+              {docs.map((d) => (
+                <li key={String(d.id)}>
+                  {asCaption(d.name)} · {asCaption(d.category)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'dpr' ? (
+        <EntityDetailPanel key="dpr" title="DPR">
+          <div style={{ display: 'grid', gap: 8 }}>
+            <Button
+              type="button"
+              onClick={() =>
+                run('DPR created', () =>
+                  createDpr({ projectId, body: { notes: 'Site progress' } }).unwrap(),
+                )
+              }
+            >
+              Create DPR
+            </Button>
+            <ul>
+              {dprs.map((d) => (
+                <li key={String(d.id)}>
+                  {asCaption(d.report_date)} · {asCaption(d.notes)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'portal' ? (
+        <EntityDetailPanel key="portal" title="Portal">
+          <div style={{ display: 'grid', gap: 8 }}>
+            <Button
+              type="button"
+              onClick={() =>
+                run('Token created', () =>
+                  createPortal({ projectId, body: { label: 'Client portal' } }).unwrap(),
+                )
+              }
+            >
+              Create portal token
+            </Button>
+            <ul>
+              {tokens.map((t) => (
+                <li key={String(t.id)}>
+                  {asCaption(t.label || t.token)} · {asCaption(t.scope)}
+                </li>
+              ))}
+            </ul>
+            <p style={{ margin: 0 }}>
+              <Link to={`/projects/portal/${projectId}`}>Open dedicated portal page</Link>
+            </p>
+          </div>
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'site' ? (
+        <EntityDetailPanel key="site" title="Site">
+          <div style={{ display: 'grid', gap: 8 }}>
+            <p style={{ margin: 0 }}>
+              Site measurements: {Array.isArray(site?.measurements) ? site!.measurements.length : 0} ·
+              DPRs: {Array.isArray(site?.dprs) ? site!.dprs.length : 0} · Time:{' '}
+              {Array.isArray(site?.time_entries) ? site!.time_entries.length : 0}
+            </p>
+            <p style={{ margin: 0 }}>
+              <Link to={`/projects/site-mobile/${projectId}`}>Open dedicated site-mobile page</Link>
+            </p>
+          </div>
+        </EntityDetailPanel>
+      ) : null}
+    </>
   );
 }
 
 export function ProjectDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error } = useGetProjectQuery(id, { skip: !id });
 
-  if (isLoading) return <p>Loading…</p>;
-  if (error || !data) return <ErrorText>Project not found.</ErrorText>;
+  if (isLoading) {
+    return (
+      <EntityDetailPage>
+        <EntityListLoading>Loading project…</EntityListLoading>
+      </EntityDetailPage>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <EntityDetailPage>
+        <EntityDetailBack to="/projects/list" label="Projects" />
+        <ErrorText>Project not found.</ErrorText>
+      </EntityDetailPage>
+    );
+  }
+
+  const heroActions = (
+    <>
+      <Button type="button" variant="ghost" onClick={() => navigate(`/projects/portal/${id}`)}>
+        Portal
+      </Button>
+      <Button type="button" variant="ghost" onClick={() => navigate(`/projects/site-mobile/${id}`)}>
+        Site mobile
+      </Button>
+    </>
+  );
 
   return (
-    <div>
-      <p>
-        <Link to="/projects/list">← Projects</Link>
-      </p>
-      <h2 style={{ color: 'var(--vb-color-primary, #185c4c)' }}>{asCaption(data.name)}</h2>
-      <p>
-        {asCaption(data.project_number)} · {asCaption(data.customer_name)} · {asCaption(data.status)}
-      </p>
-      <ProjectWorkspaceTabs projectId={id} />
-    </div>
+    <EntityDetailPage>
+      <EntityDetailBack to="/projects/list" label="Projects" />
+
+      <EntityDetailHero
+        kicker="Projects"
+        title={asCaption(data.name)}
+        lead={
+          <>
+            {asCaption(data.project_number)}
+            {data.customer_name ? (
+              <span className="ed-lead-sep"> · {asCaption(data.customer_name)}</span>
+            ) : null}
+            {data.status ? <span className="ed-lead-sep"> · {asCaption(data.status)}</span> : null}
+          </>
+        }
+        actions={heroActions}
+      />
+
+      <EntityDetailSnapshot
+        ariaLabel="Project facts"
+        items={[
+          { label: 'Number', value: asCaption(data.project_number) || '—' },
+          { label: 'Customer', value: asCaption(data.customer_name) || '—' },
+          { label: 'Status', value: asCaption(data.status) || '—' },
+          {
+            label: 'Contract',
+            value:
+              data.contract_value == null || data.contract_value === ''
+                ? '—'
+                : asCaption(data.contract_value),
+          },
+        ]}
+      />
+
+      <ProjectWorkspaceSection projectId={id} />
+
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/projects/list')}>
+            Back to list
+          </Button>
+        }
+        end={heroActions}
+      />
+    </EntityDetailPage>
   );
 }
 
 export function ProjectPortalPage() {
   const { id = '' } = useParams();
+  useDetailKeyboardBack(`/projects/list/${id}`);
   const { data: project } = useGetProjectQuery(id, { skip: !id });
   const { data: tokens = [], refetch } = useListProjectPortalTokensQuery(id, { skip: !id });
   const [createPortal] = useCreateProjectPortalTokenMutation();
@@ -711,6 +821,7 @@ export function ProjectPortalPage() {
 
 export function ProjectSiteMobilePage() {
   const { id = '' } = useParams();
+  useDetailKeyboardBack(`/projects/list/${id}`);
   const { data: site, isLoading, error } = useGetProjectSiteMobileQuery(id, { skip: !id });
 
   if (isLoading) return <p>Loading…</p>;

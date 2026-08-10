@@ -291,6 +291,9 @@ export function GoodsReceiptListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/purchases/goods-receipt/${row.id}`)}
+          onNew={goNew}
           actions={(row) => {
             const received = statusIncludes(row.status, 'received');
             return (

@@ -136,18 +136,37 @@
 }
 
 .dd-hero {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem 1.5rem;
-  margin-bottom: 1.25rem;
-  padding: 1.15rem 1.25rem;
+  margin-bottom: 1rem;
+  padding: 1.25rem 1.4rem 1.15rem;
   border: 1px solid var(--dd-line);
-  border-radius: 12px;
+  border-radius: 18px;
   background:
-    linear-gradient(135deg, rgba(24, 92, 76, 0.06) 0%, transparent 42%),
-    linear-gradient(180deg, #f7fbf9 0%, var(--dd-surface) 100%);
+    radial-gradient(120% 80% at 0% 0%, rgba(24, 92, 76, 0.14), transparent 55%),
+    linear-gradient(145deg, #f4faf7 0%, #e8f2ed 48%, #f7faf8 100%);
+}
+
+.dd-hero::after {
+  content: '';
+  position: absolute;
+  right: -40px;
+  top: -50px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: rgba(24, 92, 76, 0.07);
+  pointer-events: none;
+}
+
+.dd-hero > * {
+  position: relative;
+  z-index: 1;
 }
 
 .dd-kicker {

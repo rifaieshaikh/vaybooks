@@ -508,6 +508,21 @@ def update_account(account_id: str, body: AccountUpdate) -> dict[str, Any]:
         raise _http_err(exc) from exc
 
 
+@router.delete("/accounts/{account_id}", status_code=204)
+def delete_account(account_id: str) -> None:
+    try:
+        acc = _svc().get_account(account_id)
+        if not acc:
+            raise HTTPException(status_code=404, detail="Account not found")
+        if _svc().is_protected_account(acc):
+            raise HTTPException(status_code=400, detail="Protected accounts cannot be deleted")
+        _svc().delete_account(account_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
 @router.get("/accounts/{account_id}/ledger")
 def account_ledger(account_id: str) -> list[dict[str, Any]]:
     if not _svc().get_account(account_id):

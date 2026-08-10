@@ -81,32 +81,6 @@ export function PartyAddressTaxFields({
   );
 }
 
-export function LocationIdsField({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <FormRow label="Location ids (comma-separated)">
-      <TextInput
-        value={value}
-        placeholder="default"
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </FormRow>
-  );
-}
-
-export function parseLocationIds(raw: string): string[] {
-  const parts = raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return parts.length ? parts : ['default'];
-}
-
 export function PartyListShell({
   title,
   search,
@@ -175,7 +149,6 @@ export function PartyForm({
   const [values, setValues] = useState<PartyFormValues>({
     country: 'India',
     registration_type: 'Unregistered',
-    location_ids: 'default',
     ...(initial || {}),
   });
 
@@ -192,7 +165,6 @@ export function PartyForm({
     <SimpleForm onSubmit={handleSubmit}>
       {extraFields}
       <PartyAddressTaxFields values={values} onChange={setField} />
-      <LocationIdsField value={values.location_ids || 'default'} onChange={(v) => setField('location_ids', v)} />
       <FormRow label="Notes">
         <TextInput value={values.notes || ''} onChange={(e) => setField('notes', e.target.value)} />
       </FormRow>

@@ -152,7 +152,12 @@ export function ProjectMeasurementsPage() {
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          keyboardNav
+        />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
@@ -272,7 +277,12 @@ export function ProjectRaBillsPage() {
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          keyboardNav
+        />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (

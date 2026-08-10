@@ -10,6 +10,7 @@ export {
   BoutiqueTimePage,
   BoutiqueTimeLogPage,
   BoutiqueCalendarPage,
+  BoutiqueTaskDetailPage,
   BoutiqueReportsPage,
   BoutiqueScheduledReportsPage,
 } from './pages';

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   useCheckSystemUpdatesMutation,
+  useInstallSystemUpdatesMutation,
   useListSystemLogsQuery,
   useListSystemSettingsQuery,
   useSystemDiagnosticsQuery,
@@ -77,7 +78,7 @@ export function SystemSettingsPage() {
         <FormRow label="Value">
           <input value={value} onChange={(e) => setValue(e.target.value)} style={{ padding: 8 }} />
         </FormRow>
-        <Button type="button" onClick={onSave}>
+        <Button type="button" onClick={onSave} data-kb-action="settings.system.save">
           Save
         </Button>
       </div>
@@ -90,6 +91,7 @@ export function SystemSettingsPage() {
 export function SystemUpdatesPage() {
   const { data, isLoading, error, refetch } = useSystemUpdatesQuery();
   const [check, checkState] = useCheckSystemUpdatesMutation();
+  const [install, installState] = useInstallSystemUpdatesMutation();
   const [msg, setMsg] = useState('');
   const rows = data ? Object.entries(data).map(([key, value]) => ({
     id: key,
@@ -112,6 +114,7 @@ export function SystemUpdatesPage() {
       <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
         <Button
           type="button"
+          data-kb-action="system.updates.check"
           onClick={async () => {
             setMsg('');
             try {
@@ -123,6 +126,24 @@ export function SystemUpdatesPage() {
           disabled={checkState.isLoading}
         >
           {checkState.isLoading ? 'Checking…' : 'Check for updates'}
+        </Button>
+        <Button
+          type="button"
+          data-kb-action="system.updates.install"
+          onClick={async () => {
+            setMsg('');
+            if (!window.confirm('Install available system updates now?')) return;
+            try {
+              await install().unwrap();
+              setMsg('Update install started.');
+              refetch();
+            } catch (e) {
+              setMsg(extractError(e));
+            }
+          }}
+          disabled={installState.isLoading}
+        >
+          {installState.isLoading ? 'Installing…' : 'Install updates'}
         </Button>
         <Button type="button" variant="ghost" onClick={() => refetch()}>Refresh status</Button>
       </div>
@@ -147,7 +168,7 @@ export function SystemLogsPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, gap: 12 }}>
         <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>System Logs</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
+        <Button type="button" variant="ghost" data-kb-action="system.logs.refresh" onClick={() => refetch()}>
           Refresh
         </Button>
       </div>

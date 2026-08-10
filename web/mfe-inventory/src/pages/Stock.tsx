@@ -218,6 +218,8 @@ export function StockListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/inventory/products/${String(row.id)}`)}
           actions={(row) => (
             <EntityListActions onOpen={() => navigate(`/inventory/products/${String(row.id)}`)} />
           )}
@@ -390,7 +392,12 @@ export function StockLedgerPage() {
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          keyboardNav
+        />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
@@ -544,7 +551,13 @@ export function MovementsListPage() {
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          keyboardNav
+          onNew={openRecord}
+        />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (

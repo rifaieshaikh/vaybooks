@@ -37,8 +37,13 @@ import {
   useListPartySegmentsQuery,
   useUpdatePartySegmentMutation,
 } from '@vaybooks/store';
-import { useMemo, useState } from 'react';
-import { LocationIdsField, parseLocationIds } from '../components/PartyFields';
+import { useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  PartyLocationPicker,
+  usePartyListLocationFilter,
+  usePartyLocationIds,
+} from '../components/PartyLocationFields';
 import { Modal } from '../components/Modal';
 
 const DEFAULT_WORKER_FILTERS = { worker_name: '', active: '' };
@@ -57,7 +62,12 @@ const WORKER_FILTER_FIELDS: FilterFieldDef[] = [
 ];
 
 export function WorkersListPage() {
-  const { data = [], isLoading, error, refetch } = useListWorkersQuery({ active_only: false });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { ready: locReady, params: locParams } = usePartyListLocationFilter();
+  const { data = [], isLoading, error, refetch } = useListWorkersQuery(
+    { active_only: false, ...(locParams || {}) },
+    { skip: !locReady },
+  );
   const [create] = useCreateWorkerMutation();
   const [update] = useUpdateWorkerMutation();
   const [deactivate] = useDeactivateWorkerMutation();
@@ -79,13 +89,24 @@ export function WorkersListPage() {
   const [baseSalary, setBaseSalary] = useState('0');
   const [otThreshold, setOtThreshold] = useState('0');
   const [otMult, setOtMult] = useState('1.5');
-  const [locationIds, setLocationIds] = useState('default');
   const [activityKeys, setActivityKeys] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
   const [periodFrom, setPeriodFrom] = useState('');
   const [periodTo, setPeriodTo] = useState('');
   const [payingAccountId, setPayingAccountId] = useState('');
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
+  const existingLocIds = useMemo(() => {
+    if (dialog !== 'edit' || !editId) return [] as string[];
+    const row = data.find((r) => String(r.id) === editId);
+    return row && Array.isArray(row.location_ids)
+      ? (row.location_ids as string[]).map(String)
+      : [];
+  }, [dialog, editId, data]);
+  const locationState = usePartyLocationIds({
+    mode: dialog === 'edit' ? 'edit' : 'create',
+    existingIds: existingLocIds,
+    resetKey: `${dialog || ''}:${editId || 'new'}`,
+  });
 
   const filtered = useMemo(() => {
     let rows = data.filter((row) => {
@@ -103,6 +124,11 @@ export function WorkersListPage() {
 
   async function submit() {
     setFormError('');
+    const loc = locationState.resolveForSave();
+    if (loc.error) {
+      setFormError(loc.error);
+      return;
+    }
     const refs = activityKeys
       .map((key) => {
         const [source, activityId] = key.split(':');
@@ -117,7 +143,7 @@ export function WorkersListPage() {
       ot_threshold_hours: Number(otThreshold) || 0,
       ot_multiplier: Number(otMult) || 1.5,
       activity_refs: refs,
-      location_ids: parseLocationIds(locationIds),
+      location_ids: loc.locationIds,
       is_active: true,
     };
     try {
@@ -145,9 +171,6 @@ export function WorkersListPage() {
     setBaseSalary(String(row.base_salary ?? 0));
     setOtThreshold(String(row.ot_threshold_hours ?? 0));
     setOtMult(String(row.ot_multiplier ?? 1.5));
-    setLocationIds(
-      Array.isArray(row.location_ids) ? (row.location_ids as string[]).join(', ') : 'default',
-    );
     const refs = Array.isArray(row.activity_refs) ? row.activity_refs : [];
     setActivityKeys(
       refs
@@ -162,6 +185,26 @@ export function WorkersListPage() {
     setFormError('');
     setDialog('edit');
   }
+
+  function openAdd() {
+    setEditId(null);
+    setName('');
+    setRate('0');
+    setBaseSalary('0');
+    setOtThreshold('0');
+    setOtMult('1.5');
+    setActivityKeys([]);
+    setFormError('');
+    setDialog('add');
+  }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openAdd();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   function openPay(row: WorkerRow) {
     setEditId(String(row.id));
@@ -253,21 +296,7 @@ export function WorkersListPage() {
         title="Employees"
         count={`${filtered.length} ${filtered.length === 1 ? 'employee' : 'employees'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setEditId(null);
-              setName('');
-              setRate('0');
-              setBaseSalary('0');
-              setOtThreshold('0');
-              setOtMult('1.5');
-              setLocationIds('default');
-              setActivityKeys([]);
-              setFormError('');
-              setDialog('add');
-            }}
-          >
+          <Button type="button" onClick={openAdd}>
             Add Employee
           </Button>
         }
@@ -323,6 +352,9 @@ export function WorkersListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={(row) => openEdit(row)}
+          onNew={openAdd}
           actions={(row) => (
             <EntityListActions
               onEdit={() => openEdit(row)}
@@ -420,7 +452,12 @@ export function WorkersListPage() {
               )}
             </div>
           </FormRow>
-          <LocationIdsField value={locationIds} onChange={setLocationIds} />
+          <PartyLocationPicker
+            showPicker={locationState.showPicker}
+            locationIds={locationState.locationIds}
+            setLocationIds={locationState.setLocationIds}
+            accessible={locationState.accessible}
+          />
         </div>
       </Modal>
 
@@ -566,6 +603,14 @@ export function SegmentsListPage() {
     setDialog('edit');
   }
 
+  function openAdd() {
+    setEditId(null);
+    setName('');
+    setApplies('customer,vendor');
+    setFormError('');
+    setDialog('add');
+  }
+
   async function onDelete(id: string) {
     if (!window.confirm('Delete this segment?')) return;
     await remove(id);
@@ -609,16 +654,7 @@ export function SegmentsListPage() {
         title="Party segments"
         count={`${filtered.length} ${filtered.length === 1 ? 'segment' : 'segments'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setEditId(null);
-              setName('');
-              setApplies('customer,vendor');
-              setFormError('');
-              setDialog('add');
-            }}
-          >
+          <Button type="button" onClick={openAdd}>
             Add Segment
           </Button>
         }
@@ -671,6 +707,9 @@ export function SegmentsListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={(row) => openEdit(row)}
+          onNew={openAdd}
           actions={(row) => (
             <EntityListActions
               onEdit={() => openEdit(row)}

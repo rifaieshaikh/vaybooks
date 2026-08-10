@@ -126,20 +126,77 @@ def dashboard() -> dict[str, object]:
 
 
 @router.get("/mtd")
-def mtd_dashboard() -> dict[str, object]:
-    """Month-to-date view — same summary focused on MTD fields."""
-    body = dashboard()
-    metrics = body.get("metrics") or {}
+def mtd_dashboard(period: str = "mtd") -> dict[str, object]:
+    """Period dashboard — presets map to date ranges (Streamlit period dashboard)."""
+    from datetime import date, timedelta
+
+    today = date.today()
+    key = (period or "mtd").strip().lower()
+    if key in ("today",):
+        start, end = today, today
+        label = "Today"
+    elif key in ("last_7d", "7d", "last7d"):
+        start, end = today - timedelta(days=6), today
+        label = "Last 7d"
+    elif key in ("last_30d", "30d", "last30d"):
+        start, end = today - timedelta(days=29), today
+        label = "Last 30d"
+    elif key in ("quarter", "qtd"):
+        month = ((today.month - 1) // 3) * 3 + 1
+        start, end = today.replace(month=month, day=1), today
+        label = "Quarter"
+    else:
+        start, end = today.replace(day=1), today
+        label = "MTD"
+        key = "mtd"
+
+    try:
+        summary = get_reports_container().reports.get_period_summary(start, end)
+    except Exception:
+        # Fall back to legacy MTD slice of home dashboard metrics
+        body = dashboard()
+        metrics = body.get("metrics") or {}
+        return {
+            "status": "ok",
+            "period": key,
+            "period_label": label,
+            "date_from": start.isoformat(),
+            "date_to": end.isoformat(),
+            "metrics": {
+                "delivered_this_month": metrics.get("delivered_this_month", 0),
+                "total_invoice_this_month": metrics.get("total_invoice_this_month", 0),
+                "total_advance_this_month": metrics.get("total_advance_this_month", 0),
+                "inventory_movements_this_month": (body.get("summary") or {}).get(
+                    "inventory_movements_this_month", 0
+                ),
+                "revenue": metrics.get("revenue", 0),
+                "orders_created": metrics.get("active_orders", 0),
+                "delivered": metrics.get("delivered_this_month", 0),
+                "invoiced": metrics.get("total_invoice_this_month", 0),
+            },
+            "source": "report_app_service_fallback",
+        }
+
     return {
         "status": "ok",
+        "period": key,
+        "period_label": label,
+        "date_from": start.isoformat(),
+        "date_to": end.isoformat(),
         "metrics": {
-            "delivered_this_month": metrics.get("delivered_this_month", 0),
-            "total_invoice_this_month": metrics.get("total_invoice_this_month", 0),
-            "total_advance_this_month": metrics.get("total_advance_this_month", 0),
-            "inventory_movements_this_month": (body.get("summary") or {}).get(
-                "inventory_movements_this_month", 0
-            ),
-            "revenue": metrics.get("revenue", 0),
+            "orders_created": summary.get("orders_created", 0),
+            "delivered": summary.get("delivered", 0),
+            "completed_orders": summary.get("completed_orders", 0),
+            "invoiced": summary.get("invoiced", 0),
+            "customers_created": summary.get("customers_created", 0),
+            "items_created": summary.get("items_created", 0),
+            "revenue": summary.get("revenue", summary.get("invoiced", 0)),
+            # Aliases for existing MTD KPI cards
+            "delivered_this_month": summary.get("delivered", 0),
+            "total_invoice_this_month": summary.get("invoiced", 0),
+            "total_advance_this_month": summary.get("advances", summary.get("advance_total", 0)),
+            "inventory_movements_this_month": summary.get("inventory_movements", 0),
         },
+        "summary": summary,
         "source": "report_app_service",
     }

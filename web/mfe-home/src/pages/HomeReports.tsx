@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useHomeDashboardQuery, useHomeMtdQuery, useReportsCatalogQuery } from '@vaybooks/store';
 import { Button, DataTable, ErrorText, type DataTableColumn } from '@vaybooks/ui-kit';
 
@@ -21,9 +21,38 @@ function Kpi({ label, value, to }: { label: string; value: string; to?: string }
         gap: 6,
       }}
     >
-      {to ? <Link to={to} style={{ color: 'inherit', textDecoration: 'none' }}>{content}</Link> : content}
+      {to ? (
+        <Link to={to} style={{ color: 'inherit', textDecoration: 'none' }}>
+          {content}
+        </Link>
+      ) : (
+        content
+      )}
     </div>
   );
+}
+
+const PERIODS = [
+  { id: 'today', label: 'Today', kb: 'dashboard.period.today' },
+  { id: 'last_7d', label: 'Last 7d', kb: 'dashboard.period.last_7d' },
+  { id: 'mtd', label: 'MTD', kb: 'dashboard.period.mtd' },
+  { id: 'last_30d', label: 'Last 30d', kb: 'dashboard.period.last_30d' },
+  { id: 'quarter', label: 'Quarter', kb: 'dashboard.period.quarter' },
+] as const;
+
+function metricValue(metrics: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const v = metrics[key];
+    if (v != null && v !== '') return String(v);
+  }
+  return '0';
+}
+
+function periodKpiLabel(base: string, period: string): string {
+  const p = PERIODS.find((x) => x.id === period);
+  if (period === 'mtd') return `${base} (MTD)`;
+  if (p) return `${base} (${p.label})`;
+  return base;
 }
 
 export function HomeDashboardPage() {
@@ -66,12 +95,20 @@ export function HomeDashboardPage() {
 }
 
 export function MtdDashboardPage() {
-  const { data, isLoading, error, refetch } = useHomeMtdQuery();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const period = searchParams.get('period') || 'mtd';
+  const { data, isLoading, error, refetch } = useHomeMtdQuery({ period });
   const metrics = (data?.metrics as Record<string, unknown>) || {};
+
+  useEffect(() => {
+    if (!searchParams.get('period')) {
+      setSearchParams({ period: 'mtd' }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>MTD Dashboard</h2>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <Link to="/">Dashboard</Link>
@@ -80,6 +117,27 @@ export function MtdDashboardPage() {
           </Button>
         </div>
       </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        {PERIODS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            className="el-btn-ghost"
+            data-kb-action={p.kb}
+            aria-pressed={period === p.id}
+            style={{
+              fontWeight: period === p.id ? 700 : 500,
+              borderColor: period === p.id ? 'var(--vb-color-primary, #185c4c)' : undefined,
+            }}
+            onClick={() => setSearchParams({ period: p.id })}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <p style={{ color: '#667', marginTop: 0 }}>
+        Period: <strong>{PERIODS.find((p) => p.id === period)?.label || period}</strong>
+      </p>
       {isLoading && <p>Loading…</p>}
       {error ? <ErrorText>Failed to load MTD dashboard.</ErrorText> : null}
       {!isLoading && !error && (
@@ -90,11 +148,36 @@ export function MtdDashboardPage() {
             gap: 12,
           }}
         >
-          <Kpi label="Delivered this month" value={String(metrics.delivered_this_month ?? 0)} to="/sales/delivery-notes" />
-          <Kpi label="Invoice total" value={String(metrics.total_invoice_this_month ?? 0)} to="/sales/invoices" />
-          <Kpi label="Advance total" value={String(metrics.total_advance_this_month ?? 0)} to="/boutique/orders" />
-          <Kpi label="Stock movements" value={String(metrics.inventory_movements_this_month ?? 0)} to="/inventory/movements" />
-          <Kpi label="Revenue" value={String(metrics.revenue ?? 0)} to="/finance/reports" />
+          <Kpi
+            label={periodKpiLabel('Orders created', period)}
+            value={metricValue(metrics, ['orders_created', 'orders_created_this_month'])}
+            to="/boutique/orders"
+          />
+          <Kpi
+            label={periodKpiLabel('Delivered', period)}
+            value={metricValue(metrics, ['delivered', 'delivered_this_month'])}
+            to="/sales/delivery-notes"
+          />
+          <Kpi
+            label={periodKpiLabel('Invoiced', period)}
+            value={metricValue(metrics, ['invoiced', 'total_invoice_this_month'])}
+            to="/sales/invoices"
+          />
+          <Kpi
+            label={periodKpiLabel('Advances', period)}
+            value={metricValue(metrics, ['advances', 'total_advance_this_month'])}
+            to="/boutique/orders"
+          />
+          <Kpi
+            label={periodKpiLabel('Stock movements', period)}
+            value={metricValue(metrics, ['inventory_movements', 'inventory_movements_this_month'])}
+            to="/inventory/movements"
+          />
+          <Kpi
+            label={periodKpiLabel('Revenue', period)}
+            value={metricValue(metrics, ['revenue', 'revenue_this_month'])}
+            to="/finance/reports"
+          />
         </div>
       )}
     </div>

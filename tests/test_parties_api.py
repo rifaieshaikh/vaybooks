@@ -26,6 +26,12 @@ def _uniq(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
+def _auth_headers() -> dict[str, str]:
+    login = c.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
 def test_parties_health() -> None:
     r = c.get("/api/parties/health")
     assert r.status_code == 200
@@ -127,3 +133,61 @@ def test_legacy_parties_shim() -> None:
     assert r.status_code == 201, r.text
     assert r.json()["kind"] == "customer"
     assert r.json()["id"]
+
+
+def test_customer_list_location_filter_and_empty_write() -> None:
+    headers = _auth_headers()
+    phone_a = f"9{uuid.uuid4().int % 10**9:09d}"
+    phone_b = f"9{uuid.uuid4().int % 10**9:09d}"
+    a = c.post(
+        "/api/parties/customers",
+        headers=headers,
+        json={
+            "customer_name": _uniq("LocA"),
+            "phone_number": phone_a,
+            "location_ids": ["loc-a"],
+        },
+    )
+    b = c.post(
+        "/api/parties/customers",
+        headers=headers,
+        json={
+            "customer_name": _uniq("LocB"),
+            "phone_number": phone_b,
+            "location_ids": ["loc-b"],
+        },
+    )
+    assert a.status_code == 201, a.text
+    assert b.status_code == 201, b.text
+    id_a = a.json()["id"]
+    id_b = b.json()["id"]
+
+    only_a = c.get(
+        "/api/parties/customers", headers=headers, params={"location_id": "loc-a"}
+    )
+    assert only_a.status_code == 200
+    ids = {row["id"] for row in only_a.json()}
+    assert id_a in ids
+    assert id_b not in ids
+
+    both = c.get(
+        "/api/parties/customers",
+        headers=headers,
+        params={"location_ids": "loc-a,loc-b"},
+    )
+    assert both.status_code == 200
+    ids_both = {row["id"] for row in both.json()}
+    assert id_a in ids_both and id_b in ids_both
+
+    empty = c.post(
+        "/api/parties/customers",
+        headers=headers,
+        json={
+            "customer_name": _uniq("NoLoc"),
+            "phone_number": f"9{uuid.uuid4().int % 10**9:09d}",
+            "location_ids": ["default"],
+        },
+    )
+    # ``default`` is stripped by the router; under pytest domain soft-fills loc-test.
+    assert empty.status_code == 201, empty.text
+    assert "default" not in (empty.json().get("location_ids") or [])

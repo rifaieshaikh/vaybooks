@@ -155,7 +155,11 @@ export function InvoicePanel({ orderId, order, onDone }: Props) {
           <ErrorText>{form.formState.errors.billIds.message}</ErrorText>
         ) : null}
         <div className="ow-actions">
-          <Button type="submit" disabled={createState.isLoading || selected.length === 0}>
+          <Button
+            type="submit"
+            data-kb-action="orders.record_invoice"
+            disabled={createState.isLoading || selected.length === 0}
+          >
             {createState.isLoading ? 'Creating…' : 'Generate invoice'}
           </Button>
         </div>

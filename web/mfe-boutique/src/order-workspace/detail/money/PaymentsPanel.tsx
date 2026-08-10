@@ -193,7 +193,7 @@ export function PaymentsPanel({ orderId, readOnly, onDone }: Props) {
             </FormRow>
           </div>
           <div className="ow-actions">
-            <Button type="submit" disabled={createState.isLoading}>
+            <Button type="submit" data-kb-action="orders.record_payment" disabled={createState.isLoading}>
               {createState.isLoading ? 'Saving…' : 'Record payment'}
             </Button>
           </div>

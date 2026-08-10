@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useGetBoutiqueOrderQuery } from '@vaybooks/store';
-import { Button, ErrorText } from '@vaybooks/ui-kit';
+import { Button, ErrorText, useDetailKeyboardBack } from '@vaybooks/ui-kit';
 import { asCaption } from '../utils';
 import { OrderSummaryRail } from './components/OrderSummaryRail';
 import { WorkspaceStepper } from './components/WorkspaceStepper';
@@ -42,6 +42,7 @@ export function BoutiqueOrderWorkspacePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [mediaMap, setMediaMap] = useState<Record<string, number>>({});
   const [cashPending, setCashPending] = useState(false);
+  useDetailKeyboardBack('/boutique/orders', !modalOpen);
 
   const setStep = useCallback(
     (next: WorkspaceStep) => {
@@ -74,17 +75,6 @@ export function BoutiqueOrderWorkspacePage() {
       setStep('garments');
     }
   }, [orderId, order, params, setStep]);
-
-  // Esc → orders list (never dump a draft onto detail)
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
-      if (modalOpen || document.querySelector('[role="dialog"]')) return;
-      navigate('/boutique/orders');
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [modalOpen, navigate]);
 
   const mediaCount = useMemo(
     () => Object.values(mediaMap).reduce((a, b) => a + b, 0),

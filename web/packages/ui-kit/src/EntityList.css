@@ -455,8 +455,12 @@
   transition: background 0.14s ease;
 }
 
-.el-table tbody tr:hover {
-  background: rgba(238, 245, 241, 0.55);
+.el-table tbody tr.el-row-clickable {
+  cursor: pointer;
+}
+
+.el-table tbody tr.el-row-clickable:hover {
+  background: rgba(238, 245, 241, 0.75);
 }
 
 .el-table tbody tr.el-row-active {

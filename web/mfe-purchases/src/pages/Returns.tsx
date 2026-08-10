@@ -279,6 +279,9 @@ export function PurchaseReturnsListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/purchases/returns/${row.id}`)}
+          onNew={goNew}
           actions={(row) => (
             <EntityListActions onOpen={() => navigate(`/purchases/returns/${row.id}`)} />
           )}

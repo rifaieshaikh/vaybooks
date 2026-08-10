@@ -140,7 +140,7 @@ export function ExpensesPanel({ orderId, order, readOnly, onDone }: Props) {
             <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
           </FormRow>
           <div className="ow-actions">
-            <Button type="submit" disabled={createState.isLoading}>
+            <Button type="submit" data-kb-action="items.expense.add" disabled={createState.isLoading}>
               {createState.isLoading ? 'Saving…' : 'Add expense'}
             </Button>
           </div>

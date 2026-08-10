@@ -363,7 +363,7 @@ export function BusinessSettingsPage() {
         <FormRow label="Timezone">
           <input value={timezone} onChange={(e) => setTimezone(e.target.value)} />
         </FormRow>
-        <Button type="button" onClick={onSave} disabled={updateState.isLoading}>
+        <Button type="button" onClick={onSave} disabled={updateState.isLoading} data-kb-action="settings.business.save">
           Save
         </Button>
         {msg ? <p>{msg}</p> : null}
