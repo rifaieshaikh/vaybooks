@@ -16,6 +16,26 @@ export type PagedResult<T = Record<string, unknown>> = {
   page_size: number;
 };
 
+/** Normalize legacy bare-array list responses into the paged envelope. */
+function asPagedResult<T = Record<string, unknown>>(response: unknown): PagedResult<T> {
+  if (Array.isArray(response)) {
+    return {
+      items: response as T[],
+      total: response.length,
+      page: 1,
+      page_size: response.length,
+    };
+  }
+  const body = (response || {}) as Partial<PagedResult<T>>;
+  const items = Array.isArray(body.items) ? body.items : [];
+  return {
+    items,
+    total: Number(body.total ?? items.length),
+    page: Number(body.page ?? 1),
+    page_size: Number(body.page_size ?? items.length),
+  };
+}
+
 /** Common query args for sales/purchase document list endpoints. */
 export type DocListParams = {
   q?: string;
@@ -1287,6 +1307,7 @@ export const baseApi = createApi({
       } | void
     >({
       query: (args) => ({ url: '/boutique/orders', params: args || undefined }),
+      transformResponse: (response: unknown) => asPagedResult(response),
       providesTags: ['BoutiqueOrder'],
     }),
     getBoutiqueOrder: build.query<Record<string, unknown>, string>({
@@ -1306,7 +1327,7 @@ export const baseApi = createApi({
     }),
     confirmBoutiqueOrder: build.mutation<Record<string, unknown>, string>({
       query: (id) => ({ url: `/boutique/orders/${id}/confirm`, method: 'POST' }),
-      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+      invalidatesTags: ['BoutiqueOrder', 'Boutique', 'BoutiqueTime'],
     }),
     cancelBoutiqueOrder: build.mutation<Record<string, unknown>, string>({
       query: (id) => ({ url: `/boutique/orders/${id}/cancel`, method: 'POST' }),
@@ -1314,7 +1335,7 @@ export const baseApi = createApi({
     }),
     completeBoutiqueOrder: build.mutation<Record<string, unknown>, string>({
       query: (id) => ({ url: `/boutique/orders/${id}/complete`, method: 'POST' }),
-      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+      invalidatesTags: ['BoutiqueOrder', 'Boutique', 'BoutiqueTime'],
     }),
     addBoutiqueOrderItem: build.mutation<
       Record<string, unknown>,
@@ -1325,7 +1346,7 @@ export const baseApi = createApi({
         method: 'POST',
         body,
       }),
-      invalidatesTags: ['BoutiqueOrder', 'BoutiqueItem', 'Boutique'],
+      invalidatesTags: ['BoutiqueOrder', 'BoutiqueItem', 'Boutique', 'BoutiqueTime'],
     }),
     updateBoutiqueOrderItem: build.mutation<
       Record<string, unknown>,
@@ -1336,7 +1357,7 @@ export const baseApi = createApi({
         method: 'PATCH',
         body,
       }),
-      invalidatesTags: ['BoutiqueOrder', 'BoutiqueItem', 'Boutique'],
+      invalidatesTags: ['BoutiqueOrder', 'BoutiqueItem', 'Boutique', 'BoutiqueTime'],
     }),
     removeBoutiqueOrderItem: build.mutation<
       Record<string, unknown>,
@@ -1346,7 +1367,7 @@ export const baseApi = createApi({
         url: `/boutique/orders/${orderId}/items/${itemId}`,
         method: 'DELETE',
       }),
-      invalidatesTags: ['BoutiqueOrder', 'BoutiqueItem', 'Boutique'],
+      invalidatesTags: ['BoutiqueOrder', 'BoutiqueItem', 'Boutique', 'BoutiqueTime'],
     }),
     getBoutiqueOrderCreditBalance: build.query<
       { credit_balance: number; balance?: number; order_id?: string; account_id?: string },
@@ -1428,7 +1449,7 @@ export const baseApi = createApi({
         method: 'POST',
         body: body || { completed_by: 'web' },
       }),
-      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+      invalidatesTags: ['BoutiqueOrder', 'Boutique', 'BoutiqueTime'],
     }),
     skipBoutiqueActivity: build.mutation<
       Record<string, unknown>,
@@ -1439,7 +1460,7 @@ export const baseApi = createApi({
         method: 'POST',
         body: body || { completed_by: 'web' },
       }),
-      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+      invalidatesTags: ['BoutiqueOrder', 'Boutique', 'BoutiqueTime'],
     }),
     recordBoutiqueAdvance: build.mutation<
       Record<string, unknown>,
@@ -1559,6 +1580,7 @@ export const baseApi = createApi({
       } | void
     >({
       query: (args) => ({ url: '/boutique/items', params: args || undefined }),
+      transformResponse: (response: unknown) => asPagedResult(response),
       providesTags: ['BoutiqueItem'],
     }),
     getBoutiqueItem: build.query<
@@ -1597,6 +1619,7 @@ export const baseApi = createApi({
       } | void
     >({
       query: (args) => ({ url: '/boutique/measurements', params: args || undefined }),
+      transformResponse: (response: unknown) => asPagedResult(response),
       providesTags: ['BoutiqueMeasurement'],
     }),
     getBoutiqueMeasurement: build.query<Record<string, unknown>, string>({
@@ -1651,6 +1674,7 @@ export const baseApi = createApi({
       } | void
     >({
       query: (args) => ({ url: '/boutique/time-entries', params: args || undefined }),
+      transformResponse: (response: unknown) => asPagedResult(response),
       providesTags: ['BoutiqueTime'],
     }),
     createBoutiqueTimeEntry: build.mutation<Record<string, unknown>, Record<string, unknown>>({
@@ -1931,7 +1955,23 @@ export const baseApi = createApi({
       query: () => '/crm/overview',
       providesTags: ['CrmLead', 'CrmEnquiry', 'CrmActivity'],
     }),
-    listCrmLeads: build.query<Record<string, unknown>[], { status?: string; search?: string } | void>({
+    listCrmOwners: build.query<
+      { id: string; name: string; active: boolean; roles: string[] }[],
+      void
+    >({
+      query: () => '/crm/owners',
+    }),
+    listCrmLeads: build.query<
+      PagedResult,
+      {
+        status?: string;
+        search?: string;
+        assigned_user_id?: string;
+        source?: string;
+        page?: number;
+        page_size?: number;
+      } | void
+    >({
       query: (args) => ({ url: '/crm/leads', params: args || undefined }),
       providesTags: ['CrmLead'],
     }),
@@ -1948,6 +1988,50 @@ export const baseApi = createApi({
       { id: string; body: Record<string, unknown> }
     >({
       query: ({ id, body }) => ({ url: `/crm/leads/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['CrmLead'],
+    }),
+    detectCrmLeadDuplicates: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/crm/leads/detect-duplicates', method: 'POST', body }),
+    }),
+    bulkAssignCrmLeads: build.mutation<
+      Record<string, unknown>,
+      { ids: string[]; assigned_user_id: string; assigned_user_name?: string }
+    >({
+      query: (body) => ({ url: '/crm/leads/bulk-assign', method: 'POST', body }),
+      invalidatesTags: ['CrmLead'],
+    }),
+    bulkStatusCrmLeads: build.mutation<
+      Record<string, unknown>,
+      { ids: string[]; status: string }
+    >({
+      query: (body) => ({ url: '/crm/leads/bulk-status', method: 'POST', body }),
+      invalidatesTags: ['CrmLead'],
+    }),
+    importCrmLeadsDryRun: build.mutation<
+      Record<string, unknown>,
+      {
+        rows: Record<string, unknown>[];
+        duplicate_policy?: string;
+        location_id?: string;
+        location_name?: string;
+        branch?: string;
+        source_filename?: string;
+      }
+    >({
+      query: (body) => ({ url: '/crm/leads/import/dry-run', method: 'POST', body }),
+    }),
+    importCrmLeadsCommit: build.mutation<
+      Record<string, unknown>,
+      {
+        rows: Record<string, unknown>[];
+        duplicate_policy?: string;
+        location_id?: string;
+        location_name?: string;
+        branch?: string;
+        source_filename?: string;
+      }
+    >({
+      query: (body) => ({ url: '/crm/leads/import/commit', method: 'POST', body }),
       invalidatesTags: ['CrmLead'],
     }),
     assignCrmLead: build.mutation<
@@ -1997,7 +2081,35 @@ export const baseApi = createApi({
       query: (id) => ({ url: `/crm/leads/${id}`, method: 'DELETE' }),
       invalidatesTags: ['CrmLead'],
     }),
-    listCrmEnquiries: build.query<Record<string, unknown>[], { status?: string } | void>({
+    restoreCrmEntity: build.mutation<
+      Record<string, unknown>,
+      { entity_type: 'lead' | 'enquiry' | 'activity'; entity_id: string }
+    >({
+      query: ({ entity_type, entity_id }) => ({
+        url: `/crm/${entity_type}/${entity_id}/restore`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['CrmLead', 'CrmEnquiry', 'CrmActivity'],
+    }),
+    getCrmEntityAudit: build.query<
+      { items: Record<string, unknown>[]; total: number },
+      { entity_type: 'lead' | 'enquiry' | 'activity'; entity_id: string; limit?: number }
+    >({
+      query: ({ entity_type, entity_id, limit }) => ({
+        url: `/crm/${entity_type}/${entity_id}/audit`,
+        params: limit ? { limit } : undefined,
+      }),
+    }),
+    listCrmEnquiries: build.query<
+      PagedResult,
+      {
+        status?: string;
+        search?: string;
+        assigned_user_id?: string;
+        page?: number;
+        page_size?: number;
+      } | void
+    >({
       query: (args) => ({ url: '/crm/enquiries', params: args || undefined }),
       providesTags: ['CrmEnquiry'],
     }),
@@ -2016,9 +2128,53 @@ export const baseApi = createApi({
       query: ({ id, body }) => ({ url: `/crm/enquiries/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['CrmEnquiry'],
     }),
+    bulkAssignCrmEnquiries: build.mutation<
+      Record<string, unknown>,
+      { ids: string[]; assigned_user_id: string; assigned_user_name?: string }
+    >({
+      query: (body) => ({ url: '/crm/enquiries/bulk-assign', method: 'POST', body }),
+      invalidatesTags: ['CrmEnquiry'],
+    }),
+    bulkStatusCrmEnquiries: build.mutation<
+      Record<string, unknown>,
+      { ids: string[]; status: string; lost_reason?: string }
+    >({
+      query: (body) => ({ url: '/crm/enquiries/bulk-status', method: 'POST', body }),
+      invalidatesTags: ['CrmEnquiry'],
+    }),
+    createCrmQuotationFromEnquiry: build.mutation<
+      Record<string, unknown>,
+      {
+        enquiry_id: string;
+        notes?: string;
+        quotation_date?: string;
+        valid_until?: string;
+      }
+    >({
+      query: ({ enquiry_id, ...body }) => ({
+        url: `/crm/enquiries/${enquiry_id}/create-quotation`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['CrmEnquiry'],
+    }),
+    deleteCrmEnquiry: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/crm/enquiries/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['CrmEnquiry'],
+    }),
     listCrmActivities: build.query<
-      Record<string, unknown>[],
-      { lead_id?: string; enquiry_id?: string } | void
+      PagedResult,
+      {
+        lead_id?: string;
+        enquiry_id?: string;
+        status?: string;
+        activity_type?: string;
+        assigned_user_id?: string;
+        scheduled_from?: string;
+        scheduled_to?: string;
+        page?: number;
+        page_size?: number;
+      } | void
     >({
       query: (args) => ({ url: '/crm/activities', params: args || undefined }),
       providesTags: ['CrmActivity'],
@@ -2038,6 +2194,31 @@ export const baseApi = createApi({
       query: ({ id, body }) => ({ url: `/crm/activities/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['CrmActivity'],
     }),
+    completeCrmActivity: build.mutation<
+      Record<string, unknown>,
+      {
+        id: string;
+        outcome?: string;
+        notes?: string;
+        next_action?: string;
+        next_follow_up_at?: string;
+      }
+    >({
+      query: ({ id, ...body }) => ({
+        url: `/crm/activities/${id}/complete`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['CrmActivity', 'CrmLead'],
+    }),
+    cancelCrmActivity: build.mutation<Record<string, unknown>, { id: string; reason: string }>({
+      query: ({ id, reason }) => ({
+        url: `/crm/activities/${id}/cancel`,
+        method: 'POST',
+        body: { reason },
+      }),
+      invalidatesTags: ['CrmActivity'],
+    }),
     rescheduleCrmActivity: build.mutation<
       Record<string, unknown>,
       { id: string; scheduled_at: string; reason?: string }
@@ -2049,9 +2230,19 @@ export const baseApi = createApi({
       }),
       invalidatesTags: ['CrmActivity'],
     }),
+    deleteCrmActivity: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/crm/activities/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['CrmActivity'],
+    }),
     crmCalendar: build.query<
       Record<string, unknown>[],
-      { scheduled_from?: string; scheduled_to?: string } | void
+      {
+        scheduled_from?: string;
+        scheduled_to?: string;
+        assigned_user_id?: string;
+        status?: string;
+        activity_type?: string;
+      } | void
     >({
       query: (args) => ({ url: '/crm/calendar', params: args || undefined }),
       providesTags: ['CrmActivity'],
@@ -2075,6 +2266,82 @@ export const baseApi = createApi({
     updateCrmSettings: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/crm/settings', method: 'PATCH', body }),
       invalidatesTags: ['Settings'],
+    }),
+    getCrmNotificationPreferences: build.query<Record<string, unknown>, void>({
+      query: () => '/crm/notifications/preferences',
+    }),
+    updateCrmNotificationPreferences: build.mutation<
+      Record<string, unknown>,
+      Record<string, unknown>
+    >({
+      query: (body) => ({ url: '/crm/notifications/preferences', method: 'PATCH', body }),
+    }),
+    previewCrmWhatsappPaymentReminder: build.mutation<
+      Record<string, unknown>,
+      Record<string, unknown>
+    >({
+      query: (body) => ({ url: '/crm/whatsapp/payment-reminder', method: 'POST', body }),
+    }),
+    getCrmCollections: build.query<Record<string, unknown>, void>({
+      query: () => '/crm/collections',
+      providesTags: ['CrmActivity'],
+    }),
+    getCrmCustomerRelated: build.query<
+      {
+        customer_id: string;
+        leads: Record<string, unknown>[];
+        enquiries: Record<string, unknown>[];
+        activities: Record<string, unknown>[];
+      },
+      string
+    >({
+      query: (customerId) => `/crm/customers/${customerId}/related`,
+      providesTags: ['CrmLead', 'CrmEnquiry', 'CrmActivity'],
+    }),
+    listCrmReportPresets: build.query<
+      { items: Record<string, unknown>[]; total: number },
+      void
+    >({
+      query: () => '/crm/report-presets',
+    }),
+    createCrmReportPreset: build.mutation<
+      Record<string, unknown>,
+      { name: string; report_id: string; filters?: Record<string, unknown> }
+    >({
+      query: (body) => ({ url: '/crm/report-presets', method: 'POST', body }),
+    }),
+    deleteCrmReportPreset: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/crm/report-presets/${id}`, method: 'DELETE' }),
+    }),
+    uploadCrmAttachment: build.mutation<
+      Record<string, unknown>,
+      { entity_type: string; entity_id: string; file: File }
+    >({
+      query: ({ entity_type, entity_id, file }) => {
+        const body = new FormData();
+        body.append('entity_type', entity_type);
+        body.append('entity_id', entity_id);
+        body.append('file', file);
+        return {
+          url: '/crm/attachments',
+          method: 'POST',
+          body,
+        };
+      },
+      invalidatesTags: ['CrmLead', 'CrmEnquiry', 'CrmActivity'],
+    }),
+    getCrmAttachment: build.query<Blob, string>({
+      query: (attachmentId) => ({
+        url: `/crm/attachments/${attachmentId}`,
+        responseHandler: (response) => response.blob(),
+      }),
+    }),
+    deleteCrmAttachment: build.mutation<Record<string, unknown>, string>({
+      query: (attachmentId) => ({
+        url: `/crm/attachments/${attachmentId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['CrmLead', 'CrmEnquiry', 'CrmActivity'],
     }),
 
     // Schedulers
@@ -3047,10 +3314,16 @@ export const {
   useDeactivateProductionActivityMutation,
   useCrmHealthQuery,
   useCrmOverviewQuery,
+  useListCrmOwnersQuery,
   useListCrmLeadsQuery,
   useGetCrmLeadQuery,
   useCreateCrmLeadMutation,
   useUpdateCrmLeadMutation,
+  useDetectCrmLeadDuplicatesMutation,
+  useBulkAssignCrmLeadsMutation,
+  useBulkStatusCrmLeadsMutation,
+  useImportCrmLeadsDryRunMutation,
+  useImportCrmLeadsCommitMutation,
   useAssignCrmLeadMutation,
   useSetCrmLeadStatusMutation,
   useMarkCrmLeadLostMutation,
@@ -3058,20 +3331,41 @@ export const {
   useConvertCrmLeadMutation,
   useGetCrmLeadTimelineQuery,
   useDeleteCrmLeadMutation,
+  useRestoreCrmEntityMutation,
+  useGetCrmEntityAuditQuery,
   useListCrmEnquiriesQuery,
   useGetCrmEnquiryQuery,
   useCreateCrmEnquiryMutation,
   useUpdateCrmEnquiryMutation,
+  useBulkAssignCrmEnquiriesMutation,
+  useBulkStatusCrmEnquiriesMutation,
+  useCreateCrmQuotationFromEnquiryMutation,
+  useDeleteCrmEnquiryMutation,
   useListCrmActivitiesQuery,
   useGetCrmActivityQuery,
   useCreateCrmActivityMutation,
   useUpdateCrmActivityMutation,
+  useCompleteCrmActivityMutation,
+  useCancelCrmActivityMutation,
   useRescheduleCrmActivityMutation,
+  useDeleteCrmActivityMutation,
   useCrmCalendarQuery,
   useCrmReportsCatalogQuery,
   useRunCrmReportMutation,
   useGetCrmSettingsQuery,
   useUpdateCrmSettingsMutation,
+  useGetCrmNotificationPreferencesQuery,
+  useUpdateCrmNotificationPreferencesMutation,
+  usePreviewCrmWhatsappPaymentReminderMutation,
+  useGetCrmCollectionsQuery,
+  useGetCrmCustomerRelatedQuery,
+  useListCrmReportPresetsQuery,
+  useCreateCrmReportPresetMutation,
+  useDeleteCrmReportPresetMutation,
+  useUploadCrmAttachmentMutation,
+  useGetCrmAttachmentQuery,
+  useLazyGetCrmAttachmentQuery,
+  useDeleteCrmAttachmentMutation,
   useListSchedulerJobsQuery,
   useCreateSchedulerJobMutation,
   useRunSchedulerJobMutation,

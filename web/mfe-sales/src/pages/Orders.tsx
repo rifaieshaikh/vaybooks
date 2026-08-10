@@ -287,6 +287,10 @@ export function SalesOrdersListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/sales/orders/${row.id}`)}
+          onEditRow={(row) => navigate(`/sales/orders/${row.id}/edit`)}
+          onNew={goNew}
           actions={(row) => (
             <EntityListActions
               onOpen={() => navigate(`/sales/orders/${row.id}`)}

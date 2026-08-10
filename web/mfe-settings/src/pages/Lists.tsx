@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import {
   useCreateInventoryLocationMutation,
@@ -9,8 +9,8 @@ import {
   useCreateVendorServiceMutation,
   useDeleteInventoryLocationMutation,
   useDeleteMeasurementSpecMutation,
+  useGetCrmNotificationPreferencesQuery,
   useGetCrmSettingsQuery,
-  useGetKeyboardShortcutsQuery,
   useGetPrintSettingsQuery,
   useGetProductionSettingsStubQuery,
   useListInventoryLocationsQuery,
@@ -19,9 +19,9 @@ import {
   useListSettingsProjectActivitiesQuery,
   useListSettingsStoreActivitiesQuery,
   useListVendorServicesQuery,
+  useUpdateCrmNotificationPreferencesMutation,
   useUpdateCrmSettingsMutation,
   useUpdateInventoryLocationMutation,
-  useUpdateKeyboardShortcutsMutation,
   useUpdateMeasurementSpecMutation,
   useUpdatePrintSettingsMutation,
   useUpdateVendorServiceMutation,
@@ -136,68 +136,6 @@ export function PrintSettingsPage() {
         </FormRow>
         <Button type="button" onClick={onSave} disabled={updateState.isLoading}>
           {updateState.isLoading ? 'Saving…' : 'Save document defaults'}
-        </Button>
-        {msg ? <p>{msg}</p> : null}
-      </div>
-      <DataTable columns={columns} data={rows} rowKey={(row) => String(row.id)} />
-    </div>
-  );
-}
-
-export function KeyboardShortcutsPage() {
-  const { data, isLoading, error, refetch } = useGetKeyboardShortcutsQuery();
-  const [update, updateState] = useUpdateKeyboardShortcutsMutation();
-  const parents = (data?.parents as Record<string, string>) || {};
-  const actions = (data?.actions as Record<string, string>) || {};
-  const [parentDraft, setParentDraft] = useState<Record<string, string>>({});
-  const [actionDraft, setActionDraft] = useState<Record<string, string>>({});
-  const [msg, setMsg] = useState('');
-  const rows = [
-    ...Object.entries(parents).map(([key, chord]) => ({ id: `parent:${key}`, type: 'Page', key, chord: parentDraft[key] ?? chord })),
-    ...Object.entries(actions).map(([key, chord]) => ({ id: `action:${key}`, type: 'Action', key, chord: actionDraft[key] ?? chord })),
-  ];
-  const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(
-    () => [
-      { key: 'type', header: 'Type' },
-      { key: 'key', header: 'Page' },
-      { key: 'chord', header: 'Shortcut' },
-    ],
-    [],
-  );
-  async function onSave() {
-    setMsg('');
-    try {
-      await update({ parents: { ...parents, ...parentDraft }, actions: { ...actions, ...actionDraft } }).unwrap();
-      setParentDraft({});
-      setActionDraft({});
-      setMsg('Saved');
-      refetch();
-    } catch (e) {
-      setMsg(extractError(e));
-    }
-  }
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Keyboard shortcuts</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
-      {isLoading && <p>Loading…</p>}
-      {error ? <ErrorText>Failed to load shortcuts.</ErrorText> : null}
-      <p>Edit a chord and save all changes. Validity and conflicts are checked by the existing PUT API.</p>
-      <div style={{ display: 'grid', gap: 8, maxWidth: 720, marginBottom: 16 }}>
-        {rows.map((row) => (
-          <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '100px 1fr 180px', gap: 8, alignItems: 'center' }}>
-            <span>{row.type}</span><span>{row.key}</span>
-            <input value={row.chord} onChange={(e) => row.type === 'Page'
-              ? setParentDraft((draft) => ({ ...draft, [row.key]: e.target.value }))
-              : setActionDraft((draft) => ({ ...draft, [row.key]: e.target.value }))} />
-          </div>
-        ))}
-        <Button type="button" onClick={onSave} disabled={updateState.isLoading}>
-          {updateState.isLoading ? 'Saving…' : 'Save shortcuts'}
         </Button>
         {msg ? <p>{msg}</p> : null}
       </div>
@@ -1258,47 +1196,337 @@ export function SettingsLocationsPage() {
   );
 }
 
+const CRM_MODES = ['trade', 'retail', 'services', 'projects', 'boutique', 'light'] as const;
+
+const CRM_CATALOG_FIELDS = [
+  { key: 'lead_sources', label: 'Lead sources' },
+  { key: 'lead_statuses', label: 'Lead statuses' },
+  { key: 'enquiry_statuses', label: 'Enquiry statuses' },
+  { key: 'activity_types', label: 'Activity types' },
+  { key: 'activity_outcomes', label: 'Activity outcomes' },
+  { key: 'lost_reasons', label: 'Lost reasons' },
+] as const;
+
+const CRM_NOTIF_KEYS = [
+  { key: 'activity_due_today', label: 'Activity due today' },
+  { key: 'upcoming_visits', label: 'Upcoming visits' },
+  { key: 'overdue_follow_ups', label: 'Overdue follow-ups' },
+  { key: 'lead_assigned', label: 'Lead assigned' },
+  { key: 'enquiry_reassigned', label: 'Enquiry reassigned' },
+  { key: 'payment_promises', label: 'Payment promises' },
+  { key: 'high_priority_idle', label: 'High-priority idle' },
+  { key: 'payment_reminder_due', label: 'Payment reminder due' },
+] as const;
+
+function jsonText(value: unknown, fallback: string = '[]'): string {
+  try {
+    return JSON.stringify(value ?? JSON.parse(fallback), null, 2);
+  } catch {
+    return fallback;
+  }
+}
+
+function parseJsonField(raw: string, label: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(`${label}: invalid JSON`);
+  }
+}
+
 export function CrmSettingsRedirectPage() {
   const { data, isLoading, error, refetch } = useGetCrmSettingsQuery();
   const [update, updateState] = useUpdateCrmSettingsMutation();
-  const [days, setDays] = useState('');
-  const [msg, setMsg] = useState('');
+  const {
+    data: notifPrefs,
+    isLoading: notifLoading,
+    error: notifError,
+    refetch: refetchNotif,
+  } = useGetCrmNotificationPreferencesQuery();
+  const [updateNotif, notifUpdateState] = useUpdateCrmNotificationPreferencesMutation();
 
-  async function onSave() {
+  const [catalogJson, setCatalogJson] = useState<Record<string, string>>({});
+  const [followUpDays, setFollowUpDays] = useState('');
+  const [inactivityDays, setInactivityDays] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [paymentTemplate, setPaymentTemplate] = useState('');
+  const [paymentOffsets, setPaymentOffsets] = useState('');
+  const [orderTriggerStatus, setOrderTriggerStatus] = useState('');
+  const [paymentTrigger, setPaymentTrigger] = useState('');
+  const [calendarDrag, setCalendarDrag] = useState(true);
+  const [customFields, setCustomFields] = useState(true);
+  const [crmMode, setCrmMode] = useState('trade');
+  const [fieldPacksJson, setFieldPacksJson] = useState('{}');
+  const [customFieldDefsJson, setCustomFieldDefsJson] = useState('[]');
+  const [notifDraft, setNotifDraft] = useState<Record<string, boolean>>({});
+  const [msg, setMsg] = useState('');
+  const [notifMsg, setNotifMsg] = useState('');
+  const [settingsEpoch, setSettingsEpoch] = useState(0);
+  const [notifEpoch, setNotifEpoch] = useState(0);
+
+  useEffect(() => {
+    if (!data) return;
+    const nextCatalogs: Record<string, string> = {};
+    for (const field of CRM_CATALOG_FIELDS) {
+      nextCatalogs[field.key] = jsonText(data[field.key], '[]');
+    }
+    setCatalogJson(nextCatalogs);
+    setFollowUpDays(String(data.default_follow_up_days ?? 3));
+    setInactivityDays(String(data.default_inactivity_days ?? 30));
+    setBusinessName(String(data.business_display_name ?? ''));
+    setPaymentTemplate(String(data.payment_reminder_template ?? ''));
+    setPaymentOffsets(
+      Array.isArray(data.payment_reminder_due_offsets_days)
+        ? (data.payment_reminder_due_offsets_days as number[]).join(', ')
+        : '0, 3, 7',
+    );
+    setOrderTriggerStatus(String(data.order_trigger_status ?? 'Confirmed'));
+    setPaymentTrigger(String(data.payment_trigger ?? 'receipt_create'));
+    setCalendarDrag(data.calendar_drag_enabled !== false);
+    setCustomFields(data.custom_fields_enabled !== false);
+    setCrmMode(String(data.crm_mode || 'trade'));
+    setFieldPacksJson(jsonText(data.field_packs, '{}'));
+    setCustomFieldDefsJson(jsonText(data.custom_field_defs, '[]'));
+  }, [data, settingsEpoch]);
+
+  useEffect(() => {
+    if (!notifPrefs) return;
+    const next: Record<string, boolean> = {};
+    for (const item of CRM_NOTIF_KEYS) {
+      next[item.key] = notifPrefs[item.key] !== false;
+    }
+    setNotifDraft(next);
+  }, [notifPrefs, notifEpoch]);
+
+  async function onSaveSettings() {
     setMsg('');
     try {
-      await update({
-        default_follow_up_days: Number(days || data?.default_follow_up_days || 3),
-      }).unwrap();
-      setMsg('Saved');
+      const body: Record<string, unknown> = {
+        default_follow_up_days: Number(followUpDays || 3),
+        default_inactivity_days: Number(inactivityDays || 30),
+        business_display_name: businessName,
+        payment_reminder_template: paymentTemplate,
+        payment_reminder_due_offsets_days: paymentOffsets
+          .split(',')
+          .map((v) => Number(v.trim()))
+          .filter((n) => Number.isFinite(n)),
+        order_trigger_status: orderTriggerStatus,
+        payment_trigger: paymentTrigger,
+        calendar_drag_enabled: calendarDrag,
+        custom_fields_enabled: customFields,
+        crm_mode: crmMode,
+        field_packs: parseJsonField(fieldPacksJson, 'Field packs'),
+        custom_field_defs: parseJsonField(customFieldDefsJson, 'Custom field defs'),
+      };
+      for (const field of CRM_CATALOG_FIELDS) {
+        body[field.key] = parseJsonField(catalogJson[field.key] || '[]', field.label);
+      }
+      await update(body).unwrap();
+      setMsg('CRM settings saved');
+      setSettingsEpoch((n) => n + 1);
       refetch();
     } catch (e) {
-      setMsg(extractError(e));
+      setMsg(e instanceof Error && e.message.includes('JSON') ? e.message : extractError(e));
+    }
+  }
+
+  async function onSaveNotifications() {
+    setNotifMsg('');
+    try {
+      await updateNotif(notifDraft).unwrap();
+      setNotifMsg('Notification preferences saved');
+      setNotifEpoch((n) => n + 1);
+      refetchNotif();
+    } catch (e) {
+      setNotifMsg(extractError(e));
     }
   }
 
   return (
     <div>
-      <h2 style={{ color: 'var(--vb-color-primary, #185c4c)' }}>CRM settings</h2>
-      <p>
-        Uses <code>/api/crm/settings</code>. <Link to="/crm">CRM overview</Link>
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>CRM settings</h2>
+        <Link to="/crm">CRM overview</Link>
+      </div>
+      <p style={{ color: '#667' }}>Configure catalogs, automation defaults, WhatsApp reminders, and kill switches.</p>
       {isLoading && <p>Loading…</p>}
       {error ? <ErrorText>Failed to load CRM settings.</ErrorText> : null}
+
       {data ? (
-        <div style={{ display: 'grid', gap: 12, maxWidth: 360 }}>
-          <FormRow label="Default follow-up days">
-            <input
-              value={days || String(data.default_follow_up_days ?? '')}
-              onChange={(e) => setDays(e.target.value)}
-            />
-          </FormRow>
-          <Button type="button" onClick={onSave} disabled={updateState.isLoading}>
-            Save
-          </Button>
-          {msg ? <p>{msg}</p> : null}
+        <div style={{ display: 'grid', gap: 20, maxWidth: 920 }}>
+          <section style={{ display: 'grid', gap: 12 }}>
+            <h3 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Catalogs</h3>
+            <p style={{ margin: 0, color: '#667', fontSize: '0.9rem' }}>
+              Edit as JSON arrays of items with <code>label</code>, optional <code>active</code>,{' '}
+              <code>sort_order</code>, and activity-type flags.
+            </p>
+            {CRM_CATALOG_FIELDS.map((field) => (
+              <FormRow key={field.key} label={field.label}>
+                <textarea
+                  rows={6}
+                  value={catalogJson[field.key] || '[]'}
+                  onChange={(e) =>
+                    setCatalogJson((prev) => ({ ...prev, [field.key]: e.target.value }))
+                  }
+                  style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: '0.85rem' }}
+                />
+              </FormRow>
+            ))}
+          </section>
+
+          <section style={{ display: 'grid', gap: 12 }}>
+            <h3 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Automation</h3>
+            <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+              <FormRow label="Default follow-up days">
+                <input
+                  type="number"
+                  min={0}
+                  value={followUpDays}
+                  onChange={(e) => setFollowUpDays(e.target.value)}
+                />
+              </FormRow>
+              <FormRow label="Default inactivity days">
+                <input
+                  type="number"
+                  min={0}
+                  value={inactivityDays}
+                  onChange={(e) => setInactivityDays(e.target.value)}
+                />
+              </FormRow>
+              <FormRow label="Order trigger status">
+                <input
+                  value={orderTriggerStatus}
+                  onChange={(e) => setOrderTriggerStatus(e.target.value)}
+                />
+              </FormRow>
+              <FormRow label="Payment trigger">
+                <input value={paymentTrigger} onChange={(e) => setPaymentTrigger(e.target.value)} />
+              </FormRow>
+            </div>
+          </section>
+
+          <section style={{ display: 'grid', gap: 12 }}>
+            <h3 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>WhatsApp / payment reminder</h3>
+            <FormRow label="Business display name">
+              <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+            </FormRow>
+            <FormRow label="Payment reminder template">
+              <textarea
+                rows={5}
+                value={paymentTemplate}
+                onChange={(e) => setPaymentTemplate(e.target.value)}
+                style={{ width: '100%' }}
+              />
+            </FormRow>
+            <FormRow label="Reminder due offsets (days, comma-separated)">
+              <input value={paymentOffsets} onChange={(e) => setPaymentOffsets(e.target.value)} />
+            </FormRow>
+          </section>
+
+          <section style={{ display: 'grid', gap: 12 }}>
+            <h3 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Kill switches</h3>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={calendarDrag}
+                onChange={(e) => setCalendarDrag(e.target.checked)}
+              />
+              Calendar drag enabled
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={customFields}
+                onChange={(e) => setCustomFields(e.target.checked)}
+              />
+              Custom fields enabled
+            </label>
+          </section>
+
+          <section style={{ display: 'grid', gap: 12 }}>
+            <h3 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Wave 4 — mode & field packs</h3>
+            <FormRow label="CRM mode">
+              <Select value={crmMode} onChange={(e) => setCrmMode(e.target.value)}>
+                {CRM_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </Select>
+            </FormRow>
+            <FormRow label="Field packs (JSON object)">
+              <textarea
+                rows={6}
+                value={fieldPacksJson}
+                onChange={(e) => setFieldPacksJson(e.target.value)}
+                style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: '0.85rem' }}
+              />
+            </FormRow>
+            <FormRow label="Custom field defs (JSON array)">
+              <textarea
+                rows={6}
+                value={customFieldDefsJson}
+                onChange={(e) => setCustomFieldDefsJson(e.target.value)}
+                style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: '0.85rem' }}
+              />
+            </FormRow>
+          </section>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button type="button" onClick={() => void onSaveSettings()} disabled={updateState.isLoading}>
+              {updateState.isLoading ? 'Saving…' : 'Save CRM settings'}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setSettingsEpoch((n) => n + 1);
+                refetch();
+              }}
+            >
+              Reset
+            </Button>
+            {msg ? <p style={{ margin: 0 }}>{msg}</p> : null}
+          </div>
         </div>
       ) : null}
+
+      <section style={{ display: 'grid', gap: 12, maxWidth: 920, marginTop: 32 }}>
+        <h3 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Notification preferences</h3>
+        <p style={{ margin: 0, color: '#667', fontSize: '0.9rem' }}>
+          Per-user CRM notification toggles from <code>/api/crm/notifications/preferences</code>.
+        </p>
+        {notifLoading ? <p>Loading preferences…</p> : null}
+        {notifError ? <ErrorText>Failed to load notification preferences.</ErrorText> : null}
+        {notifPrefs ? (
+          <>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {CRM_NOTIF_KEYS.map((item) => (
+                <label key={item.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={notifDraft[item.key] !== false}
+                    onChange={(e) =>
+                      setNotifDraft((prev) => ({ ...prev, [item.key]: e.target.checked }))
+                    }
+                  />
+                  {item.label}
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Button
+                type="button"
+                onClick={() => void onSaveNotifications()}
+                disabled={notifUpdateState.isLoading}
+              >
+                {notifUpdateState.isLoading ? 'Saving…' : 'Save notifications'}
+              </Button>
+              {notifMsg ? <p style={{ margin: 0 }}>{notifMsg}</p> : null}
+            </div>
+          </>
+        ) : null}
+      </section>
     </div>
   );
 }

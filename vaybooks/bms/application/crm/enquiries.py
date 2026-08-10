@@ -179,12 +179,64 @@ class CrmEnquiryAppService:
             "notes",
             "party_name",
             "branch",
+            "status",
+            "lost_reason",
+            "assigned_user_id",
+            "assigned_user_name",
+            "customer_id",
+            "quotation_id",
+            "sales_order_id",
+            "attachment_ids",
+            "custom_field_values",
+            "enquiry_date",
         }
         for key, value in fields.items():
             if key in allowed and value is not None:
+                if key == "status":
+                    self._validate_status(value)
                 setattr(enquiry, key, value)
         enquiry.touch(actor_id=actor_id, actor_name=actor_name)
         return self._enquiries.save(enquiry)
+
+    def bulk_assign(
+        self,
+        enquiry_ids: List[str],
+        assigned_user_id: str,
+        assigned_user_name: str = "",
+        *,
+        actor_id: str = "",
+        actor_name: str = "",
+    ) -> List[CrmEnquiry]:
+        return [
+            self.assign_enquiry(
+                eid,
+                assigned_user_id,
+                assigned_user_name,
+                actor_id=actor_id,
+                actor_name=actor_name,
+            )
+            for eid in enquiry_ids
+        ]
+
+    def bulk_update_status(
+        self,
+        enquiry_ids: List[str],
+        status: str,
+        *,
+        lost_reason: str = "",
+        actor_id: str = "",
+        actor_name: str = "",
+    ) -> List[CrmEnquiry]:
+        return [
+            self.update_status(
+                eid,
+                status,
+                lost_reason=lost_reason,
+                actor_id=actor_id,
+                actor_name=actor_name,
+            )
+            for eid in enquiry_ids
+        ]
 
     def assign_enquiry(
         self,
@@ -367,6 +419,19 @@ class CrmEnquiryAppService:
     ) -> CrmEnquiry:
         enquiry = self.get_enquiry(enquiry_id)
         enquiry.soft_delete(actor_id=actor_id, actor_name=actor_name)
+        return self._enquiries.save(enquiry)
+
+    def restore(
+        self, enquiry_id: str, *, actor_id: str = "", actor_name: str = ""
+    ) -> CrmEnquiry:
+        enquiry = self._enquiries.find_by_id(enquiry_id)
+        if not enquiry:
+            raise ValidationError("Enquiry not found")
+        if not enquiry.is_deleted:
+            return enquiry
+        enquiry.is_deleted = False
+        enquiry.deleted_at = None
+        enquiry.touch(actor_id=actor_id, actor_name=actor_name)
         return self._enquiries.save(enquiry)
 
     def _auto_enquiry_created(

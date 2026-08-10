@@ -1,8 +1,8 @@
 export { BusinessSettingsPage } from './Business';
 export { DiscountsSettingsPage } from './Discounts';
+export { KeyboardShortcutsPage } from './KeyboardShortcuts';
 export {
   PrintSettingsPage,
-  KeyboardShortcutsPage,
   CustomizationActivitiesPage,
   StoreActivitiesSettingsPage,
   ProjectActivitiesSettingsPage,

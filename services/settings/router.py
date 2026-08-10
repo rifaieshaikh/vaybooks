@@ -308,8 +308,40 @@ def put_print_settings(body: PrintPatch) -> dict[str, Any]:
 @router.get("/keyboard")
 def get_keyboard() -> dict[str, Any]:
     from vaybooks.bms.ui.keyboard.bindings import get_bindings
+    from vaybooks.bms.ui.keyboard.defaults import ensure_defaults_loaded
+    from vaybooks.bms.ui.keyboard.registry import all_actions, all_parents
 
-    return get_bindings()
+    ensure_defaults_loaded()
+    bindings = get_bindings()
+    return {
+        **bindings,
+        "catalog": {
+            "parents": [
+                {
+                    "key": p.nav_key,
+                    "nav_key": p.nav_key,
+                    "label": p.label,
+                    "group": p.group,
+                    "locked": bool(p.locked),
+                    "default_chord": p.default_chord or "",
+                }
+                for p in all_parents()
+            ],
+            "actions": [
+                {
+                    "key": a.action_id,
+                    "action_id": a.action_id,
+                    "label": a.label,
+                    "group": a.group,
+                    "destructive": bool(a.destructive),
+                    "mouse_only": bool(a.mouse_only),
+                    "unbound_stub": bool(a.unbound_stub),
+                    "default_chord": a.default_chord or "",
+                }
+                for a in all_actions()
+            ],
+        },
+    }
 
 
 @router.put("/keyboard")
@@ -327,8 +359,8 @@ def put_keyboard(body: KeyboardPatch) -> dict[str, Any]:
             errors.append(msg or f"Invalid action binding: {key}")
     if errors:
         raise HTTPException(status_code=400, detail="; ".join(errors[:5]))
-    return get_bindings()
-
+    # Return the enriched GET payload so the UI keeps catalog metadata after save.
+    return get_keyboard()
 
 @router.get("/activities")
 def list_boutique_activities(active_only: bool = False) -> list[dict[str, Any]]:

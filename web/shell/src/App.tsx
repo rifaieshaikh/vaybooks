@@ -6,6 +6,7 @@ import { LicenseBlockedPage } from './components/LicenseBlockedPage';
 import { LoginPage } from './components/LoginPage';
 import { SetupWizardModal } from './components/SetupWizardModal';
 import { useShellKeyboardShortcuts } from './useShellKeyboardShortcuts';
+import { ShellListKeyboardProvider } from './ShellListKeyboardProvider';
 
 function ModuleGate({ module }: { module: string }) {
   return (
@@ -95,6 +96,7 @@ import {
   CrmActivitiesListPage,
   CrmActivityDetailPage,
   CrmCalendarPage,
+  CrmCollectionsPage,
   CrmEnquiriesListPage,
   CrmEnquiryDetailPage,
   CrmLeadDetailPage,
@@ -243,7 +245,10 @@ export default function App() {
   }
 
   return (
-    <Routes>
+    <ShellListKeyboardProvider
+      enabled={Boolean(accessToken) && licenseStatus !== 'expired'}
+    >
+      <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<HomeDashboardPage />} />
         <Route path="dashboard" element={<Navigate to="/" replace />} />
@@ -287,6 +292,7 @@ export default function App() {
           <Route path="crm/enquiries/:id" element={<CrmEnquiryDetailPage />} />
           <Route path="crm/activities" element={<CrmActivitiesListPage />} />
           <Route path="crm/activities/:id" element={<CrmActivityDetailPage />} />
+          <Route path="crm/collections" element={<CrmCollectionsPage />} />
           <Route path="crm/calendar" element={<CrmCalendarPage />} />
           <Route path="crm/reports" element={<CrmReportsPage />} />
           <Route path="crm/scheduled-reports" element={<CrmScheduledReportsPage />} />
@@ -487,5 +493,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
+    </ShellListKeyboardProvider>
   );
 }

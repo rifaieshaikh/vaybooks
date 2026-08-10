@@ -1,5 +1,18 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { FiltersDialog, SortDialog, type FilterFieldDef, type FilterValues, type SortCriterion } from './ListToolbar';
+import {
+  chordMatches,
+  eventChord,
+  formatChordHint,
+  useListKeyboardBindings,
+} from './ListKeyboard';
 import './EntityList.css';
 
 export type EntityListColumn<T> = {
@@ -171,7 +184,22 @@ type EntityListTableProps<T> = {
   rowKey: (row: T) => string;
   actions?: (row: T) => ReactNode;
   actionsHeader?: ReactNode;
+  /** Enable ↑/↓/j/k, Enter, e, /, n shortcuts for this table. */
+  keyboardNav?: boolean;
+  /** Enter — typically open detail. */
+  onActivateRow?: (row: T) => void;
+  /** `e` — open edit. */
+  onEditRow?: (row: T) => void;
+  /** `n` — create new (when not typing). */
+  onNew?: () => void;
 };
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  return target.isContentEditable;
+}
 
 export function EntityListTable<T>({
   columns,
@@ -179,9 +207,108 @@ export function EntityListTable<T>({
   rowKey,
   actions,
   actionsHeader = 'Actions',
+  keyboardNav = false,
+  onActivateRow,
+  onEditRow,
+  onNew,
 }: EntityListTableProps<T>) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const bindings = useListKeyboardBindings();
+
+  useEffect(() => {
+    if (!keyboardNav) return;
+    setActiveIdx(0);
+  }, [rows, keyboardNav]);
+
+  useEffect(() => {
+    if (!keyboardNav || rows.length === 0) return;
+    const row = wrapRef.current?.querySelector<HTMLElement>('tr.el-row-active');
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [activeIdx, keyboardNav, rows.length]);
+
+  useEffect(() => {
+    if (!keyboardNav) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      const page = wrapRef.current?.closest('.el-page');
+      if (!page) return;
+
+      const chord = eventChord(e);
+      if (!chord) return;
+
+      const typing = isTypingTarget(e.target);
+
+      if (chordMatches(chord, bindings.search) && !typing) {
+        e.preventDefault();
+        const search = page.querySelector<HTMLInputElement>('.el-search input');
+        search?.focus();
+        search?.select?.();
+        return;
+      }
+
+      if (typing) return;
+      // Let modifier chords (Ctrl/Alt) stay with the shell shortcut handler
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if (chordMatches(chord, bindings.new) && onNew) {
+        e.preventDefault();
+        onNew();
+        return;
+      }
+
+      if (rows.length === 0) return;
+
+      if (chordMatches(chord, bindings.next)) {
+        e.preventDefault();
+        setActiveIdx((i) => Math.min(i + 1, rows.length - 1));
+        return;
+      }
+      if (chordMatches(chord, bindings.prev)) {
+        e.preventDefault();
+        setActiveIdx((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (chord === 'home') {
+        e.preventDefault();
+        setActiveIdx(0);
+        return;
+      }
+      if (chord === 'end') {
+        e.preventDefault();
+        setActiveIdx(rows.length - 1);
+        return;
+      }
+      if (chordMatches(chord, bindings.open) && onActivateRow) {
+        e.preventDefault();
+        const row = rows[activeIdx];
+        if (row) onActivateRow(row);
+        return;
+      }
+      if (chordMatches(chord, bindings.edit) && onEditRow) {
+        e.preventDefault();
+        const row = rows[activeIdx];
+        if (row) onEditRow(row);
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [keyboardNav, rows, activeIdx, onActivateRow, onEditRow, onNew, bindings]);
+
+  const hint = useMemo(() => {
+    const parts = [
+      `${formatChordHint(bindings.search)} search`,
+      `${formatChordHint(bindings.next)}/${formatChordHint(bindings.prev)} move`,
+      `${formatChordHint(bindings.open)} open`,
+      `${formatChordHint(bindings.edit)} edit`,
+      `${formatChordHint(bindings.new)} new`,
+    ];
+    return parts.join(' · ');
+  }, [bindings]);
+
   return (
-    <div className="el-table-wrap">
+    <div className="el-table-wrap" ref={wrapRef}>
       <table className="el-table">
         <thead>
           <tr>
@@ -198,8 +325,17 @@ export function EntityListTable<T>({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={rowKey(row)}>
+          {rows.map((row, index) => (
+            <tr
+              key={rowKey(row)}
+              className={keyboardNav && index === activeIdx ? 'el-row-active' : undefined}
+              onClick={keyboardNav ? () => setActiveIdx(index) : undefined}
+              onDoubleClick={
+                keyboardNav && onActivateRow
+                  ? () => onActivateRow(row)
+                  : undefined
+              }
+            >
               {columns.map((col) => (
                 <td key={col.id} className={col.className}>
                   {col.render(row)}
@@ -210,6 +346,11 @@ export function EntityListTable<T>({
           ))}
         </tbody>
       </table>
+      {keyboardNav ? (
+        <p className="el-kbd-hint" aria-hidden="true">
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }

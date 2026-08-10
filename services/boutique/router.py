@@ -15,15 +15,21 @@ from pydantic import BaseModel, Field
 from packages.services_kit.boutique_container import get_boutique_container
 from packages.services_kit.paging import (
     DEFAULT_PAGE_SIZE,
+    clamp_page,
     filter_dicts,
     paged_result,
     sort_dicts,
 )
+from services.boutique.authz import require_boutique_access
 from services.common.authz import require_permission
 from services.parties.serialize import entity_dict
 from vaybooks.bms.domain.shared.exceptions import DomainError, ValidationError
 
-router = APIRouter(prefix="/api/boutique", tags=["boutique"])
+router = APIRouter(
+    prefix="/api/boutique",
+    tags=["boutique"],
+    dependencies=[Depends(require_boutique_access)],
+)
 
 RECENT_ORDER_LIMIT = 5
 
@@ -216,6 +222,16 @@ class ReportRunBody(BaseModel):
 
 def _c():
     return get_boutique_container()
+
+
+def _require_activity_on_order(order_id: str, activity_id: str):
+    """Ensure path order_id owns the order_activity_id (prevents cross-order misuse)."""
+    order = _c().orders.get_order_detail(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not order.get_activity_by_id(activity_id):
+        raise HTTPException(status_code=404, detail="Activity not found on order")
+    return order
 
 
 def _parse_date(value: Optional[str]) -> Optional[date]:
@@ -661,24 +677,23 @@ def list_orders(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     try:
-        orders = _c().orders.search_customization_orders(q or "")
-        rows = [_order_dict(o) for o in orders]
-        filtered = filter_dicts(
-            rows,
-            contains={
-                "order_number": order_number,
-                "customer_name": customer_name,
-            },
+        page_n, size = clamp_page(page, page_size)
+        orders, total = _c().orders.page_customization_orders(
+            q=q or "",
+            order_number=order_number or "",
+            customer_name=customer_name or "",
+            status=status or "",
+            sort_by=sort_by or "order_date",
+            sort_desc=sort_desc,
+            page=page_n,
+            page_size=size,
         )
-        if status.strip():
-            want = status.strip()
-            filtered = [
-                r
-                for r in filtered
-                if str(r.get("order_status") or r.get("status") or "") == want
-            ]
-        sorted_rows = sort_dicts(filtered, sort_by, sort_desc=sort_desc)
-        return paged_result(sorted_rows, page=page, page_size=page_size)
+        return {
+            "items": [_order_dict(o) for o in orders],
+            "total": total,
+            "page": page_n,
+            "page_size": size,
+        }
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -938,7 +953,7 @@ def download_attachment(
             io.BytesIO(payload),
             media_type=attachment.content_type or "application/octet-stream",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Disposition": f'inline; filename="{filename}"',
                 "Content-Length": str(len(payload)),
             },
         )
@@ -1044,6 +1059,7 @@ def advance_receipt_pdf(order_id: str):
 @router.post("/orders/{order_id}/activities/{activity_id}/complete")
 def complete_activity(order_id: str, activity_id: str, body: ActivityAction) -> dict[str, Any]:
     try:
+        _require_activity_on_order(order_id, activity_id)
         # Always validate time-tracking requirements (Streamlit prepare step).
         _c().orders.prepare_complete_activity(activity_id)
         order = _c().orders.complete_activity(
@@ -1056,6 +1072,8 @@ def complete_activity(order_id: str, activity_id: str, body: ActivityAction) -> 
             add_expense=body.add_expense,
         )
         return _order_dict(order)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -1063,7 +1081,10 @@ def complete_activity(order_id: str, activity_id: str, body: ActivityAction) -> 
 @router.post("/orders/{order_id}/activities/{activity_id}/skip")
 def skip_activity(order_id: str, activity_id: str, body: ActivityAction) -> dict[str, Any]:
     try:
+        _require_activity_on_order(order_id, activity_id)
         return _order_dict(_c().orders.skip_activity(activity_id, body.completed_by))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise _http_err(exc) from exc
 

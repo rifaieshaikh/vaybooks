@@ -369,6 +369,10 @@ function PricedDocsListPage({ kind }: { kind: PricedKind }) {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`${basePath}/${row.id}`)}
+          onEditRow={(row) => navigate(`${basePath}/${row.id}/edit`)}
+          onNew={goNew}
           actions={(row) => {
             const canConvert = statusIncludes(row.status, 'accepted', 'sent');
             return (

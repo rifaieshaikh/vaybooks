@@ -377,6 +377,10 @@ export function SalesInvoicesListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/sales/invoices/${row.id}`)}
+          onEditRow={(row) => navigate(`/sales/invoices/${row.id}/edit`)}
+          onNew={goNew}
           actions={(row) => (
             <EntityListActions
               onOpen={() => navigate(`/sales/invoices/${row.id}`)}

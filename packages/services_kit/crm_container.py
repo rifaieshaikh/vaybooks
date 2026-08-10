@@ -21,6 +21,10 @@ class CrmContainer:
     settings: Any
     reports: Any
     notifications: Any
+    payment_reminders: Any = None
+    db: Any = None
+    import_batches: Any = None
+    audit: Any = None
 
 
 def _mongo_uri() -> str:
@@ -59,10 +63,12 @@ def _build_mongo(uri: str) -> CrmContainer:
         CrmReportService,
         CrmSettingsAppService,
     )
+    from vaybooks.bms.application.crm.payment_reminder import CrmPaymentReminderService
     from vaybooks.bms.infrastructure.repositories.crm import (
         MongoCrmActivityRepository,
         MongoCrmAuditRepository,
         MongoCrmEnquiryRepository,
+        MongoCrmImportBatchRepository,
         MongoCrmLeadRepository,
         MongoCrmNotificationPreferencesRepository,
         MongoCrmNotificationRepository,
@@ -87,6 +93,7 @@ def _build_mongo(uri: str) -> CrmContainer:
     notification_repo = MongoCrmNotificationRepository(db)
     prefs_repo = MongoCrmNotificationPreferencesRepository(db)
     counter_repo = MongoCounterRepository(db)
+    import_batch_repo = MongoCrmImportBatchRepository(db)
 
     notifications = CrmNotificationAppService(
         notification_repo,
@@ -96,6 +103,14 @@ def _build_mongo(uri: str) -> CrmContainer:
         settings_repo=settings_repo,
     )
     settings = CrmSettingsAppService(settings_repo, audit_repo=audit_repo)
+    payment_reminders = CrmPaymentReminderService(
+        settings_repo,
+        activity_repo=activity_repo,
+        notification_service=notifications,
+        audit_repo=audit_repo,
+        customer_service=parties.customers,
+        accounting_service=finance.accounting,
+    )
     leads = CrmLeadAppService(
         lead_repo,
         audit_repo=audit_repo,
@@ -108,6 +123,14 @@ def _build_mongo(uri: str) -> CrmContainer:
         user_service=None,
         enquiry_repo=enquiry_repo,
     )
+    sales = None
+    try:
+        from packages.services_kit.sales_container import get_sales_container
+
+        sales = get_sales_container().sales
+    except Exception:
+        sales = None
+
     enquiries = CrmEnquiryAppService(
         enquiry_repo,
         audit_repo=audit_repo,
@@ -116,6 +139,7 @@ def _build_mongo(uri: str) -> CrmContainer:
         counter_repo=counter_repo,
         settings_repo=settings_repo,
         user_service=None,
+        sales_service=sales,
         notification_service=notifications,
     )
     activities = CrmActivityAppService(
@@ -125,13 +149,6 @@ def _build_mongo(uri: str) -> CrmContainer:
         lead_repo=lead_repo,
         user_service=None,
     )
-    sales = None
-    try:
-        from packages.services_kit.sales_container import get_sales_container
-
-        sales = get_sales_container().sales
-    except Exception:
-        sales = None
 
     dashboard = CrmDashboardAppService(
         lead_repo,
@@ -160,6 +177,10 @@ def _build_mongo(uri: str) -> CrmContainer:
         settings=settings,
         reports=reports,
         notifications=notifications,
+        payment_reminders=payment_reminders,
+        db=db,
+        import_batches=import_batch_repo,
+        audit=audit_repo,
     )
 
 

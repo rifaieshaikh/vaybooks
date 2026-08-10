@@ -301,6 +301,14 @@ export function SalesReturnsListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/sales/returns/${row.id}`)}
+          onEditRow={(row) => {
+            if (statusIncludes(row.status, 'pending')) {
+              navigate(`/sales/returns/${row.id}/edit`);
+            }
+          }}
+          onNew={goNew}
           actions={(row) => (
             <EntityListActions
               onOpen={() => navigate(`/sales/returns/${row.id}`)}

@@ -396,7 +396,8 @@ export function BoutiqueTimeLogPage() {
                   {date} · {activity}
                 </span>
                 <span className="el-customer-sub">
-                  {taskType} · {asCaption(row.worker_name) || 'No worker'} ·{' '}
+                  {taskType} ·{' '}
+                  {asCaption(row.assignee_name) || asCaption(row.worker_name) || 'No worker'} ·{' '}
                   {asCaption(row.order_number) || 'No order'}
                 </span>
               </div>
@@ -580,7 +581,12 @@ export function BoutiqueCalendarPage() {
         allDay: !startTime,
         category: taskType === 'etd' || taskType === 'delivery' ? taskType : 'activity',
         tone,
-        meta: [asCaption(row.worker_name), asCaption(row.order_number)].filter(Boolean).join(' · '),
+        meta: [
+          asCaption(row.assignee_name) || asCaption(row.worker_name),
+          asCaption(row.order_number),
+        ]
+          .filter(Boolean)
+          .join(' · '),
         payload: row,
       };
     });

@@ -4,15 +4,30 @@ import { useBoutiqueReportsCatalogQuery, useRunBoutiqueReportMutation } from '@v
 import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
 import { downloadCsv, extractError } from '../utils';
 
+const DATE_FILTER_REPORTS = new Set(['Completed Orders', 'Time Tracking', 'Worker Productivity']);
+
+function monthStartIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export function BoutiqueReportsPage() {
   const { data: catalog, isLoading: catalogLoading, error: catalogError } =
     useBoutiqueReportsCatalogQuery();
   const [runReport, runState] = useRunBoutiqueReportMutation();
   const [reportType, setReportType] = useState('');
+  const [startDate, setStartDate] = useState(monthStartIso);
+  const [endDate, setEndDate] = useState(todayIso);
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [runError, setRunError] = useState('');
 
   const types = catalog?.report_types || [];
+  const selected = reportType || types[0] || '';
+  const needsDates = DATE_FILTER_REPORTS.has(selected);
 
   const columns: DataTableColumn<Record<string, unknown>>[] = useMemo(() => {
     if (rows.length === 0) return [];
@@ -22,9 +37,14 @@ export function BoutiqueReportsPage() {
   async function onRun() {
     setRunError('');
     try {
+      const filters: Record<string, unknown> = {};
+      if (needsDates) {
+        filters.start_date = startDate;
+        filters.end_date = endDate;
+      }
       const result = await runReport({
-        report_type: reportType || types[0],
-        filters: {},
+        report_type: selected,
+        filters,
       }).unwrap();
       setRows(Array.isArray(result.rows) ? result.rows : []);
     } catch (e) {
@@ -44,7 +64,7 @@ export function BoutiqueReportsPage() {
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end', marginBottom: 20 }}>
         <FormRow label="Report">
           <select
-            value={reportType || types[0] || ''}
+            value={selected}
             onChange={(e) => setReportType(e.target.value)}
             style={{ minWidth: 240, padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
           >
@@ -55,6 +75,26 @@ export function BoutiqueReportsPage() {
             ))}
           </select>
         </FormRow>
+        {needsDates ? (
+          <>
+            <FormRow label="From">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{ padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
+              />
+            </FormRow>
+            <FormRow label="To">
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{ padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
+              />
+            </FormRow>
+          </>
+        ) : null}
         <Button type="button" onClick={onRun} disabled={runState.isLoading || types.length === 0}>
           {runState.isLoading ? 'Running…' : 'Run'}
         </Button>

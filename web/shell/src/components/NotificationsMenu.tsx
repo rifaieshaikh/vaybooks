@@ -3,6 +3,35 @@ import { Link } from 'react-router-dom';
 import { Bell } from 'lucide-react';
 import { useListNotificationsQuery, useMarkNotificationReadMutation } from '@vaybooks/store';
 
+/** Strip scheduler bucket suffixes like `{id}:{week}` / `{id}:{date}`. */
+function entityIdFromRef(refId: string): string {
+  const idx = refId.indexOf(':');
+  return idx > 0 ? refId.slice(0, idx) : refId;
+}
+
+/** Map scheduler/CRM notification ref_type → in-app route. */
+export function notificationHref(row: Record<string, unknown>): string | null {
+  const refType = String(row.ref_type || '')
+    .trim()
+    .toLowerCase();
+  const rawId = String(row.ref_id || '').trim();
+  if (!refType || !rawId) return null;
+  const id = entityIdFromRef(rawId);
+  if (!id) return null;
+
+  if (refType === 'crm_lead' || refType === 'lead') return `/crm/leads/${id}`;
+  if (refType === 'crm_enquiry' || refType === 'enquiry') return `/crm/enquiries/${id}`;
+  if (
+    refType === 'crm_activity' ||
+    refType === 'activity' ||
+    refType === 'crm_activity_promise'
+  ) {
+    return `/crm/activities/${id}`;
+  }
+  if (refType === 'customer') return `/parties/customers/${id}?tab=crm`;
+  return null;
+}
+
 export function NotificationsMenu() {
   const { data = [], isLoading, error, refetch } = useListNotificationsQuery({ limit: 30 });
   const [markRead] = useMarkNotificationReadMutation();
@@ -52,6 +81,7 @@ export function NotificationsMenu() {
             const title = String(row.title || row.kind || 'Notification');
             const body = String(row.body || row.message || '');
             const projectId = String(row.project_id || '');
+            const href = notificationHref(row);
             return (
               <div
                 key={id}
@@ -60,10 +90,15 @@ export function NotificationsMenu() {
               >
                 <strong>{title}</strong>
                 {body ? <span className="vb-muted">{body}</span> : null}
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {source === 'project' && projectId ? (
                     <Link to={`/projects/list/${projectId}`} onClick={() => setOpen(false)}>
                       Open project
+                    </Link>
+                  ) : null}
+                  {href ? (
+                    <Link to={href} onClick={() => setOpen(false)}>
+                      Open
                     </Link>
                   ) : null}
                   {source === 'scheduler' ? (

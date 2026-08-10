@@ -112,7 +112,10 @@ class MongoTimeTrackingRepository:
         if order_number:
             query["order_number"] = {"$regex": order_number, "$options": "i"}
         if worker_name:
-            query["worker_name"] = {"$regex": worker_name, "$options": "i"}
+            query["$or"] = [
+                {"worker_name": {"$regex": worker_name, "$options": "i"}},
+                {"assignee_name": {"$regex": worker_name, "$options": "i"}},
+            ]
         if activity_name:
             query["activity_name"] = activity_name
         if work_date_from is not None or work_date_to is not None:

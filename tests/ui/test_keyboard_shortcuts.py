@@ -57,6 +57,12 @@ def test_default_actions_include_list_roles():
     ensure_defaults_loaded(force=True)
     actions = default_actions()
     assert actions["list.primary"] == "ctrl+shift+n"
+    assert actions["list.search.focus"] == "/"
+    assert actions["list.row.next"] == "j"
+    assert actions["list.row.prev"] == "k"
+    assert actions["list.row.open"] == "enter"
+    assert actions["list.row.edit"] == "e"
+    assert actions["list.row.new"] == "n"
     assert actions["list.filters.open"] == "ctrl+alt+f"
     assert actions["list.sort.open"] == "ctrl+shift+s"
     assert actions["list.filters.clear"] == "ctrl+1"
@@ -70,6 +76,12 @@ def test_list_chords_do_not_collide_with_parents():
     parent_chords = set(default_parents().values())
     for aid in (
         "list.primary",
+        "list.search.focus",
+        "list.row.next",
+        "list.row.prev",
+        "list.row.open",
+        "list.row.edit",
+        "list.row.new",
         "list.filters.open",
         "list.sort.open",
         "list.filters.clear",

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import './DocumentEditor.css';
 
 export type SearchableSelectOption = {
@@ -14,6 +14,8 @@ export type SearchableSelectProps = {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  /** When menu is closed, Enter advances (header/grid nav). */
+  onKeyDownAdvance?: (e: KeyboardEvent<HTMLElement>) => void;
 };
 
 export function SearchableSelect({
@@ -23,6 +25,7 @@ export function SearchableSelect({
   placeholder = 'Search…',
   disabled,
   className,
+  onKeyDownAdvance,
 }: SearchableSelectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -90,7 +93,12 @@ export function SearchableSelect({
           setActiveIndex(0);
         }}
         onKeyDown={(e) => {
-          if (!open) return;
+          if (!open) {
+            if (e.key === 'Enter' && onKeyDownAdvance) {
+              onKeyDownAdvance(e);
+            }
+            return;
+          }
           if (e.key === 'ArrowDown') {
             e.preventDefault();
             setActiveIndex((i) => Math.min(i + 1, Math.max(filtered.length - 1, 0)));

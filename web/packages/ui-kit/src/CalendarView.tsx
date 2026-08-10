@@ -1,13 +1,15 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
 import './CalendarView.css';
 
-export type CalendarViewMode = 'month' | 'week' | 'day';
+export type CalendarViewMode = 'month' | 'week' | 'day' | 'agenda';
 
 export type CalendarEventTone = 'primary' | 'ok' | 'warn' | 'danger' | 'muted' | 'accent';
 
@@ -29,6 +31,14 @@ export type CalendarCategory = {
   label: string;
   tone?: CalendarEventTone;
 };
+
+export type CalendarWorkingHours = {
+  startHour: number;
+  endHour: number;
+};
+
+/** 0 = Sunday, 1 = Monday (default). */
+export type CalendarWeekStartsOn = 0 | 1;
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
@@ -57,11 +67,11 @@ export function addDays(date: Date, days: number): Date {
   return next;
 }
 
-export function startOfWeek(date: Date): Date {
+export function startOfWeek(date: Date, weekStartsOn: CalendarWeekStartsOn = 1): Date {
   const d = new Date(date);
   const day = d.getDay(); // 0 Sun
-  const diff = day === 0 ? -6 : 1 - day; // Monday-start
-  d.setDate(d.getDate() + diff);
+  const diff = (day - weekStartsOn + 7) % 7;
+  d.setDate(d.getDate() - diff);
   d.setHours(0, 0, 0, 0);
   return d;
 }
@@ -102,19 +112,38 @@ function eventTimeLabel(ev: CalendarEvent): string {
   if (ev.allDay) return 'All day';
   const start = String(ev.start || '');
   const end = String(ev.end || '');
-  const st = start.includes('T') ? start.slice(11, 16) : start.length >= 5 && start.includes(':') ? start.slice(0, 5) : '';
-  const et = end.includes('T') ? end.slice(11, 16) : end.length >= 5 && end.includes(':') ? end.slice(0, 5) : '';
+  const st = start.includes('T')
+    ? start.slice(11, 16)
+    : start.length >= 5 && start.includes(':')
+      ? start.slice(0, 5)
+      : '';
+  const et = end.includes('T')
+    ? end.slice(11, 16)
+    : end.length >= 5 && end.includes(':')
+      ? end.slice(0, 5)
+      : '';
   if (st && et) return `${st}–${et}`;
   if (st) return st;
   return '';
+}
+
+function eventStartMs(ev: CalendarEvent): number {
+  const start = String(ev.start || '');
+  if (!start) return Number.POSITIVE_INFINITY;
+  if (ev.allDay || !start.includes('T')) {
+    const key = toDateKey(start);
+    return key ? parseDateKey(key).getTime() : Number.POSITIVE_INFINITY;
+  }
+  const t = new Date(start).getTime();
+  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
 }
 
 function monthLabel(date: Date): string {
   return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
 
-function weekLabel(date: Date): string {
-  const start = startOfWeek(date);
+function weekLabel(date: Date, weekStartsOn: CalendarWeekStartsOn): string {
+  const start = startOfWeek(date, weekStartsOn);
   const end = addDays(start, 6);
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
   return `${start.toLocaleDateString(undefined, opts)} – ${end.toLocaleDateString(undefined, {
@@ -132,8 +161,23 @@ function dayLabel(date: Date): string {
   });
 }
 
+function weekdayLabels(weekStartsOn: CalendarWeekStartsOn): string[] {
+  const monFirst = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  if (weekStartsOn === 1) return monFirst;
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+}
+
 function toneClass(tone?: CalendarEventTone): string {
   return `cal-tone-${tone || 'primary'}`;
+}
+
+function clampHour(n: number, fallback: number): number {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(23, Math.max(0, Math.floor(n)));
+}
+
+function defaultDaySort(a: CalendarEvent, b: CalendarEvent): number {
+  return String(a.start).localeCompare(String(b.start));
 }
 
 type CalendarViewProps = {
@@ -147,6 +191,16 @@ type CalendarViewProps = {
   onCategoriesChange?: (ids: string[]) => void;
   onEventClick?: (event: CalendarEvent) => void;
   onSlotClick?: (date: Date) => void;
+  /** Drag/reschedule callback for timed events (week/day). */
+  onEventMove?: (event: CalendarEvent, nextStart: string, nextEnd?: string) => void;
+  /** Override per-day event ordering (default: start time). */
+  dayEventSort?: (a: CalendarEvent, b: CalendarEvent) => number;
+  /** Week start day; 0 Sunday / 1 Monday. Default Monday. */
+  weekStartsOn?: CalendarWeekStartsOn;
+  /** Optional business working hours (visual band + caption). */
+  workingHours?: CalendarWorkingHours;
+  /** Show a now marker in today's week/day column. Default true. */
+  showNowLine?: boolean;
   loading?: boolean;
   error?: ReactNode;
   kicker?: ReactNode;
@@ -169,6 +223,11 @@ export function CalendarView({
   onCategoriesChange,
   onEventClick,
   onSlotClick,
+  onEventMove,
+  dayEventSort,
+  weekStartsOn = 1,
+  workingHours,
+  showNowLine = true,
   loading,
   error,
   kicker = 'Schedule',
@@ -179,6 +238,7 @@ export function CalendarView({
   className,
   style,
 }: CalendarViewProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const [innerView, setInnerView] = useState<CalendarViewMode>('month');
   const [innerCursor, setInnerCursor] = useState(() => {
     const d = new Date();
@@ -186,9 +246,14 @@ export function CalendarView({
     return d;
   });
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const view = controlledView ?? innerView;
   const cursor = controlledCursor ?? innerCursor;
+  const sortFn = dayEventSort ?? defaultDaySort;
+
+  const workStart = clampHour(Number(workingHours?.startHour), 6);
+  const workEnd = Math.max(workStart + 1, clampHour(Number(workingHours?.endHour), 22));
 
   function setView(next: CalendarViewMode) {
     onViewChange?.(next);
@@ -215,13 +280,17 @@ export function CalendarView({
   const rangeDays = useMemo(() => {
     if (view === 'day') return [new Date(cursor)];
     if (view === 'week') {
-      const start = startOfWeek(cursor);
+      const start = startOfWeek(cursor, weekStartsOn);
       return Array.from({ length: 7 }, (_, i) => addDays(start, i));
     }
+    if (view === 'agenda') {
+      const start = new Date(cursor);
+      return Array.from({ length: 14 }, (_, i) => addDays(start, i));
+    }
     const first = startOfMonth(cursor);
-    const gridStart = startOfWeek(first);
+    const gridStart = startOfWeek(first, weekStartsOn);
     return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
-  }, [view, cursor]);
+  }, [view, cursor, weekStartsOn]);
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -229,13 +298,11 @@ export function CalendarView({
       const key = toDateKey(day);
       map.set(
         key,
-        filteredEvents
-          .filter((ev) => eventOccursOn(ev, day))
-          .sort((a, b) => String(a.start).localeCompare(String(b.start))),
+        filteredEvents.filter((ev) => eventOccursOn(ev, day)).sort(sortFn),
       );
     }
     return map;
-  }, [rangeDays, filteredEvents]);
+  }, [rangeDays, filteredEvents, sortFn]);
 
   const agendaDay = selectedDay || (view === 'day' ? cursor : null);
   const agendaEvents = agendaDay ? eventsByDay.get(toDateKey(agendaDay)) || [] : [];
@@ -244,8 +311,18 @@ export function CalendarView({
     if (view === 'day') setSelectedDay(new Date(cursor));
   }, [view, cursor]);
 
+  useEffect(() => {
+    if (!showNowLine || (view !== 'day' && view !== 'week')) return;
+    const id = window.setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, [showNowLine, view]);
+
   const heading =
-    view === 'month' ? monthLabel(cursor) : view === 'week' ? weekLabel(cursor) : dayLabel(cursor);
+    view === 'month'
+      ? monthLabel(cursor)
+      : view === 'week'
+        ? weekLabel(cursor, weekStartsOn)
+        : dayLabel(cursor);
 
   function shift(delta: number) {
     if (view === 'month') setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + delta, 1));
@@ -270,17 +347,86 @@ export function CalendarView({
     }
   }
 
+  function onRootKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement | null;
+    if (
+      target &&
+      (target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable)
+    ) {
+      return;
+    }
+    if (e.key === 't' || e.key === 'T') {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      goToday();
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      shift(-1);
+      return;
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      shift(1);
+    }
+  }
+
   const today = new Date();
   const inMonth = (d: Date) => d.getMonth() === cursor.getMonth();
+  const hoursCaption =
+    workingHours != null ? `${pad(workStart)}:00–${pad(workEnd)}:00` : null;
+
+  function renderNowLine(key: string) {
+    const label = new Date(nowTick).toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return (
+      <div key={key} className="cal-now-line" aria-label={`Now ${label}`}>
+        <span>Now · {label}</span>
+      </div>
+    );
+  }
+
+  function withNowLine(day: Date, dayEvents: CalendarEvent[], renderEv: (ev: CalendarEvent) => ReactNode) {
+    if (!showNowLine || !sameDay(day, today)) {
+      return dayEvents.map(renderEv);
+    }
+    const nodes: ReactNode[] = [];
+    let inserted = false;
+    for (const ev of dayEvents) {
+      if (!inserted && eventStartMs(ev) > nowTick) {
+        nodes.push(renderNowLine(`now-before-${ev.id}`));
+        inserted = true;
+      }
+      nodes.push(renderEv(ev));
+    }
+    if (!inserted) nodes.push(renderNowLine('now-end'));
+    return nodes;
+  }
 
   return (
-    <div className={['cal-page', className].filter(Boolean).join(' ')} style={style}>
+    <div
+      ref={rootRef}
+      className={['cal-page', className].filter(Boolean).join(' ')}
+      style={style}
+      tabIndex={0}
+      onKeyDown={onRootKeyDown}
+      aria-label="Calendar. Shortcuts: T today, left/right previous/next."
+    >
       <header className="cal-hero">
         <div className="cal-hero-top">
           <div>
             {kicker ? <p className="cal-kicker">{kicker}</p> : null}
             <h1 className="cal-title">{title}</h1>
             {count != null ? <p className="cal-count">{count}</p> : null}
+            {hoursCaption ? (
+              <p className="cal-hours-caption">Working hours {hoursCaption}</p>
+            ) : null}
           </div>
           {actions ? <div className="cal-hero-actions">{actions}</div> : null}
         </div>
@@ -299,7 +445,7 @@ export function CalendarView({
             <h2 className="cal-heading">{heading}</h2>
           </div>
           <div className="cal-view-seg" role="group" aria-label="Calendar view">
-            {(['month', 'week', 'day'] as const).map((mode) => (
+            {(['month', 'week', 'day', 'agenda'] as const).map((mode) => (
               <button
                 key={mode}
                 type="button"
@@ -347,7 +493,7 @@ export function CalendarView({
             {view === 'month' ? (
               <div className="cal-month">
                 <div className="cal-weekdays">
-                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                  {weekdayLabels(weekStartsOn).map((d) => (
                     <div key={d} className="cal-weekday">
                       {d}
                     </div>
@@ -360,7 +506,9 @@ export function CalendarView({
                     const isToday = sameDay(day, today);
                     const isSelected = selectedDay ? sameDay(day, selectedDay) : false;
                     const outside = !inMonth(day);
-                    const visible = dayEvents.slice(0, 3);
+                    const dense = dayEvents.length >= 4;
+                    const pillLimit = dense ? 4 : 3;
+                    const visible = dayEvents.slice(0, pillLimit);
                     const more = dayEvents.length - visible.length;
                     return (
                       <button
@@ -371,6 +519,7 @@ export function CalendarView({
                           outside ? 'is-outside' : '',
                           isToday ? 'is-today' : '',
                           isSelected ? 'is-selected' : '',
+                          dense ? 'is-dense' : '',
                         ]
                           .filter(Boolean)
                           .join(' ')}
@@ -386,6 +535,12 @@ export function CalendarView({
                               key={ev.id}
                               className={`cal-pill ${toneClass(ev.tone)}`}
                               title={ev.title}
+                              draggable={Boolean(onEventMove)}
+                              onDragStart={(e) => {
+                                if (!onEventMove) return;
+                                e.dataTransfer.setData('text/cal-event-id', ev.id);
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onEventClick?.(ev);
@@ -412,16 +567,94 @@ export function CalendarView({
                   })}
                 </div>
               </div>
+            ) : view === 'agenda' ? (
+              <div className="cal-agenda-full">
+                {rangeDays.map((day) => {
+                  const key = toDateKey(day);
+                  const dayEvents = eventsByDay.get(key) || [];
+                  return (
+                    <section key={key} className="cal-agenda-day">
+                      <header className="cal-agenda-day-head">
+                        <h3>
+                          {day.toLocaleDateString(undefined, {
+                            weekday: 'long',
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </h3>
+                        {onSlotClick ? (
+                          <button type="button" className="cal-link-btn" onClick={() => onSlotClick(day)}>
+                            Add
+                          </button>
+                        ) : null}
+                      </header>
+                      {dayEvents.length === 0 ? (
+                        <p className="cal-agenda-empty">{emptyLabel}</p>
+                      ) : (
+                        <ul className="cal-agenda-list">
+                          {dayEvents.map((ev) => (
+                            <li key={ev.id}>
+                              <button
+                                type="button"
+                                className={`cal-agenda-item ${toneClass(ev.tone)}`}
+                                onClick={() => onEventClick?.(ev)}
+                              >
+                                <span className="cal-agenda-time">{eventTimeLabel(ev) || 'All day'}</span>
+                                <span className="cal-agenda-title">{ev.title}</span>
+                                {ev.meta ? <span className="cal-agenda-meta">{ev.meta}</span> : null}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
             ) : (
               <div className={`cal-columns cal-columns--${view}`}>
                 {rangeDays.map((day) => {
                   const key = toDateKey(day);
                   const dayEvents = eventsByDay.get(key) || [];
                   const isToday = sameDay(day, today);
+                  const dense = dayEvents.length >= 6;
                   return (
                     <div
                       key={key}
-                      className={['cal-col', isToday ? 'is-today' : ''].filter(Boolean).join(' ')}
+                      className={[
+                        'cal-col',
+                        isToday ? 'is-today' : '',
+                        dense ? 'is-dense' : '',
+                        workingHours ? 'has-hours' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      style={
+                        workingHours
+                          ? ({
+                              ['--cal-work-start' as string]: `${((workStart / 24) * 100).toFixed(2)}%`,
+                              ['--cal-work-end' as string]: `${((workEnd / 24) * 100).toFixed(2)}%`,
+                            } as CSSProperties)
+                          : undefined
+                      }
+                      onDragOver={(e) => {
+                        if (!onEventMove) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                      }}
+                      onDrop={(e) => {
+                        if (!onEventMove) return;
+                        e.preventDefault();
+                        const id = e.dataTransfer.getData('text/cal-event-id');
+                        const ev = filteredEvents.find((x) => x.id === id);
+                        if (!ev) return;
+                        const nextStart = `${toDateKey(day)}T${
+                          String(ev.start || '').includes('T')
+                            ? String(ev.start).slice(11, 19) || '09:00:00'
+                            : `${pad(workStart)}:00:00`
+                        }`;
+                        onEventMove(ev, nextStart, ev.end);
+                      }}
                     >
                       <button
                         type="button"
@@ -439,20 +672,34 @@ export function CalendarView({
                         <span className="cal-col-num">{day.getDate()}</span>
                       </button>
                       <div className="cal-col-body">
+                        {workingHours ? (
+                          <div className="cal-work-band" aria-hidden="true" />
+                        ) : null}
                         {dayEvents.length === 0 ? (
-                          <button
-                            type="button"
-                            className="cal-slot-empty"
-                            onClick={() => onSlotClick?.(day)}
-                          >
-                            Free
-                          </button>
+                          <>
+                            {showNowLine && isToday ? renderNowLine('now-empty') : null}
+                            <button
+                              type="button"
+                              className="cal-slot-empty"
+                              onClick={() => onSlotClick?.(day)}
+                            >
+                              Free
+                            </button>
+                          </>
                         ) : (
-                          dayEvents.map((ev) => (
+                          withNowLine(day, dayEvents, (ev) => (
                             <button
                               key={ev.id}
                               type="button"
-                              className={`cal-event-card ${toneClass(ev.tone)}`}
+                              className={`cal-event-card ${toneClass(ev.tone)}${
+                                dense ? ' is-compact' : ''
+                              }`}
+                              draggable={Boolean(onEventMove)}
+                              onDragStart={(e) => {
+                                if (!onEventMove) return;
+                                e.dataTransfer.setData('text/cal-event-id', ev.id);
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
                               onClick={() => onEventClick?.(ev)}
                             >
                               <span className="cal-event-time">{eventTimeLabel(ev) || 'All day'}</span>

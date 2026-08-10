@@ -111,6 +111,8 @@ class CrmLead:
     lost_by_name: str = ""
     import_batch_id: str = ""
     import_row_fingerprint: str = ""
+    attachment_ids: List[str] = field(default_factory=list)
+    custom_field_values: Dict[str, Any] = field(default_factory=dict)
     branch: str = ""
     location_id: str = ""
     location_name: str = ""
@@ -165,6 +167,7 @@ class CrmEnquiry:
     lost_reason: str = ""
     notes: str = ""
     attachment_ids: List[str] = field(default_factory=list)
+    custom_field_values: Dict[str, Any] = field(default_factory=dict)
     quotation_id: str = ""
     sales_order_id: str = ""
     branch: str = ""
@@ -223,6 +226,7 @@ class CrmActivity:
     location_name: str = ""
     priority: str = LeadPriority.MEDIUM.value
     attachment_ids: List[str] = field(default_factory=list)
+    custom_field_values: Dict[str, Any] = field(default_factory=dict)
     # Automatic activity source identity (idempotency)
     source_module: str = ""
     source_txn_type: str = ""
@@ -230,6 +234,7 @@ class CrmActivity:
     promised_amount: float = 0.0
     promised_date: Optional[datetime] = None
     cancel_reason: str = ""
+    needs_correction: bool = False
     branch: str = ""
     is_deleted: bool = False
     deleted_at: Optional[datetime] = None
@@ -375,6 +380,11 @@ class CrmSettings:
         "Please contact us to arrange payment. Thank you."
     )
     payment_reminder_due_offsets_days: List[int] = field(default_factory=lambda: [0, 3, 7])
+    calendar_drag_enabled: bool = True
+    custom_fields_enabled: bool = True
+    crm_mode: str = "trade"
+    field_packs: Dict[str, Any] = field(default_factory=dict)
+    custom_field_defs: List[Dict[str, Any]] = field(default_factory=list)
     id: str = CRM_SETTINGS_ID
     updated_at: datetime = field(default_factory=utc_now)
     updated_by_id: str = ""

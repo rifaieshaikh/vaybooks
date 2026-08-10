@@ -16,6 +16,36 @@ export type DocumentEditorProps = {
   footer?: ReactNode;
 };
 
+function isVisible(el: HTMLElement): boolean {
+  return el.offsetParent !== null && !el.hasAttribute('disabled');
+}
+
+/** Focusable controls inside a document-editor region (header or grid). */
+export function deFocusables(root: Element | null | undefined): HTMLElement[] {
+  if (!root) return [];
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      [
+        'input.de-search-input:not([disabled])',
+        'input.de-cell-input:not([disabled])',
+        'select.de-cell-input:not([disabled])',
+        '.de-discount input:not([disabled])',
+        '.de-discount select:not([disabled])',
+        '.de-header-fields input:not([disabled])',
+        '.de-header-fields select:not([disabled])',
+        '.de-header-fields textarea:not([disabled])',
+        '.de-header-fields .de-search-input:not([disabled])',
+        'button.de-del:not([disabled])',
+      ].join(', '),
+    ),
+  ).filter(isVisible);
+}
+
+export function focusDocumentSave(page: Element | null | undefined): void {
+  const btn = page?.querySelector<HTMLElement>('[data-de-save]:not([disabled])');
+  btn?.focus();
+}
+
 export function DocumentEditor({
   title,
   onCancel,
@@ -29,9 +59,46 @@ export function DocumentEditor({
 }: DocumentEditorProps) {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 's') return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (!saving) onSave();
+        return;
+      }
+
+      if (e.key !== 'Enter' || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const page = target.closest('.de-page');
+      if (!page) return;
+      if (target.tagName === 'TEXTAREA') return;
+
+      // SearchableSelect open menu owns Enter
+      const search = target.closest('.de-search');
+      if (search?.querySelector('input[aria-expanded="true"]')) return;
+
+      // Line grid owns its own Enter chain
+      if (target.closest('.de-grid')) return;
+
+      const header = page.querySelector('.de-header-fields');
+      if (!header || !header.contains(target)) return;
+
+      const fields = deFocusables(header);
+      // Prefer the actual input inside SearchableSelect when the event bubbled oddly
+      const current =
+        fields.find((el) => el === target || el.contains(target)) ??
+        (fields.includes(target) ? target : null);
+      const idx = current ? fields.indexOf(current) : -1;
       e.preventDefault();
-      if (!saving) onSave();
+      if (idx >= 0 && idx < fields.length - 1) {
+        fields[idx + 1]?.focus();
+        return;
+      }
+      const gridFirst = deFocusables(page.querySelector('.de-grid'))[0];
+      if (gridFirst) {
+        gridFirst.focus();
+        return;
+      }
+      focusDocumentSave(page);
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -53,7 +120,7 @@ export function DocumentEditor({
           <Button variant="ghost" type="button" onClick={onCancel} disabled={saving}>
             Cancel
           </Button>
-          <Button type="button" onClick={onSave} disabled={saving}>
+          <Button type="button" onClick={onSave} disabled={saving} data-de-save>
             {saving ? 'Saving…' : saveLabel}
           </Button>
         </div>

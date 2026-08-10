@@ -14,15 +14,20 @@ export type PagedListData = {
   page_size?: number;
 };
 
-export function pagedItems(data: PagedListData | undefined): Record<string, unknown>[] {
+/** Accepts the standard envelope or a legacy bare array from older API processes. */
+export type PagedListResponse = PagedListData | Record<string, unknown>[] | undefined;
+
+export function pagedItems(data: PagedListResponse): Record<string, unknown>[] {
+  if (Array.isArray(data)) return data;
   return Array.isArray(data?.items) ? data.items : [];
 }
 
-export function pagedTotal(data: PagedListData | undefined): number {
+export function pagedTotal(data: PagedListResponse): number {
+  if (Array.isArray(data)) return data.length;
   return Number(data?.total ?? 0);
 }
 
-export function pagedPageCount(data: PagedListData | undefined, pageSize = LIST_PAGE_SIZE): number {
+export function pagedPageCount(data: PagedListResponse, pageSize = LIST_PAGE_SIZE): number {
   return pageCount(pagedTotal(data), pageSize);
 }
 

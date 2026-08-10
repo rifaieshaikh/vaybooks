@@ -6,6 +6,7 @@ import {
 } from '@vaybooks/store';
 import { Button, ErrorText, FormRow } from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../../utils';
+import { AuthenticatedAttachmentImg } from './AuthenticatedAttachmentImg';
 
 const CATEGORIES = [
   { id: 'reference', label: 'Reference' },
@@ -68,6 +69,8 @@ export function GarmentMediaPanel({ orderId, itemId, readOnly, onCountChange }: 
     }
   }
 
+  const totalCount = attachments.length;
+
   return (
     <div className="ow-grid">
       <strong>Reference media</strong>
@@ -101,6 +104,12 @@ export function GarmentMediaPanel({ orderId, itemId, readOnly, onCountChange }: 
         </div>
       ) : null}
 
+      {totalCount === 0 && readOnly ? (
+        <div className="ow-empty" style={{ padding: '0.75rem' }}>
+          No reference media for this garment.
+        </div>
+      ) : null}
+
       {CATEGORIES.map((c) => {
         const rows = byCategory[c.id] || [];
         if (!rows.length && readOnly) return null;
@@ -111,7 +120,7 @@ export function GarmentMediaPanel({ orderId, itemId, readOnly, onCountChange }: 
             </div>
             {rows.length === 0 ? (
               <div className="ow-empty" style={{ padding: '0.75rem' }}>
-                None yet
+                None yet — upload a {c.label.toLowerCase()} image.
               </div>
             ) : (
               <div className="ow-media-grid">
@@ -119,8 +128,8 @@ export function GarmentMediaPanel({ orderId, itemId, readOnly, onCountChange }: 
                   const id = String(a.id);
                   return (
                     <div key={id} className="ow-media-thumb" title={asCaption(a.filename || a.name)}>
-                      <img
-                        src={`/api/boutique/attachments/${id}`}
+                      <AuthenticatedAttachmentImg
+                        attachmentId={id}
                         alt={asCaption(a.filename || c.label)}
                       />
                       {!readOnly ? (

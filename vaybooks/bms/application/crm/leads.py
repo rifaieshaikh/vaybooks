@@ -316,6 +316,11 @@ class CrmLeadAppService:
             "branch",
             "location_id",
             "location_name",
+            "assigned_user_id",
+            "assigned_user_name",
+            "attachment_ids",
+            "custom_field_values",
+            "status",
         }
         for key, value in fields.items():
             if key in allowed and value is not None:
@@ -348,6 +353,17 @@ class CrmLeadAppService:
     def soft_delete_lead(self, lead_id: str, *, actor_id: str = "", actor_name: str = "") -> CrmLead:
         lead = self.get_lead(lead_id)
         lead.soft_delete(actor_id=actor_id, actor_name=actor_name)
+        return self._leads.save(lead)
+
+    def restore_lead(self, lead_id: str, *, actor_id: str = "", actor_name: str = "") -> CrmLead:
+        lead = self._leads.find_by_id(lead_id)
+        if not lead:
+            raise ValidationError("Lead not found")
+        if not lead.is_deleted:
+            return lead
+        lead.is_deleted = False
+        lead.deleted_at = None
+        lead.touch(actor_id=actor_id, actor_name=actor_name)
         return self._leads.save(lead)
 
     def assign_lead(

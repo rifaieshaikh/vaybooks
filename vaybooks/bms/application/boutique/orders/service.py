@@ -527,6 +527,60 @@ class OrderAppService:
             return self._order_repo.list_all(location_filter=location_filter)
         return self._order_repo.search(query, location_filter=location_filter)
 
+    def page_customization_orders(
+        self,
+        *,
+        q: str = "",
+        order_number: str = "",
+        customer_name: str = "",
+        status: str = "",
+        sort_by: str = "order_date",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> tuple[List[CustomizationOrder], int]:
+        page_fn = getattr(self._order_repo, "page", None)
+        if callable(page_fn):
+            return page_fn(
+                q=q,
+                order_number=order_number,
+                customer_name=customer_name,
+                status=status,
+                sort_by=sort_by,
+                sort_desc=sort_desc,
+                page=page,
+                page_size=page_size,
+                location_filter=location_filter,
+            )
+        orders = self.search_customization_orders(q, location_filter=location_filter)
+        needle_on = (order_number or "").strip().lower()
+        needle_cn = (customer_name or "").strip().lower()
+        want_status = (status or "").strip()
+        filtered = []
+        for order in orders:
+            if needle_on and needle_on not in (order.order_number or "").lower():
+                continue
+            if needle_cn and needle_cn not in (order.customer_name or "").lower():
+                continue
+            if want_status and getattr(order.order_status, "value", order.order_status) != want_status:
+                continue
+            filtered.append(order)
+        reverse = bool(sort_desc)
+        key_name = (sort_by or "order_date").strip() or "order_date"
+
+        def _sort_key(o: CustomizationOrder):
+            val = getattr(o, key_name, None)
+            if hasattr(val, "value"):
+                val = val.value
+            return (val is None, val)
+
+        filtered.sort(key=_sort_key, reverse=reverse)
+        page_n = max(1, int(page or 1))
+        size = max(1, min(int(page_size or 12), 500))
+        start = (page_n - 1) * size
+        return filtered[start : start + size], len(filtered)
+
     def get_order_detail(self, order_id: str) -> Optional[CustomizationOrder]:
         return self._order_repo.find_by_id(order_id)
 

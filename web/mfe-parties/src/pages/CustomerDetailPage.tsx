@@ -3,6 +3,7 @@ import {
   useBlacklistCustomerMutation,
   useCan,
   useGetBoutiqueCustomerRelatedSummaryQuery,
+  useGetCrmCustomerRelatedQuery,
   useGetCustomerQuery,
   useGetCustomerSummaryQuery,
   useGetFinanceAccountQuery,
@@ -14,8 +15,8 @@ import {
   useSettleCustomerMutation,
   useUpdateCustomerMutation,
 } from '@vaybooks/store';
-import { Link, useParams } from 'react-router-dom';
-import { useMemo, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CustomerFormFields,
   customerBody,
@@ -28,7 +29,14 @@ import { Modal } from '../components/Modal';
 import { type PartyFormValues } from '../components/PartyFields';
 import './CustomerDetail.css';
 
-type TabId = 'overview' | 'activity' | 'finance' | 'products' | 'prices' | 'pricing';
+type TabId = 'overview' | 'activity' | 'finance' | 'products' | 'prices' | 'pricing' | 'crm';
+
+const TAB_IDS: TabId[] = ['overview', 'activity', 'finance', 'products', 'prices', 'pricing', 'crm'];
+
+function parseTab(raw: string | null): TabId | null {
+  if (!raw) return null;
+  return TAB_IDS.includes(raw as TabId) ? (raw as TabId) : null;
+}
 
 function money(v: unknown) {
   if (v == null || v === '') return '—';
@@ -54,7 +62,16 @@ function refLabel(r: Record<string, unknown>) {
 }
 
 function dateLabel(r: Record<string, unknown>) {
-  const raw = String(r.sale_date || r.order_date || r.created_at || r.start_date || r.date || '—');
+  const raw = String(
+    r.sale_date ||
+      r.order_date ||
+      r.scheduled_at ||
+      r.follow_up_date ||
+      r.created_at ||
+      r.start_date ||
+      r.date ||
+      '—',
+  );
   return raw.length > 16 ? raw.slice(0, 10) : raw;
 }
 
@@ -77,8 +94,50 @@ function ActivityBlock({ title, rows }: { title: string; rows: Record<string, un
   );
 }
 
+function CrmRelatedBlock({
+  title,
+  rows,
+  hrefOf,
+  labelOf,
+}: {
+  title: string;
+  rows: Record<string, unknown>[];
+  hrefOf: (r: Record<string, unknown>) => string | null;
+  labelOf: (r: Record<string, unknown>) => string;
+}) {
+  return (
+    <section className="cd-activity-block">
+      <h4>{title}</h4>
+      {rows.length === 0 ? (
+        <div className="cd-empty">No linked records.</div>
+      ) : (
+        rows.map((r, i) => {
+          const href = hrefOf(r);
+          const label = labelOf(r);
+          return (
+            <div className="cd-activity-row" key={String(r.id || i)}>
+              <span>
+                {href ? (
+                  <Link className="cd-text-link" to={href}>
+                    {label}
+                  </Link>
+                ) : (
+                  label
+                )}
+              </span>
+              <span>{dateLabel(r)}</span>
+              <span>{String(r.status || r.state || '—')}</span>
+            </div>
+          );
+        })
+      )}
+    </section>
+  );
+}
+
 export function CustomerDetailPage() {
   const { id = '' } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const can = useCan();
   const canEdit = can('parties.customers.edit');
   const canBlacklist = can('parties.customers.blacklist');
@@ -88,6 +147,7 @@ export function CustomerDetailPage() {
   const canAccounts = can('finance.accounts.view');
   const canProducts = can('sales.invoices.view');
   const canPrices = can('inventory.customer_prices.view');
+  const canCrm = can('crm.leads.view');
   const canPricing =
     can('settings.discounts.view') ||
     can('inventory.customer_prices.view') ||
@@ -106,6 +166,7 @@ export function CustomerDetailPage() {
   const salesRel = useGetSalesCustomerRelatedSummaryQuery(id, { skip: !id || !canInsights });
   const boutiqueRel = useGetBoutiqueCustomerRelatedSummaryQuery(id, { skip: !id || !canInsights });
   const projectsRel = useGetProjectsCustomerRelatedSummaryQuery(id, { skip: !id || !canInsights });
+  const crmRel = useGetCrmCustomerRelatedQuery(id, { skip: !id || !canCrm });
   const { data: segments = [] } = useListPartySegmentsQuery({ applies_to: 'customer', active_only: false });
 
   const accountId = String(summary.data?.account_id || '');
@@ -124,7 +185,11 @@ export function CustomerDetailPage() {
   const [blacklist] = useBlacklistCustomerMutation();
   const [settle] = useSettleCustomerMutation();
 
-  const [tab, setTab] = useState<TabId>('overview');
+  const tabFromUrl = parseTab(searchParams.get('tab'));
+  const [tab, setTab] = useState<TabId>(tabFromUrl || 'overview');
+  useEffect(() => {
+    if (tabFromUrl) setTab(tabFromUrl);
+  }, [tabFromUrl]);
   const [editOpen, setEditOpen] = useState(false);
   const [settleOpen, setSettleOpen] = useState(false);
   const [blacklistOpen, setBlacklistOpen] = useState(false);
@@ -234,6 +299,7 @@ export function CustomerDetailPage() {
   const tabs: { id: TabId; label: string; show: boolean }[] = [
     { id: 'overview', label: 'Overview', show: true },
     { id: 'activity', label: 'Activity', show: canInsights },
+    { id: 'crm', label: 'CRM', show: canCrm },
     { id: 'finance', label: 'Finance', show: canFinance },
     { id: 'products', label: 'Products', show: canProducts },
     { id: 'prices', label: 'Prices', show: canPrices },
@@ -241,6 +307,19 @@ export function CustomerDetailPage() {
   ];
   const visibleTabs = tabs.filter((t) => t.show);
   const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : 'overview';
+
+  function selectTab(next: TabId) {
+    setTab(next);
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        if (next === 'overview') params.delete('tab');
+        else params.set('tab', next);
+        return params;
+      },
+      { replace: true },
+    );
+  }
 
   function openSettle() {
     setSettleAmt(String(s.receivable_balance ?? s.open_invoice_outstanding ?? 0));
@@ -376,7 +455,7 @@ export function CustomerDetailPage() {
               key={t.id}
               type="button"
               className={`cd-tab${activeTab === t.id ? ' is-active' : ''}`}
-              onClick={() => setTab(t.id)}
+              onClick={() => selectTab(t.id)}
             >
               {t.label}
             </button>
@@ -551,6 +630,45 @@ export function CustomerDetailPage() {
         </div>
       ) : null}
 
+      {activeTab === 'crm' && canCrm ? (
+        <div className="cd-panel cd-activity" key="crm">
+          {crmRel.isLoading ? (
+            <p className="cd-empty">Loading CRM records…</p>
+          ) : crmRel.error ? (
+            <p className="cd-empty" style={{ color: '#a12828' }}>
+              Failed to load CRM records.
+            </p>
+          ) : (
+            <>
+              <CrmRelatedBlock
+                title="Leads"
+                rows={(crmRel.data?.leads as Record<string, unknown>[]) || []}
+                hrefOf={(r) => (r.id ? `/crm/leads/${String(r.id)}` : null)}
+                labelOf={(r) =>
+                  String(r.name || r.lead_number || r.id || 'Lead')
+                }
+              />
+              <CrmRelatedBlock
+                title="Enquiries"
+                rows={(crmRel.data?.enquiries as Record<string, unknown>[]) || []}
+                hrefOf={(r) => (r.id ? `/crm/enquiries/${String(r.id)}` : null)}
+                labelOf={(r) =>
+                  String(r.enquiry_number || r.party_name || r.id || 'Enquiry')
+                }
+              />
+              <CrmRelatedBlock
+                title="Activities"
+                rows={(crmRel.data?.activities as Record<string, unknown>[]) || []}
+                hrefOf={(r) => (r.id ? `/crm/activities/${String(r.id)}` : null)}
+                labelOf={(r) =>
+                  String(r.activity_type || r.title || r.id || 'Activity')
+                }
+              />
+            </>
+          )}
+        </div>
+      ) : null}
+
       {activeTab === 'finance' && canFinance ? (
         <div className="cd-panel" key="finance">
           <div className="cd-ledger-head">
@@ -644,7 +762,7 @@ export function CustomerDetailPage() {
           <div className="cd-ledger-head">
             <h3>Price ledger</h3>
             {canPricing ? (
-              <button type="button" className="cd-text-link" onClick={() => setTab('pricing')}>
+              <button type="button" className="cd-text-link" onClick={() => selectTab('pricing')}>
                 Add rate
               </button>
             ) : null}
@@ -679,7 +797,7 @@ export function CustomerDetailPage() {
           )}
           {can('settings.discounts.view') ? (
             <p className="cd-ledger-foot">
-              <button type="button" className="cd-text-link" onClick={() => setTab('pricing')}>
+              <button type="button" className="cd-text-link" onClick={() => selectTab('pricing')}>
                 Manage discounts on Pricing
               </button>
             </p>
@@ -693,7 +811,7 @@ export function CustomerDetailPage() {
             customerId={id}
             customerName={String(data.customer_name || '')}
             segmentIds={segmentIds}
-            onSeeAllPrices={canPrices ? () => setTab('prices') : undefined}
+            onSeeAllPrices={canPrices ? () => selectTab('prices') : undefined}
           />
         </div>
       ) : null}

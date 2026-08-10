@@ -389,7 +389,10 @@ class FakeTimeTrackingRepository:
         if worker_name:
             needle = worker_name.lower()
             entries = [
-                e for e in entries if needle in (e.worker_name or "").lower()
+                e
+                for e in entries
+                if needle in (e.worker_name or "").lower()
+                or needle in (getattr(e, "assignee_name", None) or "").lower()
             ]
         if activity_name:
             entries = [e for e in entries if e.activity_name == activity_name]

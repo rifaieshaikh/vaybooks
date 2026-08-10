@@ -459,6 +459,23 @@
   background: rgba(238, 245, 241, 0.55);
 }
 
+.el-table tbody tr.el-row-active {
+  background: rgba(24, 92, 76, 0.1);
+  outline: 1px solid rgba(24, 92, 76, 0.35);
+  outline-offset: -1px;
+}
+
+.el-table tbody tr.el-row-active:hover {
+  background: rgba(24, 92, 76, 0.14);
+}
+
+.el-kbd-hint {
+  margin: 0.55rem 0 0;
+  font-size: 0.75rem;
+  color: var(--el-muted);
+  letter-spacing: 0.01em;
+}
+
 .el-actions {
   display: inline-flex;
   flex-wrap: wrap;

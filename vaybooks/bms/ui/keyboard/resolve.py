@@ -32,8 +32,11 @@ _GLOBAL_CREATES = (
     "purchases.orders.create",
     "purchases.bills.create",
     "sales.estimates.create",
+    "sales.quotations.create",
     "sales.orders.create",
+    "sales.delivery_notes.create",
     "sales.invoices.create",
+    "sales.returns.create",
 )
 
 

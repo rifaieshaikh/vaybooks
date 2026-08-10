@@ -85,6 +85,12 @@
   color: var(--cal-muted);
 }
 
+.cal-hours-caption {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--cal-muted);
+}
+
 .cal-hero-actions {
   display: flex;
   flex-wrap: wrap;
@@ -472,11 +478,74 @@
 }
 
 .cal-col-body {
+  position: relative;
   padding: 0.55rem;
   display: grid;
   gap: 0.45rem;
   align-content: start;
   flex: 1;
+}
+
+.cal-col.has-hours .cal-work-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--cal-work-start, 25%);
+  height: calc(var(--cal-work-end, 92%) - var(--cal-work-start, 25%));
+  background: linear-gradient(
+    180deg,
+    rgba(24, 92, 76, 0.05),
+    rgba(24, 92, 76, 0.02)
+  );
+  border-top: 1px dashed rgba(24, 92, 76, 0.22);
+  border-bottom: 1px dashed rgba(24, 92, 76, 0.22);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.cal-col-body > *:not(.cal-work-band) {
+  position: relative;
+  z-index: 1;
+}
+
+.cal-now-line {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.1rem 0;
+  color: var(--cal-danger);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.cal-now-line::before,
+.cal-now-line::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cal-danger) 70%, white);
+}
+
+.cal-day-cell.is-dense .cal-pill,
+.cal-event-card.is-compact {
+  padding: 0.28rem 0.4rem;
+  font-size: 0.72rem;
+  border-radius: 8px;
+}
+
+.cal-day-cell.is-dense .cal-pill-time {
+  font-size: 0.62rem;
+}
+
+.cal-col.is-dense .cal-col-body {
+  gap: 0.3rem;
+}
+
+.cal-event-card.is-compact .cal-event-meta {
+  display: none;
 }
 
 .cal-slot-empty {
@@ -532,6 +601,34 @@
 .cal-event-meta {
   font-size: 0.75rem;
   color: var(--cal-muted);
+}
+
+.cal-agenda-full {
+  display: grid;
+  gap: 1rem;
+  animation: cal-fade-up 0.35s ease-out both;
+}
+
+.cal-agenda-day {
+  border: 1px solid var(--cal-line);
+  border-radius: 14px;
+  background: #fff;
+  padding: 0.85rem 0.95rem 1rem;
+}
+
+.cal-agenda-day-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.cal-agenda-day-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .cal-agenda {

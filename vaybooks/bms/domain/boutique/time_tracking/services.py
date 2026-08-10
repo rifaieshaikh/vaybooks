@@ -364,7 +364,10 @@ class TimeTrackingDomainService:
         if worker_name:
             needle = worker_name.strip().lower()
             entries = [
-                e for e in entries if (e.worker_name or "").strip().lower() == needle
+                e
+                for e in entries
+                if needle in (e.worker_name or "").strip().lower()
+                or needle in (e.assignee_name or "").strip().lower()
             ]
         return sorted(entries, key=lambda e: (e.work_date, e.activity_name))
 

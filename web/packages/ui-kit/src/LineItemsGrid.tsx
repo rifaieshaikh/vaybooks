@@ -1,7 +1,7 @@
 import type { KeyboardEvent } from 'react';
 import { DiscountInput, type DiscountMode } from './DiscountInput';
 import { SearchableSelect } from './SearchableSelect';
-import { formatInr } from './DocumentEditor';
+import { formatInr, focusDocumentSave, deFocusables } from './DocumentEditor';
 import './DocumentEditor.css';
 
 export type LineProductOption = {
@@ -98,6 +98,14 @@ function toSelectOptions(items: LineProductOption[]) {
   }));
 }
 
+function focusQtyInRow(tr: Element | null | undefined) {
+  const qty = tr?.querySelector<HTMLInputElement>(
+    'td input.de-cell-input[type="number"]:not([disabled])',
+  );
+  qty?.focus();
+  qty?.select?.();
+}
+
 export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
   lines,
   products,
@@ -145,16 +153,19 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
   function focusNext(e: KeyboardEvent<HTMLElement>) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
+    e.stopPropagation();
     const root = (e.currentTarget as HTMLElement).closest('.de-grid');
     if (!root) return;
-    const focusable = Array.from(
-      root.querySelectorAll<HTMLElement>(
-        'input.de-cell-input:not([disabled]), button.de-del:not([disabled]), .de-search input, select.de-cell-input:not([disabled])',
-      ),
-    ).filter((el) => el.offsetParent !== null);
-    const idx = focusable.indexOf(e.currentTarget as HTMLElement);
-    const next = focusable[idx + 1] || focusable[0];
-    next?.focus();
+    const focusable = deFocusables(root);
+    const current = e.currentTarget as HTMLElement;
+    const idx = focusable.findIndex((el) => el === current || el.contains(current));
+    const next = idx >= 0 ? focusable[idx + 1] : focusable[0];
+    if (next) {
+      next.focus();
+      if (next instanceof HTMLInputElement && next.type === 'number') next.select?.();
+      return;
+    }
+    focusDocumentSave(root.closest('.de-page'));
   }
 
   return (
@@ -184,7 +195,7 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
             const itemValue =
               itemType === 'service' ? row.serviceId || '' : row.productId || '';
             return (
-              <tr key={row.id}>
+              <tr key={row.id} data-line-id={row.id}>
                 {allowServices ? (
                   <td>
                     <select
@@ -225,6 +236,7 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
                         : 'Select product'
                     }
                     disabled={disabled}
+                    onKeyDownAdvance={focusNext}
                     onChange={(selectedId) => {
                       const item = itemList.find((p) => p.id === selectedId);
                       if (itemType === 'service') {
@@ -248,6 +260,10 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
                           const at = trimmed.findIndex((r) => r.id === row.id);
                           onServiceSelected(at >= 0 ? at : trimmed.length - 1, selectedId);
                         }
+                        requestAnimationFrame(() => {
+                          const tr = document.querySelector(`tr[data-line-id="${row.id}"]`);
+                          focusQtyInRow(tr);
+                        });
                         return;
                       }
                       const base = {
@@ -270,6 +286,10 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
                         const at = trimmed.findIndex((r) => r.id === row.id);
                         onProductSelected(at >= 0 ? at : trimmed.length - 1, selectedId);
                       }
+                      requestAnimationFrame(() => {
+                        const tr = document.querySelector(`tr[data-line-id="${row.id}"]`);
+                        focusQtyInRow(tr);
+                      });
                     }}
                   />
                 </td>
@@ -311,6 +331,7 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
                       value={row.discountInput ?? row.discount ?? 0}
                       mode={row.discountMode ?? 'flat'}
                       disabled={disabled || isBlank}
+                      onKeyDown={focusNext}
                       onChange={({ value, mode }) =>
                         updateAt(index, {
                           discountInput: value,

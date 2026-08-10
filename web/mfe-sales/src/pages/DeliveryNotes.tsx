@@ -305,6 +305,10 @@ export function DeliveryNotesListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onActivateRow={(row) => navigate(`/sales/delivery-notes/${row.id}`)}
+          onEditRow={(row) => navigate(`/sales/delivery-notes/${row.id}/edit`)}
+          onNew={goNew}
           actions={(row) => (
             <EntityListActions
               onOpen={() => navigate(`/sales/delivery-notes/${row.id}`)}

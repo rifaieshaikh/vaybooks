@@ -159,6 +159,10 @@ class CrmActivityAppService:
             "priority",
             "promised_amount",
             "promised_date",
+            "status",
+            "custom_field_values",
+            "attachment_ids",
+            "needs_correction",
         }
         for key, value in fields.items():
             if key in allowed and value is not None:
@@ -261,6 +265,37 @@ class CrmActivityAppService:
             raise ValidationError("Cancellation reason is required")
         activity.status = ActivityStatus.CANCELLED.value
         activity.cancel_reason = reason or ""
+        activity.touch(actor_id=actor_id, actor_name=actor_name)
+        return self._activities.save(activity)
+
+    def soft_delete(
+        self,
+        activity_id: str,
+        *,
+        actor_id: str = "",
+        actor_name: str = "",
+        allow_automatic: bool = False,
+    ) -> CrmActivity:
+        activity = self.get_activity(activity_id)
+        if activity.is_automatic and not allow_automatic:
+            raise ValidationError("Automatic activities cannot be deleted")
+        activity.soft_delete(actor_id=actor_id, actor_name=actor_name)
+        return self._activities.save(activity)
+
+    def restore(
+        self,
+        activity_id: str,
+        *,
+        actor_id: str = "",
+        actor_name: str = "",
+    ) -> CrmActivity:
+        activity = self._activities.find_by_id(activity_id)
+        if not activity:
+            raise ValidationError("Activity not found")
+        if not activity.is_deleted:
+            return activity
+        activity.is_deleted = False
+        activity.deleted_at = None
         activity.touch(actor_id=actor_id, actor_name=actor_name)
         return self._activities.save(activity)
 

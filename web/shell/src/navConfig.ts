@@ -124,6 +124,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       item('/crm/leads', 'Leads', 'crm', 'crm.leads.view', 'userPlus'),
       item('/crm/enquiries', 'Enquiries', 'crm', 'crm.enquiries.view', 'messageSquare'),
       item('/crm/activities', 'Activities', 'crm', 'crm.activities.view', 'activity'),
+      item('/crm/collections', 'Collections', 'crm', 'crm.dashboard.view', 'wallet'),
       item('/crm/calendar', 'Calendar', 'crm', 'crm.calendar.view', 'calendarDays'),
       item('/crm/reports', 'Reports', 'crm', 'crm.reports.view', 'barChart'),
       item('/crm/scheduled-reports', 'Scheduled reports', 'schedulers', 'schedulers.view', 'calendarClock'),

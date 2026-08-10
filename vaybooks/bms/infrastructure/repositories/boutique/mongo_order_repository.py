@@ -278,6 +278,79 @@ class MongoOrderRepository:
         query = merge_mongo_filters(location_filter or {})
         return [self._from_doc(d) for d in self._collection.find(query)]
 
+    def page(
+        self,
+        *,
+        q: str = "",
+        order_number: str = "",
+        customer_name: str = "",
+        status: str = "",
+        sort_by: str = "order_date",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> tuple[List[CustomizationOrder], int]:
+        """Filter + sort + page in Mongo instead of loading the full collection."""
+        from vaybooks.bms.domain.identity.location_access import merge_mongo_filters
+
+        clauses: list[dict] = []
+        if (q or "").strip():
+            patterns = order_ref_search_variants(q) or [q.strip()]
+            or_clauses: list[dict] = []
+            for pattern in patterns:
+                regex = {"$regex": pattern, "$options": "i"}
+                or_clauses.extend(
+                    [
+                        {"customer_name": regex},
+                        {"phone_number": regex},
+                        {"order_number": regex},
+                        {"_id": regex},
+                        {"bill_numbers.bill_number": regex},
+                        {"customization_items.bill_number": regex},
+                    ]
+                )
+            clauses.append({"$or": or_clauses})
+        if (order_number or "").strip():
+            clauses.append(
+                {"order_number": {"$regex": order_number.strip(), "$options": "i"}}
+            )
+        if (customer_name or "").strip():
+            clauses.append(
+                {"customer_name": {"$regex": customer_name.strip(), "$options": "i"}}
+            )
+        if (status or "").strip():
+            clauses.append({"order_status": status.strip()})
+
+        base: dict = {"$and": clauses} if clauses else {}
+        query_doc = merge_mongo_filters(base, location_filter or {})
+
+        sort_field = (sort_by or "order_date").strip() or "order_date"
+        # Map API/UI field names onto stored document keys.
+        sort_map = {
+            "order_date": "order_date",
+            "created_at": "created_at",
+            "order_number": "order_number",
+            "customer_name": "customer_name",
+            "order_status": "order_status",
+            "status": "order_status",
+            "expected_delivery_date": "expected_delivery_date",
+        }
+        mongo_sort = sort_map.get(sort_field, "order_date")
+        direction = -1 if sort_desc else 1
+        page_n = max(1, int(page or 1))
+        size = max(1, min(int(page_size or 12), 500))
+        skip = (page_n - 1) * size
+
+        total = self._collection.count_documents(query_doc)
+        docs = (
+            self._collection.find(query_doc)
+            .sort(mongo_sort, direction)
+            .skip(skip)
+            .limit(size)
+        )
+        return [self._from_doc(d) for d in docs], int(total)
+
     def list_by_status(self, status: str) -> List[CustomizationOrder]:
         docs = self._collection.find({"order_status": status})
         return [self._from_doc(d) for d in docs]
