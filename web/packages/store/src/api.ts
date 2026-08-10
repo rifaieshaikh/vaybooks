@@ -8,6 +8,14 @@ import {
 
 type SessionSliceState = { session: { accessToken: string | null } };
 
+/** Standard backend-paginated list envelope. */
+export type PagedResult<T = Record<string, unknown>> = {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: '/api',
   prepareHeaders: (headers, { getState }) => {
@@ -385,11 +393,33 @@ export const baseApi = createApi({
     }),
 
     // Parties — typed resources
-    listCustomers: build.query<Record<string, unknown>[], { q?: string } | void>({
+    listCustomers: build.query<
+      Record<string, unknown>[],
+      { q?: string; location_id?: string } | void
+    >({
       query: (args) => ({
         url: '/parties/customers',
-        params: args && 'q' in args && args.q ? { q: args.q } : undefined,
+        params: args
+          ? {
+              ...(args.q ? { q: args.q } : {}),
+              ...(args.location_id ? { location_id: args.location_id } : {}),
+            }
+          : undefined,
       }),
+      providesTags: ['Customer'],
+    }),
+    lookupCustomerByPhone: build.query<Record<string, unknown> | null, string>({
+      query: (phone) => ({
+        url: '/parties/customers/lookup',
+        params: { phone },
+      }),
+      providesTags: ['Customer'],
+    }),
+    getCustomerIdentityPolicy: build.query<
+      { require_name: boolean; require_phone: boolean },
+      void
+    >({
+      query: () => '/parties/customers/identity-policy',
       providesTags: ['Customer'],
     }),
     createCustomer: build.mutation<Record<string, unknown>, Record<string, unknown>>({
@@ -624,6 +654,13 @@ export const baseApi = createApi({
       query: (body) => ({ url: '/sales/estimates', method: 'POST', body }),
       invalidatesTags: ['SalesEstimate', 'Sales'],
     }),
+    updateSalesEstimate: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/sales/estimates/${id}`, method: 'PUT', body }),
+      invalidatesTags: ['SalesEstimate', 'Sales'],
+    }),
     setSalesEstimateStatus: build.mutation<
       Record<string, unknown>,
       { id: string; status: string }
@@ -651,6 +688,13 @@ export const baseApi = createApi({
       query: (body) => ({ url: '/sales/quotations', method: 'POST', body }),
       invalidatesTags: ['SalesQuotation', 'Sales'],
     }),
+    updateSalesQuotation: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/sales/quotations/${id}`, method: 'PUT', body }),
+      invalidatesTags: ['SalesQuotation', 'Sales'],
+    }),
     setSalesQuotationStatus: build.mutation<
       Record<string, unknown>,
       { id: string; status: string }
@@ -676,6 +720,13 @@ export const baseApi = createApi({
     }),
     createSalesOrder: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/sales/orders', method: 'POST', body }),
+      invalidatesTags: ['SalesOrder', 'Sales'],
+    }),
+    updateSalesOrder: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/sales/orders/${id}`, method: 'PUT', body }),
       invalidatesTags: ['SalesOrder', 'Sales'],
     }),
     cancelSalesOrder: build.mutation<Record<string, unknown>, string>({
@@ -708,6 +759,13 @@ export const baseApi = createApi({
     createDeliveryNote: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/sales/delivery-notes', method: 'POST', body }),
       invalidatesTags: ['SalesDeliveryNote', 'SalesOrder', 'Sales', 'Inventory'],
+    }),
+    updateDeliveryNote: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/sales/delivery-notes/${id}`, method: 'PUT', body }),
+      invalidatesTags: ['SalesDeliveryNote', 'Sales', 'Inventory'],
     }),
     confirmDeliveryNote: build.mutation<Record<string, unknown>, string>({
       query: (id) => ({ url: `/sales/delivery-notes/${id}/confirm`, method: 'POST' }),
@@ -743,6 +801,13 @@ export const baseApi = createApi({
       query: (body) => ({ url: '/sales/invoices', method: 'POST', body }),
       invalidatesTags: ['SalesInvoice', 'Sales', 'Finance', 'Inventory'],
     }),
+    updateSalesInvoice: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/sales/invoices/${id}`, method: 'PUT', body }),
+      invalidatesTags: ['SalesInvoice', 'Sales', 'Finance', 'Inventory'],
+    }),
     listSalesReturns: build.query<Record<string, unknown>[], void>({
       query: () => '/sales/returns',
       providesTags: ['SalesReturn'],
@@ -753,6 +818,13 @@ export const baseApi = createApi({
     }),
     createSalesReturn: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/sales/returns', method: 'POST', body }),
+      invalidatesTags: ['SalesReturn', 'Sales'],
+    }),
+    updateSalesReturn: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/sales/returns/${id}`, method: 'PUT', body }),
       invalidatesTags: ['SalesReturn', 'Sales'],
     }),
     approveSalesReturn: build.mutation<Record<string, unknown>, string>({
@@ -847,6 +919,19 @@ export const baseApi = createApi({
     createPurchaseBill: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/purchases/bills', method: 'POST', body }),
       invalidatesTags: ['PurchaseBill', 'Purchases', 'Finance'],
+    }),
+    updatePurchaseBill: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/purchases/bills/${id}`, method: 'PUT', body }),
+      invalidatesTags: ['PurchaseBill', 'Purchases', 'Finance', 'Inventory'],
+    }),
+    getVendorPurchaseRate: build.query<
+      { rate: number },
+      { vendor_id: string; product_id: string; item_type?: string }
+    >({
+      query: (params) => ({ url: '/purchases/vendor-rates', params }),
     }),
     listPurchaseReturns: build.query<Record<string, unknown>[], void>({
       query: () => '/purchases/returns',
@@ -1039,9 +1124,16 @@ export const baseApi = createApi({
     }),
     listFinanceAccounts: build.query<
       Record<string, unknown>[],
-      { active_only?: boolean; q?: string } | void
+      { active_only?: boolean; q?: string; store_only?: boolean } | void
     >({
-      query: (args) => ({ url: '/finance/accounts', params: args || undefined }),
+      query: (args) => {
+        if (!args) return { url: '/finance/accounts' };
+        const params: Record<string, string> = {};
+        if (args.active_only != null) params.active_only = args.active_only ? 'true' : 'false';
+        if (args.store_only != null) params.store_only = args.store_only ? 'true' : 'false';
+        if (args.q) params.q = args.q;
+        return { url: '/finance/accounts', params };
+      },
       providesTags: ['Finance'],
     }),
     createFinanceAccount: build.mutation<Record<string, unknown>, Record<string, unknown>>({
@@ -1138,15 +1230,33 @@ export const baseApi = createApi({
       query: () => '/boutique/health',
       providesTags: ['Boutique'],
     }),
-    boutiqueOverview: build.query<Record<string, unknown>, void>({
-      query: () => '/boutique/overview',
+    boutiqueOverview: build.query<
+      Record<string, unknown>,
+      { start_date?: string; end_date?: string } | void
+    >({
+      query: (args) => ({
+        url: '/boutique/overview',
+        params: args || undefined,
+      }),
       providesTags: ['Boutique', 'BoutiqueOrder', 'BoutiqueItem', 'BoutiqueMeasurement', 'BoutiqueTime'],
     }),
     listBoutiqueActivities: build.query<Record<string, unknown>[], void>({
       query: () => '/boutique/activities',
       providesTags: ['Boutique'],
     }),
-    listBoutiqueOrders: build.query<Record<string, unknown>[], { q?: string } | void>({
+    listBoutiqueOrders: build.query<
+      PagedResult,
+      {
+        q?: string;
+        order_number?: string;
+        customer_name?: string;
+        status?: string;
+        sort_by?: string;
+        sort_desc?: boolean;
+        page?: number;
+        page_size?: number;
+      } | void
+    >({
       query: (args) => ({ url: '/boutique/orders', params: args || undefined }),
       providesTags: ['BoutiqueOrder'],
     }),
@@ -1188,6 +1298,17 @@ export const baseApi = createApi({
       }),
       invalidatesTags: ['BoutiqueOrder', 'BoutiqueItem', 'Boutique'],
     }),
+    updateBoutiqueOrderItem: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; itemId: string; body: Record<string, unknown> }
+    >({
+      query: ({ orderId, itemId, body }) => ({
+        url: `/boutique/orders/${orderId}/items/${itemId}`,
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'BoutiqueItem', 'Boutique'],
+    }),
     removeBoutiqueOrderItem: build.mutation<
       Record<string, unknown>,
       { orderId: string; itemId: string }
@@ -1197,6 +1318,77 @@ export const baseApi = createApi({
         method: 'DELETE',
       }),
       invalidatesTags: ['BoutiqueOrder', 'BoutiqueItem', 'Boutique'],
+    }),
+    getBoutiqueOrderCreditBalance: build.query<
+      { credit_balance: number; balance?: number; order_id?: string; account_id?: string },
+      string
+    >({
+      query: (orderId) => `/boutique/orders/${orderId}/credit-balance`,
+      providesTags: (_r, _e, id) => [{ type: 'BoutiqueOrder', id }],
+      transformResponse: (response: Record<string, unknown>) => {
+        const credit = Number(response.credit_balance ?? response.balance ?? 0);
+        return {
+          ...response,
+          credit_balance: credit,
+          balance: credit,
+        };
+      },
+    }),
+    applyBoutiqueOrderCreditAdvance: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; body?: { amount?: number } }
+    >({
+      query: ({ orderId, body }) => ({
+        url: `/boutique/orders/${orderId}/advances/credit`,
+        method: 'POST',
+        body: body || {},
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    listBoutiqueItemAttachments: build.query<
+      Record<string, unknown>[],
+      { orderId: string; itemId: string; category?: string }
+    >({
+      query: ({ orderId, itemId, category }) => ({
+        url: `/boutique/orders/${orderId}/items/${itemId}/attachments`,
+        params: category ? { category } : undefined,
+      }),
+      providesTags: ['BoutiqueOrder'],
+    }),
+    uploadBoutiqueItemAttachment: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; itemId: string; file: File; category: string }
+    >({
+      query: ({ orderId, itemId, file, category }) => {
+        const body = new FormData();
+        body.append('file', file);
+        body.append('category', category);
+        return {
+          url: `/boutique/orders/${orderId}/items/${itemId}/attachments`,
+          method: 'POST',
+          body,
+        };
+      },
+      invalidatesTags: ['BoutiqueOrder'],
+    }),
+    deleteBoutiqueAttachment: build.mutation<Record<string, unknown>, string>({
+      query: (attachmentId) => ({
+        url: `/boutique/attachments/${attachmentId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['BoutiqueOrder'],
+    }),
+    getBoutiqueItemPdf: build.query<Blob, { orderId: string; itemId: string }>({
+      query: ({ orderId, itemId }) => ({
+        url: `/boutique/orders/${orderId}/items/${itemId}/pdf`,
+        responseHandler: (response) => response.blob(),
+      }),
+    }),
+    getBoutiqueAdvanceReceiptPdf: build.query<Blob, string>({
+      query: (orderId) => ({
+        url: `/boutique/orders/${orderId}/advance-receipt.pdf`,
+        responseHandler: (response) => response.blob(),
+      }),
     }),
     completeBoutiqueActivity: build.mutation<
       Record<string, unknown>,
@@ -1265,7 +1457,78 @@ export const baseApi = createApi({
       query: (orderId) => `/boutique/orders/${orderId}/expenses`,
       providesTags: ['BoutiqueOrder'],
     }),
-    listBoutiqueItems: build.query<Record<string, unknown>[], { q?: string } | void>({
+    createBoutiqueOrderExpense: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; body: Record<string, unknown> }
+    >({
+      query: ({ orderId, body }) => ({
+        url: `/boutique/orders/${orderId}/expenses`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    getBoutiqueOrderFinancials: build.query<Record<string, unknown>, string>({
+      query: (orderId) => `/boutique/orders/${orderId}/financials`,
+      providesTags: (_r, _e, id) => [{ type: 'BoutiqueOrder', id }, 'Boutique'],
+    }),
+    listBoutiqueOrderVouchers: build.query<
+      Record<string, unknown>[],
+      { orderId: string; kind?: string }
+    >({
+      query: ({ orderId, kind }) => ({
+        url: `/boutique/orders/${orderId}/vouchers`,
+        params: kind ? { kind } : undefined,
+      }),
+      providesTags: ['BoutiqueOrder'],
+    }),
+    createBoutiqueOrderReceipt: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; body: Record<string, unknown> }
+    >({
+      query: ({ orderId, body }) => ({
+        url: `/boutique/orders/${orderId}/receipts`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    createBoutiqueOrderVendorPayment: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; body: Record<string, unknown> }
+    >({
+      query: ({ orderId, body }) => ({
+        url: `/boutique/orders/${orderId}/vendor-payments`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    createBoutiqueOrderRefund: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; body: Record<string, unknown> }
+    >({
+      query: ({ orderId, body }) => ({
+        url: `/boutique/orders/${orderId}/refunds`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    listBoutiqueItems: build.query<
+      PagedResult,
+      {
+        q?: string;
+        bill_number?: string;
+        description?: string;
+        customer_name?: string;
+        status?: string;
+        sort_by?: string;
+        sort_desc?: boolean;
+        page?: number;
+        page_size?: number;
+      } | void
+    >({
       query: (args) => ({ url: '/boutique/items', params: args || undefined }),
       providesTags: ['BoutiqueItem'],
     }),
@@ -1292,8 +1555,17 @@ export const baseApi = createApi({
       providesTags: ['BoutiqueMeasurement'],
     }),
     listBoutiqueMeasurements: build.query<
-      Record<string, unknown>[],
-      { customer_id?: string } | void
+      PagedResult,
+      {
+        customer_id?: string;
+        measurement_number?: string;
+        wearer_name?: string;
+        person_type?: string;
+        sort_by?: string;
+        sort_desc?: boolean;
+        page?: number;
+        page_size?: number;
+      } | void
     >({
       query: (args) => ({ url: '/boutique/measurements', params: args || undefined }),
       providesTags: ['BoutiqueMeasurement'],
@@ -1333,14 +1605,38 @@ export const baseApi = createApi({
       invalidatesTags: ['BoutiqueMeasurement', 'Boutique'],
     }),
     listBoutiqueTimeEntries: build.query<
-      Record<string, unknown>[],
-      Record<string, string | undefined> | void
+      PagedResult,
+      {
+        bill_number?: string;
+        order_number?: string;
+        worker_name?: string;
+        activity_name?: string;
+        work_date_from?: string;
+        work_date_to?: string;
+        task_type?: string;
+        status?: string;
+        sort_by?: string;
+        sort_desc?: boolean;
+        page?: number;
+        page_size?: number;
+      } | void
     >({
       query: (args) => ({ url: '/boutique/time-entries', params: args || undefined }),
       providesTags: ['BoutiqueTime'],
     }),
     createBoutiqueTimeEntry: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/boutique/time-entries', method: 'POST', body }),
+      invalidatesTags: ['BoutiqueTime', 'Boutique'],
+    }),
+    syncBoutiqueActivityTasks: build.mutation<
+      Record<string, unknown>,
+      { order_id?: string } | void
+    >({
+      query: (args) => ({
+        url: '/boutique/tasks/sync',
+        method: 'POST',
+        params: args || undefined,
+      }),
       invalidatesTags: ['BoutiqueTime', 'Boutique'],
     }),
     updateBoutiqueTimeEntry: build.mutation<
@@ -2318,6 +2614,10 @@ export const {
   useDeleteDiscountRuleMutation,
   useGetProductionSettingsStubQuery,
   useListCustomersQuery,
+  useLazyListCustomersQuery,
+  useLookupCustomerByPhoneQuery,
+  useLazyLookupCustomerByPhoneQuery,
+  useGetCustomerIdentityPolicyQuery,
   useCreateCustomerMutation,
   useGetCustomerQuery,
   useUpdateCustomerMutation,
@@ -2359,22 +2659,26 @@ export const {
   useListSalesEstimatesQuery,
   useGetSalesEstimateQuery,
   useCreateSalesEstimateMutation,
+  useUpdateSalesEstimateMutation,
   useSetSalesEstimateStatusMutation,
   useConvertEstimateToOrderMutation,
   useListSalesQuotationsQuery,
   useGetSalesQuotationQuery,
   useCreateSalesQuotationMutation,
+  useUpdateSalesQuotationMutation,
   useSetSalesQuotationStatusMutation,
   useConvertQuotationToOrderMutation,
   useListSalesOrdersQuery,
   useGetSalesOrderQuery,
   useCreateSalesOrderMutation,
+  useUpdateSalesOrderMutation,
   useCancelSalesOrderMutation,
   useCloseSalesOrderMutation,
   useConvertSalesOrderToInvoiceMutation,
   useListDeliveryNotesQuery,
   useGetDeliveryNoteQuery,
   useCreateDeliveryNoteMutation,
+  useUpdateDeliveryNoteMutation,
   useConfirmDeliveryNoteMutation,
   useDispatchDeliveryNoteMutation,
   useDeliverDeliveryNoteMutation,
@@ -2383,9 +2687,11 @@ export const {
   useGetSalesInvoiceQuery,
   useLazyGetSalesInvoicePdfQuery,
   useCreateSalesInvoiceMutation,
+  useUpdateSalesInvoiceMutation,
   useListSalesReturnsQuery,
   useGetSalesReturnQuery,
   useCreateSalesReturnMutation,
+  useUpdateSalesReturnMutation,
   useApproveSalesReturnMutation,
   useRejectSalesReturnMutation,
   useSalesReportsCatalogQuery,
@@ -2407,6 +2713,9 @@ export const {
   useListPurchaseBillsQuery,
   useGetPurchaseBillQuery,
   useCreatePurchaseBillMutation,
+  useUpdatePurchaseBillMutation,
+  useGetVendorPurchaseRateQuery,
+  useLazyGetVendorPurchaseRateQuery,
   useListPurchaseReturnsQuery,
   useGetPurchaseReturnQuery,
   useCreatePurchaseReturnMutation,
@@ -2477,7 +2786,15 @@ export const {
   useCancelBoutiqueOrderMutation,
   useCompleteBoutiqueOrderMutation,
   useAddBoutiqueOrderItemMutation,
+  useUpdateBoutiqueOrderItemMutation,
   useRemoveBoutiqueOrderItemMutation,
+  useGetBoutiqueOrderCreditBalanceQuery,
+  useApplyBoutiqueOrderCreditAdvanceMutation,
+  useListBoutiqueItemAttachmentsQuery,
+  useUploadBoutiqueItemAttachmentMutation,
+  useDeleteBoutiqueAttachmentMutation,
+  useLazyGetBoutiqueItemPdfQuery,
+  useLazyGetBoutiqueAdvanceReceiptPdfQuery,
   useCompleteBoutiqueActivityMutation,
   useSkipBoutiqueActivityMutation,
   useRecordBoutiqueAdvanceMutation,
@@ -2486,6 +2803,12 @@ export const {
   useListBoutiqueOrderDeliveriesQuery,
   useCreateBoutiqueOrderDeliveryMutation,
   useListBoutiqueOrderExpensesQuery,
+  useCreateBoutiqueOrderExpenseMutation,
+  useGetBoutiqueOrderFinancialsQuery,
+  useListBoutiqueOrderVouchersQuery,
+  useCreateBoutiqueOrderReceiptMutation,
+  useCreateBoutiqueOrderVendorPaymentMutation,
+  useCreateBoutiqueOrderRefundMutation,
   useListBoutiqueItemsQuery,
   useGetBoutiqueItemQuery,
   useCreateBoutiqueItemMutation,
@@ -2500,6 +2823,7 @@ export const {
   useDeleteBoutiqueMeasurementMutation,
   useListBoutiqueTimeEntriesQuery,
   useCreateBoutiqueTimeEntryMutation,
+  useSyncBoutiqueActivityTasksMutation,
   useUpdateBoutiqueTimeEntryMutation,
   useDeleteBoutiqueTimeEntryMutation,
   useBoutiqueCalendarQuery,

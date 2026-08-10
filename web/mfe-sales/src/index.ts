@@ -14,4 +14,11 @@ export {
   SalesReturnDetailPage,
   SalesReportsPage,
   SalesScheduledReportsPage,
+  InvoiceEditorPage,
+  OrderEditorPage,
+  PricedDocEditorPage,
+  EstimateEditorPage,
+  QuotationEditorPage,
+  DeliveryNoteEditorPage,
+  ReturnEditorPage,
 } from './pages';

@@ -1,19 +1,14 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   useApproveSalesReturnMutation,
-  useCreateSalesReturnMutation,
   useGetSalesReturnQuery,
-  useListCustomersQuery,
-  useListInventoryLocationsQuery,
-  useListInventoryProductsQuery,
   useListSalesReturnsQuery,
   useRejectSalesReturnMutation,
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  DocumentDetail,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -22,25 +17,63 @@ import {
   EntityListLoading,
   EntityListPage,
   EntityListQuickFilters,
+  EntityListRefreshing,
   EntityListTable,
   ErrorText,
-  FormRow,
-  Modal,
-  PAGE_SIZE,
   PaginationBar,
-  TextInput,
+  StatusPill,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError, formatMoney } from '../utils';
+import {
+  buildFacts,
+  dateCaption,
+  mapDocLines,
+  moneySummaryFromDoc,
+  notesFromDoc,
+  statusIncludes,
+} from './documentDetailHelpers';
+import {
+  DATE_RANGE_FIELDS,
+  PAGE_SIZE_OPTIONS,
+  amountOf,
+  dateKey,
+  hasActiveListFilters,
+  inDateRange,
+  isThisMonth,
+  listPulseMoney,
+  matchesDocSearch,
+  useSalesListState,
+  useSyncedPage,
+} from './salesListHelpers';
 
-const DEFAULT_FILTERS = { return_number: '', customer_name: '', status: '' };
+type ReturnFilters = {
+  return_number: string;
+  customer_name: string;
+  status: string;
+  month: string;
+  date_from: string;
+  date_to: string;
+};
+
+const DEFAULT_FILTERS: ReturnFilters = {
+  return_number: '',
+  customer_name: '',
+  status: '',
+  month: '',
+  date_from: '',
+  date_to: '',
+};
+
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'return_date', desc: true }];
+
 const STATUS_CHIPS = [
   { id: 'all', label: 'All' },
   { id: 'Pending Approval', label: 'Pending Approval' },
@@ -53,46 +86,73 @@ const STATUS_CHIPS = [
 
 export function SalesReturnsListPage() {
   const navigate = useNavigate();
-  const { data = [], isLoading, error } = useListSalesReturnsQuery();
-  const { data: customers = [] } = useListCustomersQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
-  const { data: locations = [] } = useListInventoryLocationsQuery();
-  const [createReturn, createState] = useCreateSalesReturnMutation();
+  const { data = [], isLoading, isFetching, error, refetch } = useListSalesReturnsQuery();
 
-  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
-  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
-  const [page, setPage] = useState(1);
-  const [open, setOpen] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [customerId, setCustomerId] = useState('');
-  const [locationId, setLocationId] = useState('');
-  const [productId, setProductId] = useState('');
-  const [qty, setQty] = useState('1');
-  const [rate, setRate] = useState('0');
+  const list = useSalesListState({
+    defaultFilters: DEFAULT_FILTERS,
+    defaultSort: DEFAULT_SORT,
+    monthFilterKey: 'month',
+    applyChip: (chip, filters) => {
+      if (chip === 'all') return { ...filters, status: '' };
+      if (chip) return { ...filters, status: chip };
+      return null;
+    },
+  });
+
+  useEffect(() => {
+    if (list.params.get('new') === '1') {
+      const cid = list.params.get('customer_id');
+      navigate(cid ? `/sales/returns/new?customer_id=${cid}` : '/sales/returns/new', {
+        replace: true,
+      });
+    }
+  }, [list.params, navigate]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
       { key: 'return_number', label: 'Return #', type: 'text' },
       { key: 'customer_name', label: 'Customer', type: 'text' },
-      { key: 'status', label: 'Status', type: 'text' },
+      ...DATE_RANGE_FIELDS,
     ],
     [],
   );
 
   const filtered = useMemo(() => {
     const rows = data.filter((row) => {
-      if (!matchesRegex(row.return_number, filters.return_number)) return false;
-      if (!matchesRegex(row.customer_name, filters.customer_name)) return false;
-      if (filters.status && String(row.status) !== filters.status) return false;
+      if (
+        !matchesDocSearch(row, list.search, [
+          'return_number',
+          'customer_name',
+          'party_name',
+          'status',
+        ])
+      ) {
+        return false;
+      }
+      if (!matchesRegex(row.return_number, list.filters.return_number)) return false;
+      if (!matchesRegex(row.customer_name || row.party_name, list.filters.customer_name)) {
+        return false;
+      }
+      if (list.filters.status && String(row.status) !== list.filters.status) return false;
+      if (list.filters.month === 'current' && !isThisMonth(row.return_date)) return false;
+      if (!inDateRange(row.return_date, list.filters.date_from, list.filters.date_to)) {
+        return false;
+      }
       return true;
     });
-    return sortRows(rows, sort);
-  }, [data, filters, sort]);
+    return sortRows(
+      rows.map((r) => ({ ...r, net: amountOf(r) })),
+      list.sort,
+    ) as Array<(typeof data)[number] & { net: number }>;
+  }, [data, list.search, list.filters, list.sort]);
 
-  const pages = pageCount(filtered.length, PAGE_SIZE);
-  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+  const pulse = useMemo(() => listPulseMoney(filtered), [filtered]);
+  const pages = pageCount(filtered.length, list.pageSize);
+  useSyncedPage(list.page, pages, list.setPage);
+  const pageRows = paginate(filtered, Math.min(list.page, pages), list.pageSize);
+  const filtersActive = hasActiveListFilters(list.search, list.filters, DEFAULT_FILTERS);
 
-  type ReturnRow = (typeof data)[number];
+  type ReturnRow = (typeof data)[number] & { net?: number };
 
   const columns: EntityListColumn<ReturnRow>[] = useMemo(
     () => [
@@ -100,112 +160,157 @@ export function SalesReturnsListPage() {
         id: 'return_number',
         header: 'Return #',
         render: (row) => (
-          <span className="el-customer-name">
+          <button
+            type="button"
+            className="el-doc-link"
+            onClick={() => navigate(`/sales/returns/${row.id}`)}
+          >
             {asCaption(row.return_number) || String(row.id)}
-          </span>
+          </button>
         ),
       },
       {
         id: 'customer',
         header: 'Customer',
-        render: (row) => asCaption(row.customer_name) || <span className="el-muted">—</span>,
+        render: (row) =>
+          asCaption(row.customer_name || row.party_name) || <span className="el-muted">—</span>,
       },
       {
         id: 'status',
         header: 'Status',
-        render: (row) => asCaption(row.status) || <span className="el-muted">—</span>,
+        render: (row) => <StatusPill status={row.status} />,
       },
       {
         id: 'date',
         header: 'Date',
-        render: (row) =>
-          asCaption(row.return_date).slice(0, 10) || <span className="el-muted">—</span>,
+        render: (row) => dateKey(row.return_date) || <span className="el-muted">—</span>,
       },
       {
         id: 'amount',
         header: 'Amount',
         className: 'el-num',
         headerClassName: 'el-col-num',
-        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
+        render: (row) => formatMoney(amountOf(row)),
       },
     ],
-    [],
+    [navigate],
   );
 
-  async function onCreate() {
-    setFormError('');
-    try {
-      const created = await createReturn({
-        customer_id: customerId,
-        location_id: locationId,
-        lines: [{ product_id: productId, qty: Number(qty) || 0, rate: Number(rate) || 0 }],
-      }).unwrap();
-      setOpen(false);
-      navigate(`/sales/returns/${created.id}`);
-    } catch (e) {
-      setFormError(extractError(e));
-    }
+  const goNew = () => {
+    const cid = list.params.get('customer_id');
+    navigate(cid ? `/sales/returns/new?customer_id=${cid}` : '/sales/returns/new');
+  };
+
+  function setChip(id: string) {
+    list.setFilters((prev) => ({
+      ...prev,
+      status: id === 'all' ? '' : id,
+    }));
   }
 
+  const chipValue = list.filters.status || 'all';
+
   return (
-    <EntityListPage>
+    <EntityListPage className="el-page--sales">
       <EntityListHero
         kicker="Sales"
         title="Sales Returns"
-        count={`${filtered.length} ${filtered.length === 1 ? 'return' : 'returns'}`}
+        count={
+          <>
+            {filtered.length} {filtered.length === 1 ? 'return' : 'returns'}
+            {filtered.length !== data.length ? ` · ${data.length} total` : ''}
+          </>
+        }
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setOpen(true);
-              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-            }}
-          >
-            New return
-          </Button>
+          <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
+            <Button type="button" onClick={goNew}>
+              New return
+            </Button>
+          </>
+        }
+        search={
+          <input
+            type="search"
+            value={list.search}
+            onChange={(e) => list.setSearch(e.target.value)}
+            placeholder="Search return #, customer, amount…"
+            aria-label="Search returns"
+          />
         }
         chips={
           <EntityListQuickFilters
-            ariaLabel="Status"
-            value={filters.status || 'all'}
-            onChange={(id) => {
-              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
-              setPage(1);
-            }}
+            ariaLabel="Return filters"
+            value={chipValue}
+            onChange={setChip}
             options={STATUS_CHIPS}
           />
         }
         tools={
           <EntityListFilterSort
             filterFields={filterFields}
-            filters={filters}
+            filters={list.filters}
             defaultFilters={DEFAULT_FILTERS}
-            excludeKeys={['status']}
-            onFiltersChange={(next) => {
-              setFilters(next as typeof filters);
-              setPage(1);
-            }}
-            sort={sort}
+            excludeKeys={['status', 'month']}
+            onFiltersChange={(next) => list.setFilters(next as ReturnFilters)}
+            sort={list.sort}
             defaultSort={DEFAULT_SORT}
             sortOptions={[
               { value: 'return_date', label: 'Date' },
               { value: 'return_number', label: 'Return #' },
-              { value: 'total_amount', label: 'Amount' },
+              { value: 'net', label: 'Amount' },
+              { value: 'status', label: 'Status' },
             ]}
-            onSortChange={(next) => {
-              setSort(next);
-              setPage(1);
-            }}
+            onSortChange={list.setSort}
           />
+        }
+        summary={
+          <div className="el-pulse">
+            <span>
+              Showing <strong>{pulse.count}</strong>
+            </span>
+            <span>
+              Total <strong>{formatMoney(pulse.total)}</strong>
+            </span>
+            <span>
+              This month <strong>{formatMoney(pulse.monthTotal)}</strong>
+            </span>
+          </div>
         }
       />
 
+      {isFetching && !isLoading ? <EntityListRefreshing /> : null}
       {isLoading ? <EntityListLoading>Loading returns…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load returns.</ErrorText> : null}
+
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>No returns found.</strong>
+          {filtersActive ? (
+            <>
+              <strong>No matches</strong>
+              <p>Try clearing search or filters.</p>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  list.setSearch('');
+                  list.setFilters({ ...DEFAULT_FILTERS });
+                }}
+              >
+                Clear filters
+              </Button>
+            </>
+          ) : (
+            <>
+              <strong>No returns yet</strong>
+              <p>Record a customer return when goods come back.</p>
+              <Button type="button" onClick={goNew}>
+                New return
+              </Button>
+            </>
+          )}
         </EntityListEmpty>
       ) : null}
 
@@ -215,104 +320,61 @@ export function SalesReturnsListPage() {
           rows={pageRows}
           rowKey={(row) => String(row.id)}
           actions={(row) => (
-            <EntityListActions onOpen={() => navigate(`/sales/returns/${row.id}`)} />
+            <EntityListActions
+              onOpen={() => navigate(`/sales/returns/${row.id}`)}
+              onEdit={
+                statusIncludes(row.status, 'pending')
+                  ? () => navigate(`/sales/returns/${row.id}/edit`)
+                  : undefined
+              }
+            />
           )}
         />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
         <EntityListFoot>
+          <div className="el-page-size">
+            <label>
+              Rows{' '}
+              <select
+                value={list.pageSize}
+                onChange={(e) =>
+                  list.setPageSize(Number(e.target.value) as (typeof PAGE_SIZE_OPTIONS)[number])
+                }
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="el-foot-pager">
-            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+            <PaginationBar
+              page={Math.min(list.page, pages)}
+              pageCount={pages}
+              onPage={list.setPage}
+            />
           </div>
         </EntityListFoot>
       ) : null}
-
-      <Modal
-        open={open}
-        title="New sales return"
-        onClose={() => setOpen(false)}
-        footer={
-          <>
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={onCreate}
-              disabled={createState.isLoading || !customerId || !productId}
-            >
-              {createState.isLoading ? 'Saving…' : 'Create'}
-            </Button>
-          </>
-        }
-      >
-        <div style={{ display: 'grid', gap: 10 }}>
-          {formError ? <ErrorText>{formError}</ErrorText> : null}
-          <FormRow label="Customer *">
-            <select
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select customer</option>
-              {customers.map((cust) => (
-                <option key={String(cust.id)} value={String(cust.id)}>
-                  {asCaption(cust.customer_name || cust.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Location">
-            <select
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Default</option>
-              {locations.map((l) => (
-                <option key={String(l.id)} value={String(l.id)}>
-                  {asCaption(l.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Product *">
-            <select
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select product</option>
-              {products.map((p) => (
-                <option key={String(p.id)} value={String(p.id)}>
-                  {asCaption(p.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <FormRow label="Qty">
-              <TextInput value={qty} onChange={(e) => setQty(e.target.value)} />
-            </FormRow>
-            <FormRow label="Rate">
-              <TextInput value={rate} onChange={(e) => setRate(e.target.value)} />
-            </FormRow>
-          </div>
-        </div>
-      </Modal>
     </EntityListPage>
   );
 }
 
 export function SalesReturnDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useGetSalesReturnQuery(id, { skip: !id });
   const [approve] = useApproveSalesReturnMutation();
   const [reject] = useRejectSalesReturnMutation();
   const [actionError, setActionError] = useState('');
-  const lines = useMemo(
-    () => (data && Array.isArray(data.lines) ? (data.lines as Record<string, unknown>[]) : []),
+
+  const lines = useMemo(() => mapDocLines(data?.lines), [data]);
+  const summary = useMemo(
+    () => (data ? moneySummaryFromDoc(data as Record<string, unknown>) : []),
     [data],
   );
 
@@ -327,43 +389,66 @@ export function SalesReturnDetailPage() {
     }
   }
 
-  if (isLoading) return <p>Loading…</p>;
+  if (isLoading) return <EntityListLoading>Loading return…</EntityListLoading>;
   if (error || !data) return <ErrorText>Sales return not found.</ErrorText>;
 
+  const pending = statusIncludes(data.status, 'pending');
+  const party = asCaption(data.customer_name) || '—';
+  const dateStr = dateCaption(data.return_date);
+  const invId = asCaption(data.sales_invoice_id || data.invoice_id);
+  const invLabel =
+    asCaption(data.store_invoice_number || data.invoice_number) || invId;
+
+  const actions: DocumentDetailAction[] = [];
+  if (pending) {
+    actions.push(
+      {
+        id: 'edit',
+        label: 'Edit',
+        variant: 'ghost',
+        onClick: () => navigate(`/sales/returns/${id}/edit`),
+      },
+      {
+        id: 'reject',
+        label: 'Reject',
+        variant: 'ghost',
+        onClick: () => void run('reject'),
+      },
+      {
+        id: 'approve',
+        label: 'Approve',
+        variant: 'primary',
+        onClick: () => void run('approve'),
+      },
+    );
+  }
+
   return (
-    <div>
-      <p style={{ marginBottom: 12 }}>
-        <Link to="/sales/returns">← Returns</Link>
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <div>
-          <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>
-            {asCaption(data.return_number) || id}
-          </h2>
-          <div style={{ color: '#667', marginTop: 6 }}>
-            {asCaption(data.customer_name)} · {asCaption(data.status)} ·{' '}
-            {formatMoney(Number(data.total_amount ?? 0))}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button type="button" variant="ghost" onClick={() => run('reject')}>
-            Reject
-          </Button>
-          <Button type="button" onClick={() => run('approve')}>
-            Approve
-          </Button>
-        </div>
-      </div>
-      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-      <EntityCardGrid>
-        {lines.map((line) => (
-          <EntityCard
-            key={String(line.id || line.product_id)}
-            title={asCaption(line.product_name) || asCaption(line.product_id)}
-            captions={[`Qty ${Number(line.qty ?? 0)}`, formatMoney(Number(line.rate ?? 0))]}
-          />
-        ))}
-      </EntityCardGrid>
-    </div>
+    <DocumentDetail
+      backTo="/sales/returns"
+      backLabel="Returns"
+      kicker="Sales return"
+      title={asCaption(data.return_number) || id}
+      status={asCaption(data.status) || undefined}
+      party={party}
+      facts={buildFacts([
+        ['Return date', dateStr],
+        ['Reason', asCaption(data.reason || data.return_reason)],
+      ])}
+      related={
+        invId
+          ? [{ id: 'inv', label: `Invoice ${invLabel}`, to: `/sales/invoices/${invId}` }]
+          : undefined
+      }
+      actions={actions}
+      error={actionError || null}
+      notes={notesFromDoc(data as Record<string, unknown>)}
+      lines={lines}
+      summary={
+        summary.length
+          ? summary
+          : [{ label: 'Grand total', value: Number(data.total_amount ?? 0) }]
+      }
+    />
   );
 }

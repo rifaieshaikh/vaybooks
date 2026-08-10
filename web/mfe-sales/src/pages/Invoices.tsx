@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
-  useCreateSalesInvoiceMutation,
   useGetSalesInvoiceQuery,
   useLazyGetSalesInvoicePdfQuery,
-  useListCustomersQuery,
-  useListFinanceAccountsQuery,
-  useListInventoryLocationsQuery,
-  useListInventoryProductsQuery,
   useListSalesInvoicesQuery,
 } from '@vaybooks/store';
 import {
   Button,
+  DocumentDetail,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -20,121 +16,188 @@ import {
   EntityListLoading,
   EntityListPage,
   EntityListQuickFilters,
+  EntityListRefreshing,
   EntityListTable,
   ErrorText,
-  FormRow,
-  Modal,
-  PAGE_SIZE,
   PaginationBar,
-  TextInput,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError, formatMoney } from '../utils';
+import { canEditInvoiceMonth } from '../editors/linePreview';
+import {
+  buildFacts,
+  dateCaption,
+  mapDocLines,
+  moneySummaryFromDoc,
+  notesFromDoc,
+} from './documentDetailHelpers';
+import {
+  DATE_RANGE_FIELDS,
+  PAGE_SIZE_OPTIONS,
+  amountOf,
+  balanceOf,
+  dateKey,
+  hasActiveListFilters,
+  inDateRange,
+  isThisMonth,
+  listHasField,
+  listPulseMoney,
+  matchesDocSearch,
+  useSalesListState,
+  useSyncedPage,
+} from './salesListHelpers';
 
-const DEFAULT_FILTERS = {
+type InvoiceFilters = {
+  store_invoice_number: string;
+  customer_name: string;
+  voucher_number: string;
+  has_voucher: string;
+  month: string;
+  unpaid: string;
+  date_from: string;
+  date_to: string;
+};
+
+const DEFAULT_FILTERS: InvoiceFilters = {
   store_invoice_number: '',
   customer_name: '',
   voucher_number: '',
   has_voucher: '',
+  month: '',
+  unpaid: '',
+  date_from: '',
+  date_to: '',
 };
+
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'sale_date', desc: true }];
-const VOUCHER_CHIPS = [
-  { id: 'all', label: 'All' },
-  { id: 'yes', label: 'Has voucher' },
-  { id: 'no', label: 'No voucher' },
-];
 
 export function SalesInvoicesListPage() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const { data = [], isLoading, error } = useListSalesInvoicesQuery();
-  const { data: customers = [] } = useListCustomersQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
-  const { data: locations = [] } = useListInventoryLocationsQuery();
-  const { data: accounts = [] } = useListFinanceAccountsQuery();
-  const [createInv, createState] = useCreateSalesInvoiceMutation();
+  const { data = [], isLoading, isFetching, error, refetch } = useListSalesInvoicesQuery();
+  const [fetchPdf] = useLazyGetSalesInvoicePdfQuery();
 
-  const storeAccounts = useMemo(
-    () => accounts.filter((a) => a.is_store_account === true),
-    [accounts],
+  const list = useSalesListState({
+    defaultFilters: DEFAULT_FILTERS,
+    defaultSort: DEFAULT_SORT,
+    monthFilterKey: 'month',
+    applyChip: (chip, filters) => {
+      if (chip === 'yes' || chip === 'no') {
+        return { ...filters, has_voucher: chip, month: '', unpaid: '' };
+      }
+      if (chip === 'month') return { ...filters, month: 'current', has_voucher: '', unpaid: '' };
+      if (chip === 'unpaid') return { ...filters, unpaid: '1', has_voucher: '', month: '' };
+      return { ...filters, has_voucher: '', month: '', unpaid: '' };
+    },
+  });
+
+  useEffect(() => {
+    if (list.params.get('new') === '1') {
+      const cid = list.params.get('customer_id');
+      navigate(cid ? `/sales/invoices/new?customer_id=${cid}` : '/sales/invoices/new', {
+        replace: true,
+      });
+    }
+  }, [list.params, navigate]);
+
+  const showDue = useMemo(() => listHasField(data, 'due_date'), [data]);
+  const showBalance = useMemo(
+    () => listHasField(data, 'balance_due', 'balance', 'amount_due'),
+    [data],
   );
 
-  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
-  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
-  const [page, setPage] = useState(1);
-  const [open, setOpen] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [customerId, setCustomerId] = useState(() => params.get('customer_id') || '');
-  const [storeAccountId, setStoreAccountId] = useState('');
-  const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [locationId, setLocationId] = useState('');
-  const [productId, setProductId] = useState('');
-  const [qty, setQty] = useState('1');
-  const [rate, setRate] = useState('0');
-  const [amountReceived, setAmountReceived] = useState('0');
-
-  useEffect(() => {
-    const cid = params.get('customer_id') || '';
-    if (cid) setCustomerId(cid);
-    if (params.get('new') === '1') {
-      setFormError('');
-      setOpen(true);
-    }
-  }, [params]);
-
-  useEffect(() => {
-    if (open && !locationId && locations[0]) setLocationId(String(locations[0].id));
-    if (open && !storeAccountId && storeAccounts[0]) setStoreAccountId(String(storeAccounts[0].id));
-  }, [open, locations, locationId, storeAccounts, storeAccountId]);
+  const chips = useMemo(() => {
+    const base = [
+      { id: 'all', label: 'All' },
+      { id: 'month', label: 'This month' },
+      { id: 'yes', label: 'Has voucher' },
+      { id: 'no', label: 'No voucher' },
+    ];
+    if (showBalance) base.splice(2, 0, { id: 'unpaid', label: 'Unpaid' });
+    return base;
+  }, [showBalance]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
       { key: 'store_invoice_number', label: 'Invoice #', type: 'text' },
       { key: 'customer_name', label: 'Customer', type: 'text' },
       { key: 'voucher_number', label: 'Voucher #', type: 'text' },
+      ...DATE_RANGE_FIELDS,
     ],
     [],
   );
 
   const filtered = useMemo(() => {
     const rows = data.filter((row) => {
-      if (!matchesRegex(row.store_invoice_number, filters.store_invoice_number)) return false;
-      if (!matchesRegex(row.customer_name || row.party_name, filters.customer_name)) return false;
-      if (!matchesRegex(row.voucher_number, filters.voucher_number)) return false;
+      if (
+        !matchesDocSearch(row, list.search, [
+          'store_invoice_number',
+          'voucher_number',
+          'customer_name',
+          'party_name',
+        ])
+      ) {
+        return false;
+      }
+      if (!matchesRegex(row.store_invoice_number, list.filters.store_invoice_number)) return false;
+      if (!matchesRegex(row.customer_name || row.party_name, list.filters.customer_name)) return false;
+      if (!matchesRegex(row.voucher_number, list.filters.voucher_number)) return false;
       const hasVoucher = Boolean(String(row.voucher_number || '').trim());
-      if (filters.has_voucher === 'yes' && !hasVoucher) return false;
-      if (filters.has_voucher === 'no' && hasVoucher) return false;
+      if (list.filters.has_voucher === 'yes' && !hasVoucher) return false;
+      if (list.filters.has_voucher === 'no' && hasVoucher) return false;
+      if (list.filters.month === 'current' && !isThisMonth(row.sale_date || row.voucher_date)) {
+        return false;
+      }
+      if (list.filters.unpaid === '1') {
+        const bal = balanceOf(row);
+        if (bal == null || bal <= 0.01) return false;
+      }
+      if (
+        !inDateRange(row.sale_date || row.voucher_date, list.filters.date_from, list.filters.date_to)
+      ) {
+        return false;
+      }
       return true;
     });
-    return sortRows(rows, sort);
-  }, [data, filters, sort]);
+    return sortRows(
+      rows.map((r) => ({ ...r, net: amountOf(r) })) as typeof data,
+      list.sort,
+    );
+  }, [data, list.search, list.filters, list.sort]);
 
-  const pages = pageCount(filtered.length, PAGE_SIZE);
-  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+  const pulse = useMemo(() => listPulseMoney(filtered), [filtered]);
+  const pages = pageCount(filtered.length, list.pageSize);
+  useSyncedPage(list.page, pages, list.setPage);
+  const pageRows = paginate(filtered, Math.min(list.page, pages), list.pageSize);
+  const filtersActive = hasActiveListFilters(list.search, list.filters, DEFAULT_FILTERS);
 
   type InvoiceRow = (typeof data)[number];
 
-  const columns: EntityListColumn<InvoiceRow>[] = useMemo(
-    () => [
+  const columns: EntityListColumn<InvoiceRow>[] = useMemo(() => {
+    const cols: EntityListColumn<InvoiceRow>[] = [
       {
         id: 'invoice',
         header: 'Invoice #',
         render: (row) => (
-          <div className="el-customer">
-            <div className="el-customer-meta">
-              <span className="el-customer-name">
-                {asCaption(row.store_invoice_number) || asCaption(row.voucher_number) || String(row.id)}
-              </span>
-              {asCaption(row.voucher_number) && asCaption(row.store_invoice_number) ? (
-                <span className="el-customer-sub">{asCaption(row.voucher_number)}</span>
-              ) : null}
-            </div>
+          <div className="el-customer-meta">
+            <button
+              type="button"
+              className="el-doc-link"
+              onClick={() => navigate(`/sales/invoices/${row.id}`)}
+            >
+              {asCaption(row.store_invoice_number) ||
+                asCaption(row.voucher_number) ||
+                String(row.id)}
+            </button>
+            {asCaption(row.voucher_number) && asCaption(row.store_invoice_number) ? (
+              <span className="el-customer-sub">{asCaption(row.voucher_number)}</span>
+            ) : null}
           </div>
         ),
       },
@@ -148,106 +211,188 @@ export function SalesInvoicesListPage() {
         id: 'date',
         header: 'Date',
         render: (row) =>
-          asCaption(row.sale_date || row.voucher_date).slice(0, 10) || (
-            <span className="el-muted">—</span>
-          ),
+          dateKey(row.sale_date || row.voucher_date) || <span className="el-muted">—</span>,
       },
-      {
-        id: 'amount',
-        header: 'Amount',
+    ];
+    if (showDue) {
+      cols.push({
+        id: 'due',
+        header: 'Due',
+        render: (row) => {
+          const due = dateKey(row.due_date);
+          if (!due) return <span className="el-muted">—</span>;
+          const overdue = due < new Date().toISOString().slice(0, 10) && amountOf(row) > 0;
+          return <span className={overdue ? 'el-due' : undefined}>{due}</span>;
+        },
+      });
+    }
+    cols.push({
+      id: 'amount',
+      header: 'Amount',
+      className: 'el-num',
+      headerClassName: 'el-col-num',
+      render: (row) => formatMoney(amountOf(row)),
+    });
+    if (showBalance) {
+      cols.push({
+        id: 'balance',
+        header: 'Balance',
         className: 'el-num',
         headerClassName: 'el-col-num',
-        render: (row) => formatMoney(Number(row.net ?? row.gross ?? row.total ?? 0)),
-      },
-    ],
-    [],
-  );
+        render: (row) => {
+          const bal = balanceOf(row);
+          if (bal == null) return <span className="el-muted">—</span>;
+          return <span className={bal > 0.01 ? 'el-due' : 'el-settled'}>{formatMoney(bal)}</span>;
+        },
+      });
+    }
+    return cols;
+  }, [navigate, showDue, showBalance]);
 
-  async function onCreate() {
-    setFormError('');
+  const goNew = () => {
+    const cid = list.params.get('customer_id');
+    navigate(cid ? `/sales/invoices/new?customer_id=${cid}` : '/sales/invoices/new');
+  };
+
+  function setChip(id: string) {
+    list.setFilters((prev) => {
+      const next = { ...prev, has_voucher: '', month: '', unpaid: '' };
+      if (id === 'yes' || id === 'no') next.has_voucher = id;
+      else if (id === 'month') next.month = 'current';
+      else if (id === 'unpaid') next.unpaid = '1';
+      return next;
+    });
+  }
+
+  async function downloadPdf(id: string, name: string) {
     try {
-      const created = await createInv({
-        customer_id: customerId,
-        store_account_id: storeAccountId,
-        store_invoice_number: invoiceNumber,
-        location_id: locationId,
-        amount_received: Number(amountReceived) || 0,
-        lines: [
-          {
-            product_id: productId,
-            qty: Number(qty) || 0,
-            rate: Number(rate) || 0,
-            location_id: locationId,
-          },
-        ],
-      }).unwrap();
-      setOpen(false);
-      navigate(`/sales/invoices/${created.id}`);
-    } catch (e) {
-      setFormError(extractError(e));
+      const blob = await fetchPdf(id).unwrap();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name || id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* list stays quiet */
     }
   }
 
+  const chipValue =
+    list.filters.month === 'current'
+      ? 'month'
+      : list.filters.unpaid === '1'
+        ? 'unpaid'
+        : list.filters.has_voucher || 'all';
+
   return (
-    <EntityListPage>
+    <EntityListPage className="el-page--sales">
       <EntityListHero
         kicker="Sales"
         title="Sales Invoices"
-        count={`${filtered.length} ${filtered.length === 1 ? 'invoice' : 'invoices'}`}
+        count={
+          <>
+            {filtered.length} {filtered.length === 1 ? 'invoice' : 'invoices'}
+            {filtered.length !== data.length ? ` · ${data.length} total` : ''}
+          </>
+        }
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setOpen(true);
-              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-              if (!storeAccountId && storeAccounts[0]) setStoreAccountId(String(storeAccounts[0].id));
-            }}
-          >
-            New invoice
-          </Button>
+          <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
+            <Button type="button" onClick={goNew}>
+              New invoice
+            </Button>
+          </>
+        }
+        search={
+          <input
+            type="search"
+            value={list.search}
+            onChange={(e) => list.setSearch(e.target.value)}
+            placeholder="Search invoice #, customer, amount…"
+            aria-label="Search invoices"
+          />
         }
         chips={
           <EntityListQuickFilters
-            ariaLabel="Voucher"
-            value={filters.has_voucher || 'all'}
-            onChange={(id) => {
-              setFilters((prev) => ({ ...prev, has_voucher: id === 'all' ? '' : id }));
-              setPage(1);
-            }}
-            options={VOUCHER_CHIPS}
+            ariaLabel="Invoice filters"
+            value={chipValue}
+            onChange={setChip}
+            options={chips}
           />
         }
         tools={
           <EntityListFilterSort
             filterFields={filterFields}
-            filters={filters}
+            filters={list.filters}
             defaultFilters={DEFAULT_FILTERS}
-            excludeKeys={['has_voucher']}
-            onFiltersChange={(next) => {
-              setFilters(next as typeof filters);
-              setPage(1);
-            }}
-            sort={sort}
+            excludeKeys={['has_voucher', 'month', 'unpaid']}
+            onFiltersChange={(next) => list.setFilters(next as InvoiceFilters)}
+            sort={list.sort}
             defaultSort={DEFAULT_SORT}
             sortOptions={[
               { value: 'sale_date', label: 'Date' },
               { value: 'net', label: 'Amount' },
               { value: 'store_invoice_number', label: 'Invoice #' },
             ]}
-            onSortChange={(next) => {
-              setSort(next);
-              setPage(1);
-            }}
+            onSortChange={list.setSort}
           />
+        }
+        summary={
+          <div className="el-pulse">
+            <span>
+              Showing <strong>{pulse.count}</strong>
+            </span>
+            <span>
+              Total <strong>{formatMoney(pulse.total)}</strong>
+            </span>
+            <span>
+              This month <strong>{formatMoney(pulse.monthTotal)}</strong>
+            </span>
+            {showBalance ? (
+              <span className="el-pulse-due">
+                Open balance{' '}
+                <strong>
+                  {formatMoney(filtered.reduce((s, r) => s + Math.max(0, balanceOf(r) ?? 0), 0))}
+                </strong>
+              </span>
+            ) : null}
+          </div>
         }
       />
 
+      {isFetching && !isLoading ? <EntityListRefreshing /> : null}
       {isLoading ? <EntityListLoading>Loading invoices…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load invoices.</ErrorText> : null}
+
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>No invoices found.</strong>
+          {filtersActive ? (
+            <>
+              <strong>No matches</strong>
+              <p>Try clearing search or filters.</p>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  list.setSearch('');
+                  list.setFilters({ ...DEFAULT_FILTERS });
+                }}
+              >
+                Clear filters
+              </Button>
+            </>
+          ) : (
+            <>
+              <strong>No invoices yet</strong>
+              <p>Create an invoice to bill a customer.</p>
+              <Button type="button" onClick={goNew}>
+                New invoice
+              </Button>
+            </>
+          )}
         </EntityListEmpty>
       ) : null}
 
@@ -257,166 +402,142 @@ export function SalesInvoicesListPage() {
           rows={pageRows}
           rowKey={(row) => String(row.id)}
           actions={(row) => (
-            <EntityListActions onOpen={() => navigate(`/sales/invoices/${row.id}`)} />
+            <EntityListActions
+              onOpen={() => navigate(`/sales/invoices/${row.id}`)}
+              onEdit={() => navigate(`/sales/invoices/${row.id}/edit`)}
+              primary={{
+                label: 'PDF',
+                onClick: () =>
+                  void downloadPdf(
+                    String(row.id),
+                    asCaption(row.store_invoice_number) || String(row.id),
+                  ),
+              }}
+            />
           )}
         />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
         <EntityListFoot>
+          <div className="el-page-size">
+            <label>
+              Rows{' '}
+              <select
+                value={list.pageSize}
+                onChange={(e) =>
+                  list.setPageSize(Number(e.target.value) as (typeof PAGE_SIZE_OPTIONS)[number])
+                }
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="el-foot-pager">
-            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+            <PaginationBar
+              page={Math.min(list.page, pages)}
+              pageCount={pages}
+              onPage={list.setPage}
+            />
           </div>
         </EntityListFoot>
       ) : null}
-
-      <Modal
-        open={open}
-        title="New sales invoice"
-        onClose={() => setOpen(false)}
-        footer={
-          <>
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={onCreate}
-              disabled={
-                createState.isLoading || !customerId || !storeAccountId || !productId || !invoiceNumber
-              }
-            >
-              {createState.isLoading ? 'Saving…' : 'Create'}
-            </Button>
-          </>
-        }
-      >
-        <div style={{ display: 'grid', gap: 10 }}>
-          {formError ? <ErrorText>{formError}</ErrorText> : null}
-          <FormRow label="Customer *">
-            <select
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select customer</option>
-              {customers.map((cust) => (
-                <option key={String(cust.id)} value={String(cust.id)}>
-                  {asCaption(cust.customer_name || cust.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Store account *">
-            <select
-              value={storeAccountId}
-              onChange={(e) => setStoreAccountId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select store account</option>
-              {storeAccounts.map((a) => (
-                <option key={String(a.id)} value={String(a.id)}>
-                  {asCaption(a.account_name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Invoice # *">
-            <TextInput value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
-          </FormRow>
-          <FormRow label="Location">
-            <select
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">None</option>
-              {locations.map((l) => (
-                <option key={String(l.id)} value={String(l.id)}>
-                  {asCaption(l.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Product *">
-            <select
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select product</option>
-              {products.map((p) => (
-                <option key={String(p.id)} value={String(p.id)}>
-                  {asCaption(p.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-            <FormRow label="Qty">
-              <TextInput value={qty} onChange={(e) => setQty(e.target.value)} />
-            </FormRow>
-            <FormRow label="Rate">
-              <TextInput value={rate} onChange={(e) => setRate(e.target.value)} />
-            </FormRow>
-            <FormRow label="Received">
-              <TextInput value={amountReceived} onChange={(e) => setAmountReceived(e.target.value)} />
-            </FormRow>
-          </div>
-        </div>
-      </Modal>
     </EntityListPage>
   );
 }
 
 export function SalesInvoiceDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error } = useGetSalesInvoiceQuery(id, { skip: !id });
   const [fetchPdf] = useLazyGetSalesInvoicePdfQuery();
   const [pdfError, setPdfError] = useState('');
 
-  if (isLoading) return <p>Loading…</p>;
+  const lines = useMemo(() => mapDocLines(data?.lines || data?.items), [data]);
+  const summary = useMemo(
+    () => (data ? moneySummaryFromDoc(data as Record<string, unknown>) : []),
+    [data],
+  );
+
+  if (isLoading) return <EntityListLoading>Loading invoice…</EntityListLoading>;
   if (error || !data) return <ErrorText>Sales invoice not found.</ErrorText>;
 
+  const dateStr = dateCaption(data.sale_date || data.voucher_date);
+  const editable = canEditInvoiceMonth(dateStr);
+  const party = asCaption(data.customer_name || data.party_name) || '—';
+  const soId = asCaption(data.sales_order_id);
+  const soLabel = asCaption(data.so_number) || soId;
+  const dnId = asCaption(data.delivery_note_id);
+  const dnLabel = asCaption(data.dn_number) || dnId;
+
+  const actions: DocumentDetailAction[] = [
+    {
+      id: 'edit',
+      label: 'Edit',
+      variant: 'ghost',
+      disabled: !editable,
+      title: editable ? 'Edit invoice' : 'Invoices can only be edited in the same calendar month',
+      onClick: () => navigate(`/sales/invoices/${id}/edit`),
+    },
+    {
+      id: 'pdf',
+      label: 'Download PDF',
+      variant: 'primary',
+      onClick: async () => {
+        setPdfError('');
+        try {
+          const blob = await fetchPdf(id).unwrap();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${asCaption(data.store_invoice_number) || id}.pdf`;
+          a.click();
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          setPdfError(extractError(e));
+        }
+      },
+    },
+  ];
+
+  const related = [
+    soId ? { id: 'so', label: `Order ${soLabel}`, to: `/sales/orders/${soId}` } : null,
+    dnId ? { id: 'dn', label: `DN ${dnLabel}`, to: `/sales/delivery-notes/${dnId}` } : null,
+  ].filter(Boolean) as { id: string; label: string; to: string }[];
+
   return (
-    <div>
-      <p style={{ marginBottom: 12 }}>
-        <Link to="/sales/invoices">← Invoices</Link>
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div>
-          <h2 style={{ margin: '0 0 8px', color: 'var(--vb-color-primary, #185c4c)' }}>
-            {asCaption(data.store_invoice_number) || asCaption(data.voucher_number) || id}
-          </h2>
-          <div style={{ color: '#667', marginBottom: 16 }}>
-            {asCaption(data.customer_name || data.party_name)} ·{' '}
-            {asCaption(data.sale_date || data.voucher_date).slice(0, 10)} ·{' '}
-            {formatMoney(Number(data.net ?? data.gross ?? data.total ?? 0))}
-          </div>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={async () => {
-            setPdfError('');
-            try {
-              const blob = await fetchPdf(id).unwrap();
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `${asCaption(data.store_invoice_number) || id}.pdf`;
-              a.click();
-              URL.revokeObjectURL(url);
-            } catch (e) {
-              setPdfError(extractError(e));
-            }
-          }}
-        >
-          Download PDF
-        </Button>
-      </div>
-      {pdfError ? <ErrorText>{pdfError}</ErrorText> : null}
-      <p>{asCaption(data.description)}</p>
-    </div>
+    <DocumentDetail
+      backTo="/sales/invoices"
+      backLabel="Invoices"
+      kicker="Sales invoice"
+      title={asCaption(data.store_invoice_number) || asCaption(data.voucher_number) || id}
+      status={asCaption(data.status || data.payment_status) || undefined}
+      party={party}
+      facts={buildFacts([
+        ['Date', dateStr],
+        ['Due date', dateCaption(data.due_date)],
+        ['Payment', asCaption(data.payment_mode || data.payment_status)],
+        ['Place of supply', asCaption(data.place_of_supply)],
+        ['GSTIN', asCaption(data.customer_gstin || data.gstin)],
+        ['Voucher', asCaption(data.voucher_number)],
+      ])}
+      related={related.length ? related : undefined}
+      actions={actions}
+      error={
+        pdfError ||
+        (!editable ? 'Edit is locked — invoice date is outside the current month.' : null)
+      }
+      notes={notesFromDoc(data as Record<string, unknown>)}
+      lines={lines}
+      summary={
+        summary.length
+          ? summary
+          : [{ label: 'Grand total', value: Number(data.net ?? data.gross ?? data.total ?? 0) }]
+      }
+    />
   );
 }

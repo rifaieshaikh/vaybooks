@@ -73,6 +73,8 @@ type EntityListActionsProps = {
   onOpen?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  /** Emphasis action (PDF, DN create, Convert, …) — not Delete. */
+  primary?: { label: string; onClick: () => void; disabled?: boolean; title?: string };
   openLabel?: string;
   editLabel?: string;
   deleteLabel?: string;
@@ -82,11 +84,12 @@ export function EntityListActions({
   onOpen,
   onEdit,
   onDelete,
+  primary,
   openLabel = 'Open',
   editLabel = 'Edit',
   deleteLabel = 'Delete',
 }: EntityListActionsProps) {
-  if (!onOpen && !onEdit && !onDelete) return null;
+  if (!onOpen && !onEdit && !onDelete && !primary) return null;
   return (
     <div className="el-actions">
       {onOpen ? (
@@ -99,6 +102,17 @@ export function EntityListActions({
           {editLabel}
         </button>
       ) : null}
+      {primary ? (
+        <button
+          type="button"
+          className="el-action-btn el-action-btn--primary"
+          onClick={primary.onClick}
+          disabled={primary.disabled}
+          title={primary.title}
+        >
+          {primary.label}
+        </button>
+      ) : null}
       {onDelete ? (
         <button type="button" className="el-action-btn el-action-btn--danger" onClick={onDelete}>
           {deleteLabel}
@@ -106,6 +120,49 @@ export function EntityListActions({
       ) : null}
     </div>
   );
+}
+
+export type StatusPillTone = 'neutral' | 'success' | 'warn' | 'danger';
+
+export function statusPillTone(status: unknown): StatusPillTone {
+  const s = String(status || '').toLowerCase();
+  if (!s) return 'neutral';
+  if (s.includes('cancel') || s.includes('reject') || s.includes('void')) return 'danger';
+  if (
+    s.includes('close') ||
+    s.includes('deliver') ||
+    s.includes('received') ||
+    s.includes('paid') ||
+    s.includes('accept') ||
+    s.includes('convert') ||
+    s.includes('approve')
+  ) {
+    return 'success';
+  }
+  if (
+    s.includes('pending') ||
+    s.includes('draft') ||
+    s.includes('sent') ||
+    s.includes('confirm') ||
+    s.includes('dispatch') ||
+    s.includes('partial')
+  ) {
+    return 'warn';
+  }
+  return 'neutral';
+}
+
+export function StatusPill({
+  status,
+  tone,
+}: {
+  status: unknown;
+  tone?: StatusPillTone;
+}) {
+  const label = String(status || '').trim();
+  if (!label) return <span className="el-muted">—</span>;
+  const t = tone || statusPillTone(label);
+  return <span className={`el-status-pill el-status-pill--${t}`}>{label}</span>;
 }
 
 type EntityListTableProps<T> = {

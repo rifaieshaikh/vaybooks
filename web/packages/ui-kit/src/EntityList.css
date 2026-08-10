@@ -24,6 +24,108 @@
   font-family: var(--vb-font-sans, system-ui, sans-serif);
 }
 
+.el-page--sales {
+  max-width: 1280px;
+}
+
+.el-page--sales .el-table thead th {
+  padding: 0.55rem 0.75rem;
+}
+
+.el-page--sales .el-table tbody td {
+  padding: 0.55rem 0.75rem;
+}
+
+.el-page--sales .el-table {
+  font-size: 0.88rem;
+  min-width: 720px;
+}
+
+.el-status-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 11rem;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.el-status-pill--neutral {
+  background: var(--el-soft);
+  color: var(--el-muted);
+  border-color: var(--el-line);
+}
+
+.el-status-pill--success {
+  background: #e5f6ec;
+  color: #146c3a;
+  border-color: #b7e4c7;
+}
+
+.el-status-pill--warn {
+  background: #fff6e5;
+  color: #8a5a00;
+  border-color: #f0d59a;
+}
+
+.el-status-pill--danger {
+  background: #fdecec;
+  color: #9b1c1c;
+  border-color: #f0b4b4;
+}
+
+.el-pulse-link {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.el-pulse-link:hover strong {
+  color: var(--el-primary);
+  text-decoration: underline;
+}
+
+.el-doc-link {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font-weight: 650;
+}
+
+.el-doc-link:hover {
+  color: var(--el-primary);
+  text-decoration: underline;
+}
+
+.el-section-title {
+  margin: 0 0 0.55rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--el-primary);
+}
+
+.el-queue {
+  margin-bottom: 1.5rem;
+}
+
 .el-hero {
   position: relative;
   overflow: hidden;
@@ -393,6 +495,23 @@
 .el-action-btn:focus-visible {
   outline: 2px solid var(--el-primary);
   outline-offset: 1px;
+}
+
+.el-action-btn--primary {
+  background: var(--el-primary);
+  border-color: var(--el-primary);
+  color: #fff;
+}
+
+.el-action-btn--primary:hover {
+  background: var(--vb-color-primary-hover, #134a3d);
+  border-color: var(--vb-color-primary-hover, #134a3d);
+  color: #fff;
+}
+
+.el-action-btn--primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .el-action-btn--danger {

@@ -1,37 +1,34 @@
 import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSalesOverviewQuery } from '@vaybooks/store';
-import { Button, EntityCard, EntityCardGrid, ErrorText } from '@vaybooks/ui-kit';
+import {
+  Button,
+  EntityCard,
+  EntityCardGrid,
+  EntityListHero,
+  EntityListLoading,
+  EntityListPage,
+  ErrorText,
+} from '@vaybooks/ui-kit';
 import { asCaption, formatMoney } from '../utils';
-
-function Kpi({ label, value }: { label: string; value: string }) {
-  return (
-    <div
-      style={{
-        border: '1px solid #d9e3de',
-        borderRadius: 10,
-        background: '#fff',
-        padding: '1rem 1.1rem',
-        display: 'grid',
-        gap: 6,
-      }}
-    >
-      <div style={{ fontSize: 13, color: '#667' }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--vb-color-primary, #185c4c)' }}>{value}</div>
-    </div>
-  );
-}
+import { isOpenOrderStatus } from './salesListHelpers';
 
 export function SalesOverviewPage() {
   const navigate = useNavigate();
-  const { data, isLoading, error, refetch } = useSalesOverviewQuery();
+  const { data, isLoading, error, refetch, isFetching } = useSalesOverviewQuery();
 
   const kpis = useMemo(
-    () => (data && typeof data.kpis === 'object' && data.kpis ? (data.kpis as Record<string, unknown>) : {}),
+    () =>
+      data && typeof data.kpis === 'object' && data.kpis
+        ? (data.kpis as Record<string, unknown>)
+        : {},
     [data],
   );
   const openOrders = useMemo(
-    () => (data && Array.isArray(data.open_orders) ? (data.open_orders as Record<string, unknown>[]) : []),
+    () =>
+      data && Array.isArray(data.open_orders)
+        ? (data.open_orders as Record<string, unknown>[])
+        : [],
     [data],
   );
   const pending = useMemo(
@@ -41,96 +38,162 @@ export function SalesOverviewPage() {
         : [],
     [data],
   );
-  const actions = useMemo(
-    () =>
+  const actions = useMemo(() => {
+    const fromApi =
       data && Array.isArray(data.quick_actions)
         ? (data.quick_actions as { to: string; label: string }[])
-        : [],
-    [data],
+        : [];
+    const extras = [
+      { to: '/sales/orders/new', label: 'New sales order' },
+      { to: '/sales/estimates/new', label: 'New estimate' },
+      { to: '/sales/invoices/new', label: 'New invoice' },
+    ];
+    const seen = new Set(fromApi.map((a) => a.to));
+    return [...fromApi, ...extras.filter((e) => !seen.has(e.to))];
+  }, [data]);
+
+  const attentionOrders = useMemo(
+    () => openOrders.filter((row) => isOpenOrderStatus(row.status)).slice(0, 8),
+    [openOrders],
   );
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-        <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Sales Overview</h2>
-        <Button type="button" variant="ghost" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </div>
+    <EntityListPage className="el-page--sales">
+      <EntityListHero
+        kicker="Sales"
+        title="Command center"
+        count={isFetching && !isLoading ? 'Refreshing…' : undefined}
+        actions={
+          <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
+            <Button type="button" onClick={() => navigate('/sales/invoices/new')}>
+              New invoice
+            </Button>
+          </>
+        }
+        summary={
+          !isLoading && !error ? (
+            <div className="el-pulse" aria-label="Sales KPIs">
+              <button
+                type="button"
+                className="el-pulse-link"
+                onClick={() => navigate('/sales/orders?chip=open')}
+              >
+                Open SOs <strong>{Number(kpis.open_so_count ?? 0)}</strong>
+              </button>
+              <button
+                type="button"
+                className="el-pulse-link"
+                onClick={() => navigate('/sales/delivery-notes?chip=pending')}
+              >
+                Pending DN qty <strong>{Number(kpis.pending_dn_qty ?? 0)}</strong>
+              </button>
+              <button
+                type="button"
+                className="el-pulse-link"
+                onClick={() => navigate('/sales/invoices?month=current')}
+              >
+                Sales (MTD) <strong>{formatMoney(Number(kpis.sales_this_month ?? 0))}</strong>
+              </button>
+              <button
+                type="button"
+                className="el-pulse-link"
+                onClick={() => navigate('/sales/returns?month=current')}
+              >
+                Returns (MTD) <strong>{formatMoney(Number(kpis.returns_this_month ?? 0))}</strong>
+              </button>
+            </div>
+          ) : null
+        }
+      />
 
-      {isLoading && <p>Loading…</p>}
+      {isLoading ? <EntityListLoading>Loading sales overview…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load sales overview. Is the API running?</ErrorText> : null}
 
-      {!isLoading && !error && (
+      {!isLoading && !error ? (
         <>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-              gap: 12,
-              marginBottom: 24,
-            }}
-          >
-            <Kpi label="Open SOs" value={String(Number(kpis.open_so_count ?? 0))} />
-            <Kpi label="Pending DN qty" value={String(Number(kpis.pending_dn_qty ?? 0))} />
-            <Kpi label="Sales (month)" value={formatMoney(Number(kpis.sales_this_month ?? 0))} />
-            <Kpi label="Returns (month)" value={formatMoney(Number(kpis.returns_this_month ?? 0))} />
+          <div className="el-queue">
+            <h2 className="el-section-title">Quick actions</h2>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {actions.map((a) => (
+                <Button
+                  key={a.to}
+                  type="button"
+                  variant={a.to.includes('invoices/new') ? 'primary' : 'ghost'}
+                  onClick={() => navigate(a.to)}
+                >
+                  {a.label}
+                </Button>
+              ))}
+            </div>
           </div>
 
-          <h3 style={{ color: 'var(--vb-color-primary, #185c4c)', marginBottom: 8 }}>Quick actions</h3>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 28 }}>
-            {actions.map((a) => (
-              <Button key={a.to} type="button" onClick={() => navigate(a.to)}>
-                {a.label}
-              </Button>
-            ))}
+          <div className="el-queue">
+            <h2 className="el-section-title">Needs attention</h2>
+            {attentionOrders.length === 0 ? (
+              <p className="el-muted" style={{ margin: 0 }}>
+                No open sales orders.
+              </p>
+            ) : (
+              <EntityCardGrid>
+                {attentionOrders.map((row) => (
+                  <EntityCard
+                    key={String(row.id)}
+                    title={asCaption(row.so_number) || String(row.id)}
+                    captions={[
+                      asCaption(row.customer_name),
+                      formatMoney(Number(row.total_amount ?? 0)),
+                    ]}
+                    badges={
+                      asCaption(row.status)
+                        ? [{ label: asCaption(row.status), tone: 'gray' as const }]
+                        : undefined
+                    }
+                    onView={() => navigate(`/sales/orders/${row.id}`)}
+                  />
+                ))}
+              </EntityCardGrid>
+            )}
           </div>
 
-          <h3 style={{ color: 'var(--vb-color-primary, #185c4c)', marginBottom: 8 }}>Open orders</h3>
-          {openOrders.length === 0 ? (
-            <p style={{ color: '#667' }}>No open sales orders.</p>
-          ) : (
-            <EntityCardGrid>
-              {openOrders.map((row) => (
-                <EntityCard
-                  key={String(row.id)}
-                  title={asCaption(row.so_number) || String(row.id)}
-                  captions={[
-                    asCaption(row.customer_name),
-                    asCaption(row.status),
-                    formatMoney(Number(row.total_amount ?? 0)),
-                  ]}
-                  onView={() => navigate(`/sales/orders/${row.id}`)}
-                />
-              ))}
-            </EntityCardGrid>
-          )}
+          <div className="el-queue">
+            <h2 className="el-section-title">Pending delivery</h2>
+            {pending.length === 0 ? (
+              <p className="el-muted" style={{ margin: 0 }}>
+                Nothing pending delivery.
+              </p>
+            ) : (
+              <EntityCardGrid>
+                {pending.slice(0, 12).map((row, i) => {
+                  const soId = asCaption(row.id || row.sales_order_id);
+                  return (
+                    <EntityCard
+                      key={`${row.id || i}-${row.product_id || i}`}
+                      title={asCaption(row.product_name) || asCaption(row.so_number) || 'Line'}
+                      captions={[
+                        asCaption(row.customer_name),
+                        `Qty ${Number(row.qty_pending ?? 0)}`,
+                        asCaption(row.so_number),
+                      ]}
+                      onView={() =>
+                        soId
+                          ? navigate(`/sales/delivery-notes/new?sales_order_id=${soId}`)
+                          : navigate('/sales/delivery-notes/new')
+                      }
+                    />
+                  );
+                })}
+              </EntityCardGrid>
+            )}
+          </div>
 
-          <h3 style={{ color: 'var(--vb-color-primary, #185c4c)', margin: '28px 0 8px' }}>Pending delivery</h3>
-          {pending.length === 0 ? (
-            <p style={{ color: '#667' }}>Nothing pending delivery.</p>
-          ) : (
-            <EntityCardGrid>
-              {pending.map((row, i) => (
-                <EntityCard
-                  key={`${row.id || i}-${row.product_id || i}`}
-                  title={asCaption(row.product_name) || asCaption(row.so_number) || 'Line'}
-                  captions={[
-                    asCaption(row.customer_name),
-                    `Qty ${Number(row.qty_pending ?? 0)}`,
-                    asCaption(row.so_number),
-                  ]}
-                  onView={() => navigate(`/sales/orders/${row.id}`)}
-                />
-              ))}
-            </EntityCardGrid>
-          )}
-
-          <p style={{ marginTop: 24 }}>
+          <p style={{ marginTop: '0.5rem' }}>
             <Link to="/sales/reports">View sales reports →</Link>
           </p>
         </>
-      )}
-    </div>
+      ) : null}
+    </EntityListPage>
   );
 }

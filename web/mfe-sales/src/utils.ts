@@ -1,5 +1,8 @@
 export function formatMoney(value: number): string {
-  return `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+  return `₹${value.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 export function asCaption(value: unknown): string {

@@ -108,6 +108,7 @@ import {
   BoutiqueOverviewPage,
   BoutiqueReportsPage,
   BoutiqueScheduledReportsPage,
+  BoutiqueTimeLogPage,
   BoutiqueTimePage,
 } from '../../mfe-boutique/src';
 import {
@@ -152,13 +153,17 @@ import {
   VouchersListPage,
 } from '../../mfe-finance/src';
 import {
+  BillEditorPage,
   GoodsReceiptDetailPage,
+  GoodsReceiptEditorPage,
   GoodsReceiptListPage,
   PurchaseBillDetailPage,
   PurchaseBillsListPage,
   PurchaseOrderDetailPage,
+  PurchaseOrderEditorPage,
   PurchaseOrdersListPage,
   PurchaseReturnDetailPage,
+  PurchaseReturnEditorPage,
   PurchaseReturnsListPage,
   PurchasesOverviewPage,
   PurchasesReportsPage,
@@ -166,11 +171,17 @@ import {
 } from '../../mfe-purchases/src';
 import {
   DeliveryNoteDetailPage,
+  DeliveryNoteEditorPage,
   DeliveryNotesListPage,
   EstimateDetailPage,
+  EstimateEditorPage,
   EstimatesListPage,
+  InvoiceEditorPage,
+  OrderEditorPage,
   QuotationDetailPage,
+  QuotationEditorPage,
   QuotationsListPage,
+  ReturnEditorPage,
   SalesInvoiceDetailPage,
   SalesInvoicesListPage,
   SalesOrderDetailPage,
@@ -283,6 +294,7 @@ export default function App() {
           <Route path="boutique/measurements" element={<BoutiqueMeasurementsListPage />} />
           <Route path="boutique/measurements/:id" element={<BoutiqueMeasurementDetailPage />} />
           <Route path="boutique/time" element={<BoutiqueTimePage />} />
+          <Route path="boutique/time-log" element={<BoutiqueTimeLogPage />} />
           <Route path="boutique/calendar" element={<BoutiqueCalendarPage />} />
           <Route path="boutique/reports" element={<BoutiqueReportsPage />} />
           <Route path="boutique/scheduled-reports" element={<BoutiqueScheduledReportsPage />} />
@@ -305,16 +317,28 @@ export default function App() {
         <Route element={<ModuleGate module="sales" />}>
           <Route path="sales" element={<SalesOverviewPage />} />
           <Route path="sales/estimates" element={<EstimatesListPage />} />
+          <Route path="sales/estimates/new" element={<EstimateEditorPage />} />
+          <Route path="sales/estimates/:id/edit" element={<EstimateEditorPage />} />
           <Route path="sales/estimates/:id" element={<EstimateDetailPage />} />
           <Route path="sales/quotations" element={<QuotationsListPage />} />
+          <Route path="sales/quotations/new" element={<QuotationEditorPage />} />
+          <Route path="sales/quotations/:id/edit" element={<QuotationEditorPage />} />
           <Route path="sales/quotations/:id" element={<QuotationDetailPage />} />
           <Route path="sales/orders" element={<SalesOrdersListPage />} />
+          <Route path="sales/orders/new" element={<OrderEditorPage />} />
+          <Route path="sales/orders/:id/edit" element={<OrderEditorPage />} />
           <Route path="sales/orders/:id" element={<SalesOrderDetailPage />} />
           <Route path="sales/delivery-notes" element={<DeliveryNotesListPage />} />
+          <Route path="sales/delivery-notes/new" element={<DeliveryNoteEditorPage />} />
+          <Route path="sales/delivery-notes/:id/edit" element={<DeliveryNoteEditorPage />} />
           <Route path="sales/delivery-notes/:id" element={<DeliveryNoteDetailPage />} />
           <Route path="sales/invoices" element={<SalesInvoicesListPage />} />
+          <Route path="sales/invoices/new" element={<InvoiceEditorPage />} />
+          <Route path="sales/invoices/:id/edit" element={<InvoiceEditorPage />} />
           <Route path="sales/invoices/:id" element={<SalesInvoiceDetailPage />} />
           <Route path="sales/returns" element={<SalesReturnsListPage />} />
+          <Route path="sales/returns/new" element={<ReturnEditorPage />} />
+          <Route path="sales/returns/:id/edit" element={<ReturnEditorPage />} />
           <Route path="sales/returns/:id" element={<SalesReturnDetailPage />} />
           <Route path="sales/reports" element={<SalesReportsPage />} />
           <Route path="sales/scheduled-reports" element={<SalesScheduledReportsPage />} />
@@ -323,12 +347,18 @@ export default function App() {
         <Route element={<ModuleGate module="purchases" />}>
           <Route path="purchases" element={<PurchasesOverviewPage />} />
           <Route path="purchases/orders" element={<PurchaseOrdersListPage />} />
+          <Route path="purchases/orders/new" element={<PurchaseOrderEditorPage />} />
+          <Route path="purchases/orders/:id/edit" element={<PurchaseOrderEditorPage />} />
           <Route path="purchases/orders/:id" element={<PurchaseOrderDetailPage />} />
           <Route path="purchases/goods-receipt" element={<GoodsReceiptListPage />} />
+          <Route path="purchases/goods-receipt/new" element={<GoodsReceiptEditorPage />} />
           <Route path="purchases/goods-receipt/:id" element={<GoodsReceiptDetailPage />} />
           <Route path="purchases/bills" element={<PurchaseBillsListPage />} />
+          <Route path="purchases/bills/new" element={<BillEditorPage />} />
+          <Route path="purchases/bills/:id/edit" element={<BillEditorPage />} />
           <Route path="purchases/bills/:id" element={<PurchaseBillDetailPage />} />
           <Route path="purchases/returns" element={<PurchaseReturnsListPage />} />
+          <Route path="purchases/returns/new" element={<PurchaseReturnEditorPage />} />
           <Route path="purchases/returns/:id" element={<PurchaseReturnDetailPage />} />
           <Route path="purchases/reports" element={<PurchasesReportsPage />} />
           <Route path="purchases/scheduled-reports" element={<PurchasesScheduledReportsPage />} />

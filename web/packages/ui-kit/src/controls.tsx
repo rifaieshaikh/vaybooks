@@ -1,5 +1,6 @@
 import {
   createElement,
+  forwardRef,
   type ButtonHTMLAttributes,
   type FormEvent,
   type InputHTMLAttributes,
@@ -157,33 +158,42 @@ export function FormRow({
   return createElement('label', { className: 'vb-label' }, label, children);
 }
 
-export function TextInput({ className, style, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return createElement('input', {
-    ...props,
-    className: cx('vb-control', className),
-    style,
-  });
-}
-
-export function Select({ className, style, children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return createElement(
-    'select',
-    {
+export const TextInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  function TextInput({ className, style, ...props }, ref) {
+    return createElement('input', {
       ...props,
+      ref,
       className: cx('vb-control', className),
       style,
-    },
-    children,
-  );
-}
+    });
+  },
+);
 
-export function TextArea({ className, style, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return createElement('textarea', {
-    ...props,
-    className: cx('vb-control', className),
-    style: { minHeight: '5.5rem', resize: 'vertical', ...(style || {}) },
-  });
-}
+export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
+  function Select({ className, style, children, ...props }, ref) {
+    return createElement(
+      'select',
+      {
+        ...props,
+        ref,
+        className: cx('vb-control', className),
+        style,
+      },
+      children,
+    );
+  },
+);
+
+export const TextArea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function TextArea({ className, style, ...props }, ref) {
+    return createElement('textarea', {
+      ...props,
+      ref,
+      className: cx('vb-control', className),
+      style: { minHeight: '5.5rem', resize: 'vertical', ...(style || {}) },
+    });
+  },
+);
 
 export function SimpleForm({
   onSubmit,

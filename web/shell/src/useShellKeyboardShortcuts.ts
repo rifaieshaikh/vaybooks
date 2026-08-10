@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useGetKeyboardShortcutsQuery } from '@vaybooks/store';
 
 /** Streamlit parent shortcut keys → React shell routes. */
 const PARENT_ROUTES: Record<string, string> = {
   dashboard: '/',
-  mtd_dashboard: '/mtd',
+  mtd_dashboard: '/mtd-dashboard',
   customers_list: '/parties/customers',
   vendors_list: '/parties/vendors',
   workers_list: '/parties/employees',
@@ -15,6 +15,7 @@ const PARENT_ROUTES: Record<string, string> = {
   items_list: '/boutique/items',
   measurements_list: '/boutique/measurements',
   time_list: '/boutique/time',
+  time_log: '/boutique/time-log',
   calendar_list: '/boutique/calendar',
   boutique_reports: '/boutique/reports',
   sales_overview: '/sales',
@@ -64,11 +65,31 @@ const PARENT_ROUTES: Record<string, string> = {
   system_logs: '/system/logs',
 };
 
+/** Action shortcut keys → create/editor routes (Streamlit F1–F5 parity). */
 const ACTION_ROUTES: Record<string, string> = {
-  'sales.orders.create': '/sales/orders',
-  'purchases.bills.create': '/purchases/bills',
+  'purchases.orders.create': '/purchases/orders/new',
+  'purchases.bills.create': '/purchases/bills/new',
+  'sales.estimates.create': '/sales/estimates/new',
+  'sales.orders.create': '/sales/orders/new',
+  'sales.invoices.create': '/sales/invoices/new',
   'boutique.orders.create': '/boutique/orders/workspace',
-  'parties.customers.create': '/parties/customers',
+  'parties.customers.create': '/parties/customers?new=1',
+};
+
+/** Current list path → create path for list.primary (Ctrl+Shift+N). */
+const LIST_PRIMARY_NEW: Record<string, string> = {
+  '/sales/estimates': '/sales/estimates/new',
+  '/sales/quotations': '/sales/quotations/new',
+  '/sales/orders': '/sales/orders/new',
+  '/sales/delivery-notes': '/sales/delivery-notes/new',
+  '/sales/invoices': '/sales/invoices/new',
+  '/sales/returns': '/sales/returns/new',
+  '/purchases/orders': '/purchases/orders/new',
+  '/purchases/goods-receipt': '/purchases/goods-receipt/new',
+  '/purchases/bills': '/purchases/bills/new',
+  '/purchases/returns': '/purchases/returns/new',
+  '/parties/customers': '/parties/customers?new=1',
+  '/parties/vendors': '/parties/vendors?new=1',
 };
 
 function eventChord(e: KeyboardEvent): string {
@@ -89,28 +110,90 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return target.isContentEditable;
 }
 
+/** F-keys and modifier chords should work even while typing (Streamlit parity). */
+function allowWhileTyping(chord: string): boolean {
+  if (/^f\d{1,2}$/.test(chord)) return true;
+  if (chord.startsWith('ctrl+') || chord.startsWith('alt+') || chord.startsWith('meta+')) {
+    // Let Ctrl+S be handled by DocumentEditor; still allow other ctrl chords for nav/create
+    if (chord === 'ctrl+s' || chord === 'meta+s') return false;
+    return true;
+  }
+  return false;
+}
+
+function normalizePath(pathname: string): string {
+  const p = pathname.replace(/\/+$/, '') || '/';
+  // Strip /:id and /:id/edit for list.primary lookup
+  const parts = p.split('/');
+  if (parts.length >= 4 && (parts[parts.length - 1] === 'edit' || parts[parts.length - 1] === 'new')) {
+    return parts.slice(0, -1).join('/') || '/';
+  }
+  if (parts.length >= 4) {
+    // /sales/invoices/:id → /sales/invoices
+    const last = parts[parts.length - 1];
+    if (last && last !== 'new' && !['orders', 'bills', 'returns', 'estimates', 'quotations'].includes(last)) {
+      // likely an id
+      const maybeList = parts.slice(0, -1).join('/');
+      if (LIST_PRIMARY_NEW[maybeList]) return maybeList;
+    }
+  }
+  return p;
+}
+
 export function useShellKeyboardShortcuts(enabled = true) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { data } = useGetKeyboardShortcutsQuery(undefined, { skip: !enabled });
 
   useEffect(() => {
     if (!enabled || !data) return;
     const parents = (data.parents || {}) as Record<string, string>;
     const actions = (data.actions || {}) as Record<string, string>;
+
+    // Parents first, then actions overwrite (creates take precedence on shared chords).
     const chordToRoute = new Map<string, string>();
+    const chordToAction = new Map<string, string>();
     for (const [key, chord] of Object.entries(parents)) {
       const route = PARENT_ROUTES[key];
       if (route && chord) chordToRoute.set(String(chord).toLowerCase(), route);
     }
     for (const [key, chord] of Object.entries(actions)) {
+      const c = String(chord).toLowerCase();
+      if (!c) continue;
+      chordToAction.set(c, key);
       const route = ACTION_ROUTES[key];
-      if (route && chord) chordToRoute.set(String(chord).toLowerCase(), route);
+      if (route) chordToRoute.set(c, route);
     }
 
     function onKeyDown(e: KeyboardEvent) {
-      if (isTypingTarget(e.target)) return;
       const chord = eventChord(e);
       if (!chord) return;
+
+      const typing = isTypingTarget(e.target);
+      if (typing && !allowWhileTyping(chord)) return;
+
+      // list.primary → create on current list
+      const actionId = chordToAction.get(chord);
+      if (actionId === 'list.primary') {
+        const listPath = normalizePath(location.pathname);
+        const createPath = LIST_PRIMARY_NEW[listPath];
+        if (createPath) {
+          e.preventDefault();
+          navigate(createPath);
+        }
+        return;
+      }
+
+      // nav.back
+      if (actionId === 'nav.back') {
+        e.preventDefault();
+        navigate(-1);
+        return;
+      }
+
+      // dialog.save is handled by DocumentEditor (Ctrl+S)
+      if (actionId === 'dialog.save') return;
+
       const route = chordToRoute.get(chord);
       if (!route) return;
       e.preventDefault();
@@ -119,5 +202,5 @@ export function useShellKeyboardShortcuts(enabled = true) {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [data, enabled, navigate]);
+  }, [data, enabled, navigate, location.pathname]);
 }

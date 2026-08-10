@@ -8,7 +8,7 @@ import re
 from datetime import date
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -17,7 +17,7 @@ from services.finance.router import is_consumer_healthy as finance_healthy
 from services.inventory.router import is_consumer_healthy as inventory_healthy
 from services.parties.serialize import entity_dict
 from services.sales.degraded import is_degraded_pending
-from vaybooks.bms.domain.shared.enums import PurchaseOrderStatus
+from vaybooks.bms.domain.shared.enums import CatalogItemType, PurchaseOrderStatus
 from vaybooks.bms.domain.shared.exceptions import ValidationError
 
 router = APIRouter(prefix="/api/purchases", tags=["purchases"])
@@ -452,6 +452,42 @@ def confirm_goods_receipt(grn_id: str) -> dict[str, Any]:
         raise _http_err(exc) from exc
 
 
+@router.get("/vendor-rates")
+def get_vendor_rates(
+    vendor_id: str = Query(..., min_length=1),
+    product_id: str = Query(..., min_length=1),
+    item_type: str = Query("Product"),
+) -> dict[str, float]:
+    try:
+        try:
+            catalog_type = CatalogItemType(item_type)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid item_type: {item_type}"
+            ) from exc
+        rate = _svc().get_latest_purchase_rate(catalog_type, product_id, vendor_id)
+        return {"rate": float(rate or 0)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+def _bill_raw_lines(lines: List[BillLineWrite]) -> list[dict[str, Any]]:
+    raw_lines: list[dict[str, Any]] = []
+    for line in lines:
+        raw = line.model_dump()
+        item_id = str(raw.get("product_id") or raw.get("service_id") or "").strip()
+        if not item_id:
+            raise HTTPException(
+                status_code=400, detail="Each bill line needs product_id or service_id"
+            )
+        raw["item_id"] = item_id
+        raw.setdefault("item_type", "Product" if raw.get("product_id") else "Service")
+        raw_lines.append(raw)
+    return raw_lines
+
+
 @router.get("/bills")
 def list_bills() -> list[dict[str, Any]]:
     try:
@@ -463,15 +499,7 @@ def list_bills() -> list[dict[str, Any]]:
 @router.post("/bills", status_code=201)
 def create_bill(body: PurchaseBillWrite) -> dict[str, Any]:
     try:
-        raw_lines: list[dict[str, Any]] = []
-        for line in body.lines:
-            raw = line.model_dump()
-            item_id = str(raw.get("product_id") or raw.get("service_id") or "").strip()
-            if not item_id:
-                raise HTTPException(status_code=400, detail="Each bill line needs product_id or service_id")
-            raw["item_id"] = item_id
-            raw.setdefault("item_type", "Product" if raw.get("product_id") else "Service")
-            raw_lines.append(raw)
+        raw_lines = _bill_raw_lines(body.lines)
         voucher = _svc().create_purchase_bill_from_lines(
             vendor_id=body.vendor_id,
             raw_lines=raw_lines,
@@ -499,6 +527,27 @@ def get_bill(bill_id: str) -> dict[str, Any]:
     if not row:
         raise HTTPException(status_code=404, detail="Purchase bill not found")
     return _bill_dict(row, include_lines=True)
+
+
+@router.put("/bills/{bill_id}")
+def update_bill(bill_id: str, body: PurchaseBillWrite) -> dict[str, Any]:
+    try:
+        raw_lines = _bill_raw_lines(body.lines)
+        voucher = _svc().update_purchase_bill_from_lines(
+            voucher_id=bill_id,
+            vendor_id=body.vendor_id,
+            raw_lines=raw_lines,
+            vendor_bill_number=body.vendor_bill_number,
+            amount_paid=body.amount_paid,
+            paying_account_id=body.paying_account_id,
+            voucher_date=_parse_date(body.voucher_date),
+        )
+        row = _svc().get_purchase_bill(voucher.id) or {"id": voucher.id}
+        return _bill_dict(row, include_lines=True)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
 
 
 @router.get("/returns")

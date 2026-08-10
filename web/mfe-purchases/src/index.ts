@@ -10,4 +10,8 @@ export {
   PurchaseReturnDetailPage,
   PurchasesReportsPage,
   PurchasesScheduledReportsPage,
+  BillEditorPage,
+  PurchaseOrderEditorPage,
+  GoodsReceiptEditorPage,
+  PurchaseReturnEditorPage,
 } from './pages';

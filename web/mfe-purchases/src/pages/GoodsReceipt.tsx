@@ -1,19 +1,13 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useConfirmGoodsReceiptMutation,
-  useCreateGoodsReceiptMutation,
   useGetGoodsReceiptQuery,
   useListGoodsReceiptsQuery,
-  useListInventoryLocationsQuery,
-  useListInventoryProductsQuery,
-  useListPurchaseOrdersQuery,
-  useListVendorsQuery,
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  DocumentDetail,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -24,20 +18,26 @@ import {
   EntityListQuickFilters,
   EntityListTable,
   ErrorText,
-  FormRow,
-  Modal,
   PAGE_SIZE,
   PaginationBar,
-  TextInput,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError, formatMoney } from '../utils';
+import {
+  buildFacts,
+  dateCaption,
+  mapDocLines,
+  moneySummaryFromDoc,
+  notesFromDoc,
+  statusIncludes,
+} from './documentDetailHelpers';
 
 const DEFAULT_FILTERS = { grn_number: '', vendor_name: '', status: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'receipt_date', desc: true }];
@@ -50,25 +50,26 @@ const STATUS_CHIPS = [
 
 export function GoodsReceiptListPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const { data = [], isLoading, error } = useListGoodsReceiptsQuery();
-  const { data: vendors = [] } = useListVendorsQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
-  const { data: locations = [] } = useListInventoryLocationsQuery();
-  const { data: orders = [] } = useListPurchaseOrdersQuery();
-  const [createGrn, createState] = useCreateGoodsReceiptMutation();
 
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
-  const [open, setOpen] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [vendorId, setVendorId] = useState('');
-  const [locationId, setLocationId] = useState('');
-  const [poId, setPoId] = useState('');
-  const [productId, setProductId] = useState('');
-  const [qty, setQty] = useState('1');
-  const [rate, setRate] = useState('0');
-  const [confirmOnCreate, setConfirmOnCreate] = useState(true);
+
+  useEffect(() => {
+    if (params.get('new') === '1') {
+      const vid = params.get('vendor_id');
+      const po = params.get('purchase_order_id');
+      const qs = new URLSearchParams();
+      if (vid) qs.set('vendor_id', vid);
+      if (po) qs.set('purchase_order_id', po);
+      const q = qs.toString();
+      navigate(q ? `/purchases/goods-receipt/new?${q}` : '/purchases/goods-receipt/new', {
+        replace: true,
+      });
+    }
+  }, [params, navigate]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
@@ -129,22 +130,10 @@ export function GoodsReceiptListPage() {
     [],
   );
 
-  async function onCreate() {
-    setFormError('');
-    try {
-      const created = await createGrn({
-        vendor_id: vendorId,
-        location_id: locationId,
-        purchase_order_id: poId || null,
-        confirm: confirmOnCreate,
-        lines: [{ product_id: productId, qty_received: Number(qty) || 0, rate: Number(rate) || 0 }],
-      }).unwrap();
-      setOpen(false);
-      navigate(`/purchases/goods-receipt/${created.id}`);
-    } catch (e) {
-      setFormError(extractError(e));
-    }
-  }
+  const goNew = () => {
+    const vid = params.get('vendor_id');
+    navigate(vid ? `/purchases/goods-receipt/new?vendor_id=${vid}` : '/purchases/goods-receipt/new');
+  };
 
   return (
     <EntityListPage>
@@ -153,14 +142,7 @@ export function GoodsReceiptListPage() {
         title="Goods Receipt"
         count={`${filtered.length} ${filtered.length === 1 ? 'receipt' : 'receipts'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setOpen(true);
-              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-            }}
-          >
+          <Button type="button" onClick={goNew}>
             New GRN
           </Button>
         }
@@ -205,6 +187,10 @@ export function GoodsReceiptListPage() {
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
           <strong>No goods receipts found.</strong>
+          <p>Receive goods against a purchase order.</p>
+          <Button type="button" onClick={goNew}>
+            New GRN
+          </Button>
         </EntityListEmpty>
       ) : null}
 
@@ -226,114 +212,20 @@ export function GoodsReceiptListPage() {
           </div>
         </EntityListFoot>
       ) : null}
-
-      <Modal
-        open={open}
-        title="New goods receipt"
-        onClose={() => setOpen(false)}
-        footer={
-          <>
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={onCreate}
-              disabled={createState.isLoading || !vendorId || !locationId || !productId}
-            >
-              {createState.isLoading ? 'Saving…' : 'Create'}
-            </Button>
-          </>
-        }
-      >
-        <div style={{ display: 'grid', gap: 10 }}>
-          {formError ? <ErrorText>{formError}</ErrorText> : null}
-          <FormRow label="Vendor *">
-            <select
-              value={vendorId}
-              onChange={(e) => setVendorId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select vendor</option>
-              {vendors.map((v) => (
-                <option key={String(v.id)} value={String(v.id)}>
-                  {asCaption(v.vendor_name || v.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Location *">
-            <select
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select location</option>
-              {locations.map((l) => (
-                <option key={String(l.id)} value={String(l.id)}>
-                  {asCaption(l.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Purchase order">
-            <select
-              value={poId}
-              onChange={(e) => setPoId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">None</option>
-              {orders.map((o) => (
-                <option key={String(o.id)} value={String(o.id)}>
-                  {asCaption(o.po_number)} — {asCaption(o.vendor_name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Product *">
-            <select
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select product</option>
-              {products.map((p) => (
-                <option key={String(p.id)} value={String(p.id)}>
-                  {asCaption(p.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <FormRow label="Qty">
-              <TextInput value={qty} onChange={(e) => setQty(e.target.value)} />
-            </FormRow>
-            <FormRow label="Rate">
-              <TextInput value={rate} onChange={(e) => setRate(e.target.value)} />
-            </FormRow>
-          </div>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14 }}>
-            <input
-              type="checkbox"
-              checked={confirmOnCreate}
-              onChange={(e) => setConfirmOnCreate(e.target.checked)}
-            />
-            Confirm and post stock on create
-          </label>
-        </div>
-      </Modal>
     </EntityListPage>
   );
 }
 
 export function GoodsReceiptDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useGetGoodsReceiptQuery(id, { skip: !id });
   const [confirmGrn, confirmState] = useConfirmGoodsReceiptMutation();
   const [actionError, setActionError] = useState('');
 
-  const lines = useMemo(
-    () => (data && Array.isArray(data.lines) ? (data.lines as Record<string, unknown>[]) : []),
+  const lines = useMemo(() => mapDocLines(data?.lines), [data]);
+  const summary = useMemo(
+    () => (data ? moneySummaryFromDoc(data as Record<string, unknown>) : []),
     [data],
   );
 
@@ -347,39 +239,65 @@ export function GoodsReceiptDetailPage() {
     }
   }
 
-  if (isLoading) return <p>Loading…</p>;
+  if (isLoading) return <EntityListLoading>Loading goods receipt…</EntityListLoading>;
   if (error || !data) return <ErrorText>Goods receipt not found.</ErrorText>;
 
+  const received = statusIncludes(data.status, 'received');
+  const party = asCaption(data.vendor_name) || '—';
+  const dateStr = dateCaption(data.receipt_date);
+  const poId = asCaption(data.purchase_order_id);
+  const poLabel = asCaption(data.po_number) || poId;
+
+  const actions: DocumentDetailAction[] = [];
+  if (!received) {
+    actions.push({
+      id: 'confirm',
+      label: confirmState.isLoading ? 'Confirming…' : 'Confirm receipt',
+      variant: 'primary',
+      disabled: confirmState.isLoading,
+      onClick: () => void onConfirm(),
+    });
+  } else {
+    actions.push({
+      id: 'bill',
+      label: 'Create bill',
+      variant: 'primary',
+      onClick: () =>
+        navigate(
+          `/purchases/bills/new?vendor_id=${data.vendor_id || ''}&reference_grn_id=${id}`,
+        ),
+    });
+  }
+
   return (
-    <div>
-      <p style={{ marginBottom: 12 }}>
-        <Link to="/purchases/goods-receipt">← Goods receipt</Link>
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <div>
-          <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>
-            {asCaption(data.grn_number) || id}
-          </h2>
-          <div style={{ color: '#667', marginTop: 6 }}>
-            {asCaption(data.vendor_name)} · {asCaption(data.status)} · {asCaption(data.location_name)}
-          </div>
-        </div>
-        {String(data.status) !== 'Received' ? (
-          <Button type="button" onClick={onConfirm} disabled={confirmState.isLoading}>
-            {confirmState.isLoading ? 'Confirming…' : 'Confirm receipt'}
-          </Button>
-        ) : null}
-      </div>
-      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-      <EntityCardGrid>
-        {lines.map((line) => (
-          <EntityCard
-            key={String(line.id || line.product_id)}
-            title={asCaption(line.product_name) || asCaption(line.product_id)}
-            captions={[`Qty ${Number(line.qty_received ?? 0)}`, formatMoney(Number(line.rate ?? 0))]}
-          />
-        ))}
-      </EntityCardGrid>
-    </div>
+    <DocumentDetail
+      backTo="/purchases/goods-receipt"
+      backLabel="Goods receipt"
+      kicker="Goods receipt"
+      title={asCaption(data.grn_number) || id}
+      status={asCaption(data.status) || undefined}
+      party={party}
+      facts={buildFacts([
+        ['Receipt date', dateStr],
+        ['Challan', asCaption(data.challan_number || data.vendor_challan)],
+        ['Vehicle', asCaption(data.vehicle_number)],
+      ])}
+      related={
+        poId
+          ? [{ id: 'po', label: `PO ${poLabel}`, to: `/purchases/orders/${poId}` }]
+          : undefined
+      }
+      actions={actions}
+      error={actionError || null}
+      notes={notesFromDoc(data as Record<string, unknown>)}
+      lines={lines}
+      summary={
+        summary.length
+          ? summary
+          : Number(data.total_amount ?? 0)
+            ? [{ label: 'Grand total', value: Number(data.total_amount ?? 0) }]
+            : []
+      }
+    />
   );
 }

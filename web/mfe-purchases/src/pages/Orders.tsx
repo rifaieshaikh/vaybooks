@@ -1,21 +1,16 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useCancelPurchaseOrderMutation,
   useClosePurchaseOrderMutation,
-  useCreatePurchaseOrderMutation,
   useGetPurchaseOrderQuery,
   useLazyGetPurchaseOrderPdfQuery,
-  useListInventoryLocationsQuery,
-  useListInventoryProductsQuery,
   useListPurchaseOrdersQuery,
-  useListVendorsQuery,
   useSendPurchaseOrderMutation,
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  DocumentDetail,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -26,20 +21,26 @@ import {
   EntityListQuickFilters,
   EntityListTable,
   ErrorText,
-  FormRow,
-  Modal,
   PAGE_SIZE,
   PaginationBar,
-  TextInput,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError, formatMoney } from '../utils';
+import {
+  buildFacts,
+  dateCaption,
+  mapDocLines,
+  moneySummaryFromDoc,
+  notesFromDoc,
+  statusIncludes,
+} from './documentDetailHelpers';
 
 const DEFAULT_FILTERS = { po_number: '', vendor_name: '', status: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'order_date', desc: true }];
@@ -53,25 +54,23 @@ const STATUS_CHIPS = [
   { id: 'Cancelled', label: 'Cancelled' },
 ];
 
-type LineForm = { product_id: string; qty_ordered: string; rate: string };
-
 export function PurchaseOrdersListPage() {
   const navigate = useNavigate();
-  const { data = [], isLoading, error, refetch } = useListPurchaseOrdersQuery();
-  const { data: vendors = [] } = useListVendorsQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
-  const { data: locations = [] } = useListInventoryLocationsQuery();
-  const [createPo, createState] = useCreatePurchaseOrderMutation();
+  const [params] = useSearchParams();
+  const { data = [], isLoading, error } = useListPurchaseOrdersQuery();
 
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
-  const [open, setOpen] = useState(false);
-  const [vendorId, setVendorId] = useState('');
-  const [locationId, setLocationId] = useState('');
-  const [notes, setNotes] = useState('');
-  const [lines, setLines] = useState<LineForm[]>([{ product_id: '', qty_ordered: '1', rate: '0' }]);
-  const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    if (params.get('new') === '1') {
+      const vid = params.get('vendor_id');
+      navigate(vid ? `/purchases/orders/new?vendor_id=${vid}` : '/purchases/orders/new', {
+        replace: true,
+      });
+    }
+  }, [params, navigate]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
@@ -132,30 +131,10 @@ export function PurchaseOrdersListPage() {
     [],
   );
 
-  async function onCreate() {
-    setFormError('');
-    try {
-      const created = await createPo({
-        vendor_id: vendorId,
-        location_id: locationId,
-        notes,
-        lines: lines
-          .filter((l) => l.product_id)
-          .map((l) => ({
-            product_id: l.product_id,
-            qty_ordered: Number(l.qty_ordered) || 0,
-            rate: Number(l.rate) || 0,
-          })),
-      }).unwrap();
-      setOpen(false);
-      setVendorId('');
-      setNotes('');
-      setLines([{ product_id: '', qty_ordered: '1', rate: '0' }]);
-      navigate(`/purchases/orders/${created.id}`);
-    } catch (e) {
-      setFormError(extractError(e));
-    }
-  }
+  const goNew = () => {
+    const vid = params.get('vendor_id');
+    navigate(vid ? `/purchases/orders/new?vendor_id=${vid}` : '/purchases/orders/new');
+  };
 
   return (
     <EntityListPage>
@@ -164,14 +143,7 @@ export function PurchaseOrdersListPage() {
         title="Purchase Orders"
         count={`${filtered.length} ${filtered.length === 1 ? 'order' : 'orders'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setOpen(true);
-              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-            }}
-          >
+          <Button type="button" onClick={goNew}>
             New PO
           </Button>
         }
@@ -217,6 +189,10 @@ export function PurchaseOrdersListPage() {
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
           <strong>No purchase orders found.</strong>
+          <p>Create a purchase order to buy from a vendor.</p>
+          <Button type="button" onClick={goNew}>
+            New PO
+          </Button>
         </EntityListEmpty>
       ) : null}
 
@@ -238,109 +214,6 @@ export function PurchaseOrdersListPage() {
           </div>
         </EntityListFoot>
       ) : null}
-
-      <Modal
-        open={open}
-        title="New purchase order"
-        onClose={() => setOpen(false)}
-        footer={
-          <>
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={onCreate} disabled={createState.isLoading || !vendorId}>
-              {createState.isLoading ? 'Saving…' : 'Create'}
-            </Button>
-          </>
-        }
-      >
-        <div style={{ display: 'grid', gap: 10 }}>
-          {formError ? <ErrorText>{formError}</ErrorText> : null}
-          <FormRow label="Vendor *">
-            <select
-              value={vendorId}
-              onChange={(e) => setVendorId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select vendor</option>
-              {vendors.map((v) => (
-                <option key={String(v.id)} value={String(v.id)}>
-                  {asCaption(v.vendor_name || v.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Location">
-            <select
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Default</option>
-              {locations.map((l) => (
-                <option key={String(l.id)} value={String(l.id)}>
-                  {asCaption(l.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Notes">
-            <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </FormRow>
-          {lines.map((line, idx) => (
-            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8 }}>
-              <FormRow label={idx === 0 ? 'Product *' : 'Product'}>
-                <select
-                  value={line.product_id}
-                  onChange={(e) => {
-                    const next = [...lines];
-                    next[idx] = { ...line, product_id: e.target.value };
-                    setLines(next);
-                  }}
-                  style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-                >
-                  <option value="">Select</option>
-                  {products.map((p) => (
-                    <option key={String(p.id)} value={String(p.id)}>
-                      {asCaption(p.name)} ({asCaption(p.sku)})
-                    </option>
-                  ))}
-                </select>
-              </FormRow>
-              <FormRow label="Qty">
-                <TextInput
-                  value={line.qty_ordered}
-                  onChange={(e) => {
-                    const next = [...lines];
-                    next[idx] = { ...line, qty_ordered: e.target.value };
-                    setLines(next);
-                  }}
-                />
-              </FormRow>
-              <FormRow label="Rate">
-                <TextInput
-                  value={line.rate}
-                  onChange={(e) => {
-                    const next = [...lines];
-                    next[idx] = { ...line, rate: e.target.value };
-                    setLines(next);
-                  }}
-                />
-              </FormRow>
-            </div>
-          ))}
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => setLines([...lines, { product_id: '', qty_ordered: '1', rate: '0' }])}
-          >
-            Add line
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => refetch()}>
-            Refresh list
-          </Button>
-        </div>
-      </Modal>
     </EntityListPage>
   );
 }
@@ -355,8 +228,9 @@ export function PurchaseOrderDetailPage() {
   const [fetchPdf] = useLazyGetPurchaseOrderPdfQuery();
   const [actionError, setActionError] = useState('');
 
-  const lines = useMemo(
-    () => (data && Array.isArray(data.lines) ? (data.lines as Record<string, unknown>[]) : []),
+  const lines = useMemo(() => mapDocLines(data?.lines), [data]);
+  const summary = useMemo(
+    () => (data ? moneySummaryFromDoc(data as Record<string, unknown>) : []),
     [data],
   );
 
@@ -372,74 +246,85 @@ export function PurchaseOrderDetailPage() {
     }
   }
 
-  if (isLoading) return <p>Loading…</p>;
+  if (isLoading) return <EntityListLoading>Loading purchase order…</EntityListLoading>;
   if (error || !data) return <ErrorText>Purchase order not found.</ErrorText>;
 
+  const terminal = statusIncludes(data.status, 'closed', 'cancelled');
+  const party = asCaption(data.vendor_name) || '—';
+  const dateStr = dateCaption(data.order_date);
+
+  const actions: DocumentDetailAction[] = [];
+  if (!terminal) {
+    actions.push({
+      id: 'edit',
+      label: 'Edit',
+      variant: 'ghost',
+      onClick: () => navigate(`/purchases/orders/${id}/edit`),
+    });
+  }
+  actions.push({
+    id: 'pdf',
+    label: 'Download PDF',
+    variant: 'ghost',
+    onClick: async () => {
+      setActionError('');
+      try {
+        const blob = await fetchPdf(id).unwrap();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${asCaption(data.po_number) || id}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        setActionError(extractError(e));
+      }
+    },
+  });
+  if (statusIncludes(data.status, 'draft')) {
+    actions.push({
+      id: 'send',
+      label: 'Send',
+      variant: 'ghost',
+      onClick: () => void run('send'),
+    });
+  }
+  if (!terminal) {
+    actions.push(
+      { id: 'close', label: 'Close', variant: 'ghost', onClick: () => void run('close') },
+      { id: 'cancel', label: 'Cancel', variant: 'ghost', onClick: () => void run('cancel') },
+      {
+        id: 'grn',
+        label: 'Receive goods',
+        variant: 'primary',
+        onClick: () => navigate(`/purchases/goods-receipt/new?purchase_order_id=${id}`),
+      },
+    );
+  }
+
   return (
-    <div>
-      <p style={{ marginBottom: 12 }}>
-        <Link to="/purchases/orders">← Purchase orders</Link>
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <div>
-          <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>
-            {asCaption(data.po_number) || id}
-          </h2>
-          <div style={{ color: '#667', marginTop: 6 }}>
-            {asCaption(data.vendor_name)} · {asCaption(data.status)} ·{' '}
-            {formatMoney(Number(data.total_amount ?? 0))}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={async () => {
-              setActionError('');
-              try {
-                const blob = await fetchPdf(id).unwrap();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${asCaption(data.po_number) || id}.pdf`;
-                a.click();
-                URL.revokeObjectURL(url);
-              } catch (e) {
-                setActionError(extractError(e));
-              }
-            }}
-          >
-            Download PDF
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => run('send')}>
-            Send
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => run('close')}>
-            Close
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => run('cancel')}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={() => navigate('/purchases/goods-receipt')}>
-            Receive goods
-          </Button>
-        </div>
-      </div>
-      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-      <h3 style={{ color: 'var(--vb-color-primary, #185c4c)' }}>Lines</h3>
-      <EntityCardGrid>
-        {lines.map((line) => (
-          <EntityCard
-            key={String(line.id || line.product_id)}
-            title={asCaption(line.product_name) || asCaption(line.product_id)}
-            captions={[
-              `Ordered ${Number(line.qty_ordered ?? 0)}`,
-              `Received ${Number(line.qty_received ?? 0)}`,
-              formatMoney(Number(line.rate ?? 0)),
-            ]}
-          />
-        ))}
-      </EntityCardGrid>
-    </div>
+    <DocumentDetail
+      backTo="/purchases/orders"
+      backLabel="Purchase orders"
+      kicker="Purchase order"
+      title={asCaption(data.po_number) || id}
+      status={asCaption(data.status) || undefined}
+      party={party}
+      facts={buildFacts([
+        ['Order date', dateStr],
+        ['Expected', dateCaption(data.expected_date || data.delivery_date)],
+        ['Reference', asCaption(data.reference || data.vendor_ref)],
+        ['Vendor GSTIN', asCaption(data.vendor_gstin || data.gstin)],
+      ])}
+      actions={actions}
+      error={actionError || null}
+      notes={notesFromDoc(data as Record<string, unknown>)}
+      lines={lines}
+      summary={
+        summary.length
+          ? summary
+          : [{ label: 'Grand total', value: Number(data.total_amount ?? 0) }]
+      }
+    />
   );
 }

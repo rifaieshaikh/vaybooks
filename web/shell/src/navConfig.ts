@@ -137,7 +137,8 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       item('/boutique/orders', 'Customization Orders', 'boutique', 'boutique.orders.view', 'shoppingBag'),
       item('/boutique/measurements', 'Measurements', 'boutique', 'boutique.measurements.view', 'ruler'),
       item('/boutique/items', 'Customization Items', 'boutique', 'boutique.items.view', 'package'),
-      item('/boutique/time', 'Tasks', 'boutique', 'boutique.tasks.view', 'clock'),
+      item('/boutique/time', 'Tasks', 'boutique', 'boutique.tasks.view', 'clipboardList'),
+      item('/boutique/time-log', 'Time log', 'boutique', 'boutique.tasks.view', 'clock'),
       item('/boutique/calendar', 'Calendar', 'boutique', 'boutique.calendar.view', 'calendarDays'),
       item('/boutique/reports', 'Reports', 'boutique', 'boutique.reports.view', 'barChart'),
       item(

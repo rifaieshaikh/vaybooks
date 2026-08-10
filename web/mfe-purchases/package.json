@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@vaybooks/doc-calc": "*",
     "@vaybooks/i18n": "*",
     "@vaybooks/store": "*",
     "@vaybooks/theme": "*",

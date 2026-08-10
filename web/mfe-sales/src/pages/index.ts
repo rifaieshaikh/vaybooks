@@ -10,3 +10,12 @@ export {
 } from './PricedDocs';
 export { SalesReturnsListPage, SalesReturnDetailPage } from './Returns';
 export { SalesReportsPage, SalesScheduledReportsPage } from './Reports';
+export {
+  InvoiceEditorPage,
+  OrderEditorPage,
+  PricedDocEditorPage,
+  EstimateEditorPage,
+  QuotationEditorPage,
+  DeliveryNoteEditorPage,
+  ReturnEditorPage,
+} from '../editors';

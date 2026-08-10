@@ -1,15 +1,10 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   useConvertEstimateToOrderMutation,
   useConvertQuotationToOrderMutation,
-  useCreateSalesEstimateMutation,
-  useCreateSalesQuotationMutation,
   useGetSalesEstimateQuery,
   useGetSalesQuotationQuery,
-  useListCustomersQuery,
-  useListInventoryLocationsQuery,
-  useListInventoryProductsQuery,
   useListSalesEstimatesQuery,
   useListSalesQuotationsQuery,
   useSetSalesEstimateStatusMutation,
@@ -17,8 +12,7 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  DocumentDetail,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -27,25 +21,61 @@ import {
   EntityListLoading,
   EntityListPage,
   EntityListQuickFilters,
+  EntityListRefreshing,
   EntityListTable,
   ErrorText,
-  FormRow,
-  Modal,
-  PAGE_SIZE,
   PaginationBar,
-  TextInput,
+  StatusPill,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError, formatMoney } from '../utils';
+import {
+  buildFacts,
+  dateCaption,
+  mapDocLines,
+  moneySummaryFromDoc,
+  notesFromDoc,
+  statusIncludes,
+} from './documentDetailHelpers';
+import {
+  DATE_RANGE_FIELDS,
+  PAGE_SIZE_OPTIONS,
+  amountOf,
+  dateKey,
+  hasActiveListFilters,
+  inDateRange,
+  listHasField,
+  listPulseMoney,
+  matchesDocSearch,
+  useSalesListState,
+  useSyncedPage,
+} from './salesListHelpers';
 
-const DEFAULT_FILTERS = { number: '', customer_name: '', status: '' };
+type PricedFilters = {
+  number: string;
+  customer_name: string;
+  status: string;
+  date_from: string;
+  date_to: string;
+};
+
+const DEFAULT_FILTERS: PricedFilters = {
+  number: '',
+  customer_name: '',
+  status: '',
+  date_from: '',
+  date_to: '',
+};
+
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'created_at', desc: true }];
+
 const STATUS_CHIPS = [
   { id: 'all', label: 'All' },
   { id: 'Draft', label: 'Draft' },
@@ -57,447 +87,406 @@ const STATUS_CHIPS = [
   { id: 'Cancelled', label: 'Cancelled' },
 ];
 
-function CreatePricedModal({
-  open,
-  title,
-  onClose,
-  onCreate,
-  saving,
-  formError,
-}: {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  onCreate: (payload: {
-    customer_id: string;
-    location_id: string;
-    lines: { product_id: string; qty: number; rate: number }[];
-  }) => Promise<void>;
-  saving: boolean;
-  formError: string;
-}) {
-  const { data: customers = [] } = useListCustomersQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
-  const { data: locations = [] } = useListInventoryLocationsQuery();
-  const [customerId, setCustomerId] = useState('');
-  const [locationId, setLocationId] = useState('');
-  const [productId, setProductId] = useState('');
-  const [qty, setQty] = useState('1');
-  const [rate, setRate] = useState('0');
+type PricedKind = 'estimate' | 'quotation';
+
+function PricedDocsListPage({ kind }: { kind: PricedKind }) {
+  const navigate = useNavigate();
+  const estimatesQuery = useListSalesEstimatesQuery(undefined, { skip: kind !== 'estimate' });
+  const quotationsQuery = useListSalesQuotationsQuery(undefined, { skip: kind !== 'quotation' });
+  const query = kind === 'estimate' ? estimatesQuery : quotationsQuery;
+  const { data = [], isLoading, isFetching, error, refetch } = query;
+
+  const [convertEstimate] = useConvertEstimateToOrderMutation();
+  const [convertQuotation] = useConvertQuotationToOrderMutation();
+
+  const basePath = kind === 'estimate' ? '/sales/estimates' : '/sales/quotations';
+  const numberKey = kind === 'estimate' ? 'estimate_number' : 'quotation_number';
+  const primaryDateKey = kind === 'estimate' ? 'estimate_date' : 'quotation_date';
+  const singular = kind === 'estimate' ? 'estimate' : 'quotation';
+  const plural = kind === 'estimate' ? 'estimates' : 'quotations';
+  const title = kind === 'estimate' ? 'Estimates' : 'Quotations';
+  const newLabel = kind === 'estimate' ? 'New estimate' : 'New quotation';
+
+  const list = useSalesListState({
+    defaultFilters: DEFAULT_FILTERS,
+    defaultSort: DEFAULT_SORT,
+    applyChip: (chip, filters) => {
+      if (chip === 'all') return { ...filters, status: '' };
+      if (chip) return { ...filters, status: chip };
+      return null;
+    },
+  });
+
+  useEffect(() => {
+    if (list.params.get('new') === '1') {
+      const cid = list.params.get('customer_id');
+      navigate(cid ? `${basePath}/new?customer_id=${cid}` : `${basePath}/new`, { replace: true });
+    }
+  }, [list.params, navigate, basePath]);
+
+  const showValidUntil = useMemo(
+    () => listHasField(data as Record<string, unknown>[], 'valid_until', 'expiry_date'),
+    [data],
+  );
+  const showDocDate = useMemo(
+    () =>
+      listHasField(data as Record<string, unknown>[], primaryDateKey, 'voucher_date'),
+    [data, primaryDateKey],
+  );
+
+  const filterFields: FilterFieldDef[] = useMemo(
+    () => [
+      { key: 'number', label: '#', type: 'text' },
+      { key: 'customer_name', label: 'Customer', type: 'text' },
+      ...DATE_RANGE_FIELDS,
+    ],
+    [],
+  );
+
+  const filtered = useMemo(() => {
+    const rows = data.filter((row) => {
+      const rec = row as Record<string, unknown>;
+      if (
+        !matchesDocSearch(rec, list.search, [
+          numberKey,
+          'customer_name',
+          'party_name',
+          'status',
+        ])
+      ) {
+        return false;
+      }
+      if (!matchesRegex(rec[numberKey], list.filters.number)) return false;
+      if (!matchesRegex(row.customer_name || rec.party_name, list.filters.customer_name)) {
+        return false;
+      }
+      if (list.filters.status && String(row.status) !== list.filters.status) return false;
+      const docDate = rec[primaryDateKey] ?? rec.voucher_date;
+      if (!inDateRange(docDate ?? rec.created_at, list.filters.date_from, list.filters.date_to)) {
+        return false;
+      }
+      return true;
+    });
+    return sortRows(
+      rows.map((r) => ({ ...r, net: amountOf(r as Record<string, unknown>) })),
+      list.sort,
+    ) as Array<(typeof data)[number] & { net: number }>;
+  }, [data, list.search, list.filters, list.sort, numberKey, primaryDateKey]);
+
+  const pulse = useMemo(
+    () => listPulseMoney(filtered as Record<string, unknown>[]),
+    [filtered],
+  );
+  const pages = pageCount(filtered.length, list.pageSize);
+  useSyncedPage(list.page, pages, list.setPage);
+  const pageRows = paginate(filtered, Math.min(list.page, pages), list.pageSize);
+  const filtersActive = hasActiveListFilters(list.search, list.filters, DEFAULT_FILTERS);
+
+  type Row = (typeof data)[number] & { net?: number };
+
+  const columns: EntityListColumn<Row>[] = useMemo(() => {
+    const cols: EntityListColumn<Row>[] = [
+      {
+        id: 'number',
+        header: '#',
+        render: (row) => {
+          const rec = row as Record<string, unknown>;
+          return (
+            <button
+              type="button"
+              className="el-doc-link"
+              onClick={() => navigate(`${basePath}/${row.id}`)}
+            >
+              {asCaption(rec[numberKey]) || String(row.id)}
+            </button>
+          );
+        },
+      },
+      {
+        id: 'customer',
+        header: 'Customer',
+        render: (row) => {
+          const rec = row as Record<string, unknown>;
+          return (
+            asCaption(row.customer_name || rec.party_name) || <span className="el-muted">—</span>
+          );
+        },
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        render: (row) => <StatusPill status={row.status} />,
+      },
+    ];
+    if (showDocDate) {
+      cols.push({
+        id: 'date',
+        header: 'Date',
+        render: (row) => {
+          const rec = row as Record<string, unknown>;
+          return (
+            dateKey(rec[primaryDateKey] ?? rec.voucher_date) || <span className="el-muted">—</span>
+          );
+        },
+      });
+    }
+    if (showValidUntil) {
+      cols.push({
+        id: 'valid_until',
+        header: 'Valid until',
+        render: (row) => {
+          const rec = row as Record<string, unknown>;
+          return (
+            dateKey(rec.valid_until ?? rec.expiry_date) || <span className="el-muted">—</span>
+          );
+        },
+      });
+    }
+    cols.push({
+      id: 'amount',
+      header: 'Amount',
+      className: 'el-num',
+      headerClassName: 'el-col-num',
+      render: (row) => formatMoney(amountOf(row as Record<string, unknown>)),
+    });
+    return cols;
+  }, [navigate, basePath, numberKey, primaryDateKey, showDocDate, showValidUntil]);
+
+  const goNew = () => {
+    const cid = list.params.get('customer_id');
+    navigate(cid ? `${basePath}/new?customer_id=${cid}` : `${basePath}/new`);
+  };
+
+  function setChip(id: string) {
+    list.setFilters((prev) => ({
+      ...prev,
+      status: id === 'all' ? '' : id,
+    }));
+  }
+
+  async function convertRow(id: string) {
+    try {
+      const order =
+        kind === 'estimate'
+          ? await convertEstimate(id).unwrap()
+          : await convertQuotation(id).unwrap();
+      navigate(`/sales/orders/${order.id}`);
+    } catch {
+      /* list stays quiet */
+    }
+  }
+
+  const chipValue = list.filters.status || 'all';
+  const sortNumberKey = numberKey;
 
   return (
-    <Modal
-      open={open}
-      title={title}
-      onClose={onClose}
-      footer={
-        <>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={() =>
-              void onCreate({
-                customer_id: customerId,
-                location_id: locationId || (locations[0] ? String(locations[0].id) : ''),
-                lines: [{ product_id: productId, qty: Number(qty) || 0, rate: Number(rate) || 0 }],
-              })
-            }
-            disabled={saving || !customerId || !productId}
-          >
-            {saving ? 'Saving…' : 'Create'}
-          </Button>
-        </>
-      }
-    >
-      <div style={{ display: 'grid', gap: 10 }}>
-        {formError ? <ErrorText>{formError}</ErrorText> : null}
-        <FormRow label="Customer *">
-          <select
-            value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
-            style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-          >
-            <option value="">Select customer</option>
-            {customers.map((cust) => (
-              <option key={String(cust.id)} value={String(cust.id)}>
-                {asCaption(cust.customer_name || cust.name)}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Location">
-          <select
-            value={locationId}
-            onChange={(e) => setLocationId(e.target.value)}
-            style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-          >
-            <option value="">Default</option>
-            {locations.map((l) => (
-              <option key={String(l.id)} value={String(l.id)}>
-                {asCaption(l.name)}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Product *">
-          <select
-            value={productId}
-            onChange={(e) => setProductId(e.target.value)}
-            style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-          >
-            <option value="">Select product</option>
-            {products.map((p) => (
-              <option key={String(p.id)} value={String(p.id)}>
-                {asCaption(p.name)}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <FormRow label="Qty">
-            <TextInput value={qty} onChange={(e) => setQty(e.target.value)} />
-          </FormRow>
-          <FormRow label="Rate">
-            <TextInput value={rate} onChange={(e) => setRate(e.target.value)} />
-          </FormRow>
-        </div>
-      </div>
-    </Modal>
+    <EntityListPage className="el-page--sales">
+      <EntityListHero
+        kicker="Sales"
+        title={title}
+        count={
+          <>
+            {filtered.length} {filtered.length === 1 ? singular : plural}
+            {filtered.length !== data.length ? ` · ${data.length} total` : ''}
+          </>
+        }
+        actions={
+          <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
+            <Button type="button" onClick={goNew}>
+              {newLabel}
+            </Button>
+          </>
+        }
+        search={
+          <input
+            type="search"
+            value={list.search}
+            onChange={(e) => list.setSearch(e.target.value)}
+            placeholder={`Search ${singular} #, customer, amount…`}
+            aria-label={`Search ${plural}`}
+          />
+        }
+        chips={
+          <EntityListQuickFilters
+            ariaLabel={`${title} filters`}
+            value={chipValue}
+            onChange={setChip}
+            options={STATUS_CHIPS}
+          />
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={list.filters}
+            defaultFilters={DEFAULT_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => list.setFilters(next as PricedFilters)}
+            sort={list.sort}
+            defaultSort={DEFAULT_SORT}
+            sortOptions={[
+              { value: 'created_at', label: 'Created' },
+              { value: sortNumberKey, label: '#' },
+              { value: 'net', label: 'Amount' },
+              { value: 'status', label: 'Status' },
+            ]}
+            onSortChange={list.setSort}
+          />
+        }
+        summary={
+          <div className="el-pulse">
+            <span>
+              Showing <strong>{pulse.count}</strong>
+            </span>
+            <span>
+              Total <strong>{formatMoney(pulse.total)}</strong>
+            </span>
+            <span>
+              This month <strong>{formatMoney(pulse.monthTotal)}</strong>
+            </span>
+          </div>
+        }
+      />
+
+      {isFetching && !isLoading ? <EntityListRefreshing /> : null}
+      {isLoading ? <EntityListLoading>Loading {plural}…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load {plural}.</ErrorText> : null}
+
+      {!isLoading && !error && pageRows.length === 0 ? (
+        <EntityListEmpty>
+          {filtersActive ? (
+            <>
+              <strong>No matches</strong>
+              <p>Try clearing search or filters.</p>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  list.setSearch('');
+                  list.setFilters({ ...DEFAULT_FILTERS });
+                }}
+              >
+                Clear filters
+              </Button>
+            </>
+          ) : (
+            <>
+              <strong>No {plural} yet</strong>
+              <p>
+                {kind === 'estimate'
+                  ? 'Create an estimate to price work for a customer.'
+                  : 'Create a quotation to send pricing to a customer.'}
+              </p>
+              <Button type="button" onClick={goNew}>
+                {newLabel}
+              </Button>
+            </>
+          )}
+        </EntityListEmpty>
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          actions={(row) => {
+            const canConvert = statusIncludes(row.status, 'accepted', 'sent');
+            return (
+              <EntityListActions
+                onOpen={() => navigate(`${basePath}/${row.id}`)}
+                onEdit={() => navigate(`${basePath}/${row.id}/edit`)}
+                primary={
+                  canConvert
+                    ? {
+                        label: 'Convert',
+                        onClick: () => void convertRow(String(row.id)),
+                      }
+                    : undefined
+                }
+              />
+            );
+          }}
+        />
+      ) : null}
+
+      {!isLoading && !error && pageRows.length > 0 ? (
+        <EntityListFoot>
+          <div className="el-page-size">
+            <label>
+              Rows{' '}
+              <select
+                value={list.pageSize}
+                onChange={(e) =>
+                  list.setPageSize(Number(e.target.value) as (typeof PAGE_SIZE_OPTIONS)[number])
+                }
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="el-foot-pager">
+            <PaginationBar
+              page={Math.min(list.page, pages)}
+              pageCount={pages}
+              onPage={list.setPage}
+            />
+          </div>
+        </EntityListFoot>
+      ) : null}
+    </EntityListPage>
   );
 }
 
 export function EstimatesListPage() {
-  const navigate = useNavigate();
-  const { data = [], isLoading, error } = useListSalesEstimatesQuery();
-  const [createDoc, createState] = useCreateSalesEstimateMutation();
-  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
-  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
-  const [page, setPage] = useState(1);
-  const [open, setOpen] = useState(false);
-  const [formError, setFormError] = useState('');
-
-  const filterFields: FilterFieldDef[] = useMemo(
-    () => [
-      { key: 'number', label: '#', type: 'text' },
-      { key: 'customer_name', label: 'Customer', type: 'text' },
-      { key: 'status', label: 'Status', type: 'text' },
-    ],
-    [],
-  );
-
-  const filtered = useMemo(() => {
-    const rows = data.filter((row) => {
-      if (!matchesRegex(row.estimate_number, filters.number)) return false;
-      if (!matchesRegex(row.customer_name, filters.customer_name)) return false;
-      if (filters.status && String(row.status) !== filters.status) return false;
-      return true;
-    });
-    return sortRows(rows, sort);
-  }, [data, filters, sort]);
-
-  const pages = pageCount(filtered.length, PAGE_SIZE);
-  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
-
-  type EstimateRow = (typeof data)[number];
-
-  const columns: EntityListColumn<EstimateRow>[] = useMemo(
-    () => [
-      {
-        id: 'number',
-        header: '#',
-        render: (row) => (
-          <span className="el-customer-name">
-            {asCaption(row.estimate_number) || String(row.id)}
-          </span>
-        ),
-      },
-      {
-        id: 'customer',
-        header: 'Customer',
-        render: (row) => asCaption(row.customer_name) || <span className="el-muted">—</span>,
-      },
-      {
-        id: 'status',
-        header: 'Status',
-        render: (row) => asCaption(row.status) || <span className="el-muted">—</span>,
-      },
-      {
-        id: 'amount',
-        header: 'Amount',
-        className: 'el-num',
-        headerClassName: 'el-col-num',
-        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
-      },
-    ],
-    [],
-  );
-
-  return (
-    <EntityListPage>
-      <EntityListHero
-        kicker="Sales"
-        title="Estimates"
-        count={`${filtered.length} ${filtered.length === 1 ? 'estimate' : 'estimates'}`}
-        actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setOpen(true);
-            }}
-          >
-            New estimate
-          </Button>
-        }
-        chips={
-          <EntityListQuickFilters
-            ariaLabel="Status"
-            value={filters.status || 'all'}
-            onChange={(id) => {
-              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
-              setPage(1);
-            }}
-            options={STATUS_CHIPS}
-          />
-        }
-        tools={
-          <EntityListFilterSort
-            filterFields={filterFields}
-            filters={filters}
-            defaultFilters={DEFAULT_FILTERS}
-            excludeKeys={['status']}
-            onFiltersChange={(next) => {
-              setFilters(next as typeof filters);
-              setPage(1);
-            }}
-            sort={sort}
-            defaultSort={DEFAULT_SORT}
-            sortOptions={[
-              { value: 'created_at', label: 'Created' },
-              { value: 'estimate_number', label: '#' },
-              { value: 'status', label: 'Status' },
-            ]}
-            onSortChange={(next) => {
-              setSort(next);
-              setPage(1);
-            }}
-          />
-        }
-      />
-
-      {isLoading ? <EntityListLoading>Loading estimates…</EntityListLoading> : null}
-      {error ? <ErrorText>Failed to load estimates.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 ? (
-        <EntityListEmpty>
-          <strong>No estimates found.</strong>
-        </EntityListEmpty>
-      ) : null}
-
-      {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListTable
-          columns={columns}
-          rows={pageRows}
-          rowKey={(row) => String(row.id)}
-          actions={(row) => (
-            <EntityListActions onOpen={() => navigate(`/sales/estimates/${row.id}`)} />
-          )}
-        />
-      ) : null}
-
-      {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListFoot>
-          <div className="el-foot-pager">
-            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
-          </div>
-        </EntityListFoot>
-      ) : null}
-
-      <CreatePricedModal
-        open={open}
-        title="New estimate"
-        onClose={() => setOpen(false)}
-        saving={createState.isLoading}
-        formError={formError}
-        onCreate={async (payload) => {
-          try {
-            const created = await createDoc(payload).unwrap();
-            setOpen(false);
-            navigate(`/sales/estimates/${created.id}`);
-          } catch (e) {
-            setFormError(extractError(e));
-          }
-        }}
-      />
-    </EntityListPage>
-  );
+  return <PricedDocsListPage kind="estimate" />;
 }
 
 export function QuotationsListPage() {
-  const navigate = useNavigate();
-  const { data = [], isLoading, error } = useListSalesQuotationsQuery();
-  const [createDoc, createState] = useCreateSalesQuotationMutation();
-  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
-  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
-  const [page, setPage] = useState(1);
-  const [open, setOpen] = useState(false);
-  const [formError, setFormError] = useState('');
+  return <PricedDocsListPage kind="quotation" />;
+}
 
-  const filterFields: FilterFieldDef[] = useMemo(
-    () => [
-      { key: 'number', label: '#', type: 'text' },
-      { key: 'customer_name', label: 'Customer', type: 'text' },
-      { key: 'status', label: 'Status', type: 'text' },
-    ],
-    [],
-  );
-
-  const filtered = useMemo(() => {
-    const rows = data.filter((row) => {
-      if (!matchesRegex(row.quotation_number, filters.number)) return false;
-      if (!matchesRegex(row.customer_name, filters.customer_name)) return false;
-      if (filters.status && String(row.status) !== filters.status) return false;
-      return true;
+function pricedDocActions(opts: {
+  status: unknown;
+  onEdit: () => void;
+  onMarkSent: () => void;
+  onAccept: () => void;
+  onConvert: () => void;
+}): DocumentDetailAction[] {
+  const actions: DocumentDetailAction[] = [
+    { id: 'edit', label: 'Edit', variant: 'ghost', onClick: opts.onEdit },
+  ];
+  if (statusIncludes(opts.status, 'draft')) {
+    actions.push({
+      id: 'sent',
+      label: 'Mark sent',
+      variant: 'ghost',
+      onClick: opts.onMarkSent,
     });
-    return sortRows(rows, sort);
-  }, [data, filters, sort]);
-
-  const pages = pageCount(filtered.length, PAGE_SIZE);
-  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
-
-  type QuotationRow = (typeof data)[number];
-
-  const columns: EntityListColumn<QuotationRow>[] = useMemo(
-    () => [
-      {
-        id: 'number',
-        header: '#',
-        render: (row) => (
-          <span className="el-customer-name">
-            {asCaption(row.quotation_number) || String(row.id)}
-          </span>
-        ),
-      },
-      {
-        id: 'customer',
-        header: 'Customer',
-        render: (row) => asCaption(row.customer_name) || <span className="el-muted">—</span>,
-      },
-      {
-        id: 'status',
-        header: 'Status',
-        render: (row) => asCaption(row.status) || <span className="el-muted">—</span>,
-      },
-      {
-        id: 'amount',
-        header: 'Amount',
-        className: 'el-num',
-        headerClassName: 'el-col-num',
-        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
-      },
-    ],
-    [],
-  );
-
-  return (
-    <EntityListPage>
-      <EntityListHero
-        kicker="Sales"
-        title="Quotations"
-        count={`${filtered.length} ${filtered.length === 1 ? 'quotation' : 'quotations'}`}
-        actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setOpen(true);
-            }}
-          >
-            New quotation
-          </Button>
-        }
-        chips={
-          <EntityListQuickFilters
-            ariaLabel="Status"
-            value={filters.status || 'all'}
-            onChange={(id) => {
-              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
-              setPage(1);
-            }}
-            options={STATUS_CHIPS}
-          />
-        }
-        tools={
-          <EntityListFilterSort
-            filterFields={filterFields}
-            filters={filters}
-            defaultFilters={DEFAULT_FILTERS}
-            excludeKeys={['status']}
-            onFiltersChange={(next) => {
-              setFilters(next as typeof filters);
-              setPage(1);
-            }}
-            sort={sort}
-            defaultSort={DEFAULT_SORT}
-            sortOptions={[
-              { value: 'created_at', label: 'Created' },
-              { value: 'quotation_number', label: '#' },
-              { value: 'status', label: 'Status' },
-            ]}
-            onSortChange={(next) => {
-              setSort(next);
-              setPage(1);
-            }}
-          />
-        }
-      />
-
-      {isLoading ? <EntityListLoading>Loading quotations…</EntityListLoading> : null}
-      {error ? <ErrorText>Failed to load quotations.</ErrorText> : null}
-      {!isLoading && !error && pageRows.length === 0 ? (
-        <EntityListEmpty>
-          <strong>No quotations found.</strong>
-        </EntityListEmpty>
-      ) : null}
-
-      {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListTable
-          columns={columns}
-          rows={pageRows}
-          rowKey={(row) => String(row.id)}
-          actions={(row) => (
-            <EntityListActions onOpen={() => navigate(`/sales/quotations/${row.id}`)} />
-          )}
-        />
-      ) : null}
-
-      {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListFoot>
-          <div className="el-foot-pager">
-            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
-          </div>
-        </EntityListFoot>
-      ) : null}
-
-      <CreatePricedModal
-        open={open}
-        title="New quotation"
-        onClose={() => setOpen(false)}
-        saving={createState.isLoading}
-        formError={formError}
-        onCreate={async (payload) => {
-          try {
-            const created = await createDoc(payload).unwrap();
-            setOpen(false);
-            navigate(`/sales/quotations/${created.id}`);
-          } catch (e) {
-            setFormError(extractError(e));
-          }
-        }}
-      />
-    </EntityListPage>
-  );
+  }
+  if (statusIncludes(opts.status, 'sent')) {
+    actions.push({
+      id: 'accept',
+      label: 'Accept',
+      variant: 'ghost',
+      onClick: opts.onAccept,
+    });
+  }
+  if (statusIncludes(opts.status, 'accepted', 'sent')) {
+    actions.push({
+      id: 'convert',
+      label: 'Convert to SO',
+      variant: 'primary',
+      onClick: opts.onConvert,
+    });
+  }
+  return actions;
 }
 
 export function EstimateDetailPage() {
@@ -507,78 +496,60 @@ export function EstimateDetailPage() {
   const [setStatus] = useSetSalesEstimateStatusMutation();
   const [convert] = useConvertEstimateToOrderMutation();
   const [actionError, setActionError] = useState('');
-  const lines = useMemo(
-    () => (data && Array.isArray(data.lines) ? (data.lines as Record<string, unknown>[]) : []),
+  const lines = useMemo(() => mapDocLines(data?.lines), [data]);
+  const summary = useMemo(
+    () => (data ? moneySummaryFromDoc(data as Record<string, unknown>) : []),
     [data],
   );
 
-  if (isLoading) return <p>Loading…</p>;
+  if (isLoading) return <EntityListLoading>Loading estimate…</EntityListLoading>;
   if (error || !data) return <ErrorText>Estimate not found.</ErrorText>;
 
+  const party = asCaption(data.customer_name) || '—';
+
+  const actions = pricedDocActions({
+    status: data.status,
+    onEdit: () => navigate(`/sales/estimates/${id}/edit`),
+    onMarkSent: () =>
+      void setStatus({ id, status: 'Sent' })
+        .unwrap()
+        .then(() => refetch())
+        .catch((e) => setActionError(extractError(e))),
+    onAccept: () =>
+      void setStatus({ id, status: 'Accepted' })
+        .unwrap()
+        .then(() => refetch())
+        .catch((e) => setActionError(extractError(e))),
+    onConvert: () =>
+      void convert(id)
+        .unwrap()
+        .then((order) => navigate(`/sales/orders/${order.id}`))
+        .catch((e) => setActionError(extractError(e))),
+  });
+
   return (
-    <div>
-      <p style={{ marginBottom: 12 }}>
-        <Link to="/sales/estimates">← Estimates</Link>
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <div>
-          <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>
-            {asCaption(data.estimate_number) || id}
-          </h2>
-          <div style={{ color: '#667', marginTop: 6 }}>
-            {asCaption(data.customer_name)} · {asCaption(data.status)} ·{' '}
-            {formatMoney(Number(data.total_amount ?? 0))}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() =>
-              void setStatus({ id, status: 'Sent' })
-                .unwrap()
-                .then(() => refetch())
-                .catch((e) => setActionError(extractError(e)))
-            }
-          >
-            Mark sent
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() =>
-              void setStatus({ id, status: 'Accepted' })
-                .unwrap()
-                .then(() => refetch())
-                .catch((e) => setActionError(extractError(e)))
-            }
-          >
-            Accept
-          </Button>
-          <Button
-            type="button"
-            onClick={() =>
-              void convert(id)
-                .unwrap()
-                .then((order) => navigate(`/sales/orders/${order.id}`))
-                .catch((e) => setActionError(extractError(e)))
-            }
-          >
-            Convert to SO
-          </Button>
-        </div>
-      </div>
-      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-      <EntityCardGrid>
-        {lines.map((line) => (
-          <EntityCard
-            key={String(line.id || line.product_id)}
-            title={asCaption(line.product_name) || asCaption(line.product_id)}
-            captions={[`Qty ${Number(line.qty ?? 0)}`, formatMoney(Number(line.rate ?? 0))]}
-          />
-        ))}
-      </EntityCardGrid>
-    </div>
+    <DocumentDetail
+      backTo="/sales/estimates"
+      backLabel="Estimates"
+      kicker="Estimate"
+      title={asCaption(data.estimate_number) || id}
+      status={asCaption(data.status) || undefined}
+      party={party}
+      facts={buildFacts([
+        ['Date', dateCaption(data.estimate_date || data.voucher_date)],
+        ['Valid until', dateCaption(data.valid_until || data.expiry_date)],
+        ['Reference', asCaption(data.reference)],
+      ])}
+      actions={actions}
+      error={actionError || null}
+      notes={notesFromDoc(data as Record<string, unknown>)}
+      lines={lines}
+      summary={
+        summary.length
+          ? summary
+          : [{ label: 'Grand total', value: Number(data.total_amount ?? 0) }]
+      }
+    />
   );
 }
 
@@ -589,77 +560,59 @@ export function QuotationDetailPage() {
   const [setStatus] = useSetSalesQuotationStatusMutation();
   const [convert] = useConvertQuotationToOrderMutation();
   const [actionError, setActionError] = useState('');
-  const lines = useMemo(
-    () => (data && Array.isArray(data.lines) ? (data.lines as Record<string, unknown>[]) : []),
+  const lines = useMemo(() => mapDocLines(data?.lines), [data]);
+  const summary = useMemo(
+    () => (data ? moneySummaryFromDoc(data as Record<string, unknown>) : []),
     [data],
   );
 
-  if (isLoading) return <p>Loading…</p>;
+  if (isLoading) return <EntityListLoading>Loading quotation…</EntityListLoading>;
   if (error || !data) return <ErrorText>Quotation not found.</ErrorText>;
 
+  const party = asCaption(data.customer_name) || '—';
+
+  const actions = pricedDocActions({
+    status: data.status,
+    onEdit: () => navigate(`/sales/quotations/${id}/edit`),
+    onMarkSent: () =>
+      void setStatus({ id, status: 'Sent' })
+        .unwrap()
+        .then(() => refetch())
+        .catch((e) => setActionError(extractError(e))),
+    onAccept: () =>
+      void setStatus({ id, status: 'Accepted' })
+        .unwrap()
+        .then(() => refetch())
+        .catch((e) => setActionError(extractError(e))),
+    onConvert: () =>
+      void convert(id)
+        .unwrap()
+        .then((order) => navigate(`/sales/orders/${order.id}`))
+        .catch((e) => setActionError(extractError(e))),
+  });
+
   return (
-    <div>
-      <p style={{ marginBottom: 12 }}>
-        <Link to="/sales/quotations">← Quotations</Link>
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <div>
-          <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>
-            {asCaption(data.quotation_number) || id}
-          </h2>
-          <div style={{ color: '#667', marginTop: 6 }}>
-            {asCaption(data.customer_name)} · {asCaption(data.status)} ·{' '}
-            {formatMoney(Number(data.total_amount ?? 0))}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() =>
-              void setStatus({ id, status: 'Sent' })
-                .unwrap()
-                .then(() => refetch())
-                .catch((e) => setActionError(extractError(e)))
-            }
-          >
-            Mark sent
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() =>
-              void setStatus({ id, status: 'Accepted' })
-                .unwrap()
-                .then(() => refetch())
-                .catch((e) => setActionError(extractError(e)))
-            }
-          >
-            Accept
-          </Button>
-          <Button
-            type="button"
-            onClick={() =>
-              void convert(id)
-                .unwrap()
-                .then((order) => navigate(`/sales/orders/${order.id}`))
-                .catch((e) => setActionError(extractError(e)))
-            }
-          >
-            Convert to SO
-          </Button>
-        </div>
-      </div>
-      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-      <EntityCardGrid>
-        {lines.map((line) => (
-          <EntityCard
-            key={String(line.id || line.product_id)}
-            title={asCaption(line.product_name) || asCaption(line.product_id)}
-            captions={[`Qty ${Number(line.qty ?? 0)}`, formatMoney(Number(line.rate ?? 0))]}
-          />
-        ))}
-      </EntityCardGrid>
-    </div>
+    <DocumentDetail
+      backTo="/sales/quotations"
+      backLabel="Quotations"
+      kicker="Quotation"
+      title={asCaption(data.quotation_number) || id}
+      status={asCaption(data.status) || undefined}
+      party={party}
+      facts={buildFacts([
+        ['Date', dateCaption(data.quotation_date || data.voucher_date)],
+        ['Valid until', dateCaption(data.valid_until || data.expiry_date)],
+        ['Reference', asCaption(data.reference)],
+      ])}
+      actions={actions}
+      error={actionError || null}
+      notes={notesFromDoc(data as Record<string, unknown>)}
+      lines={lines}
+      summary={
+        summary.length
+          ? summary
+          : [{ label: 'Grand total', value: Number(data.total_amount ?? 0) }]
+      }
+    />
   );
 }

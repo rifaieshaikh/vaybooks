@@ -1,21 +1,15 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   useConfirmDeliveryNoteMutation,
-  useCreateDeliveryNoteMutation,
   useDeliverDeliveryNoteMutation,
   useDispatchDeliveryNoteMutation,
   useGetDeliveryNoteQuery,
-  useListCustomersQuery,
   useListDeliveryNotesQuery,
-  useListInventoryLocationsQuery,
-  useListInventoryProductsQuery,
-  useListSalesOrdersQuery,
 } from '@vaybooks/store';
 import {
   Button,
-  EntityCard,
-  EntityCardGrid,
+  DocumentDetail,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -24,27 +18,66 @@ import {
   EntityListLoading,
   EntityListPage,
   EntityListQuickFilters,
+  EntityListRefreshing,
   EntityListTable,
   ErrorText,
-  FormRow,
-  Modal,
-  PAGE_SIZE,
   PaginationBar,
-  TextInput,
+  StatusPill,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
 import { asCaption, extractError, formatMoney } from '../utils';
+import {
+  buildFacts,
+  dateCaption,
+  mapDocLines,
+  moneySummaryFromDoc,
+  notesFromDoc,
+  statusIncludes,
+} from './documentDetailHelpers';
+import {
+  DATE_RANGE_FIELDS,
+  PAGE_SIZE_OPTIONS,
+  amountOf,
+  dateKey,
+  hasActiveListFilters,
+  inDateRange,
+  isPendingDnStatus,
+  listPulseMoney,
+  matchesDocSearch,
+  useSalesListState,
+  useSyncedPage,
+} from './salesListHelpers';
 
-const DEFAULT_FILTERS = { dn_number: '', customer_name: '', status: '' };
+type DnFilters = {
+  dn_number: string;
+  customer_name: string;
+  status: string;
+  pending: string;
+  date_from: string;
+  date_to: string;
+};
+
+const DEFAULT_FILTERS: DnFilters = {
+  dn_number: '',
+  customer_name: '',
+  status: '',
+  pending: '',
+  date_from: '',
+  date_to: '',
+};
+
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'delivery_date', desc: true }];
+
 const STATUS_CHIPS = [
   { id: 'all', label: 'All' },
+  { id: 'pending', label: 'Pending' },
   { id: 'Draft', label: 'Draft' },
   { id: 'Confirmed', label: 'Confirmed' },
   { id: 'Dispatched', label: 'Dispatched' },
@@ -55,48 +88,73 @@ const STATUS_CHIPS = [
 
 export function DeliveryNotesListPage() {
   const navigate = useNavigate();
-  const { data = [], isLoading, error } = useListDeliveryNotesQuery();
-  const { data: customers = [] } = useListCustomersQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
-  const { data: locations = [] } = useListInventoryLocationsQuery();
-  const { data: orders = [] } = useListSalesOrdersQuery();
-  const [createDn, createState] = useCreateDeliveryNoteMutation();
+  const { data = [], isLoading, isFetching, error, refetch } = useListDeliveryNotesQuery();
 
-  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
-  const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
-  const [page, setPage] = useState(1);
-  const [open, setOpen] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [customerId, setCustomerId] = useState('');
-  const [locationId, setLocationId] = useState('');
-  const [soId, setSoId] = useState('');
-  const [productId, setProductId] = useState('');
-  const [qty, setQty] = useState('1');
-  const [rate, setRate] = useState('0');
+  const list = useSalesListState({
+    defaultFilters: DEFAULT_FILTERS,
+    defaultSort: DEFAULT_SORT,
+    applyChip: (chip, filters) => {
+      if (chip === 'pending') return { ...filters, pending: '1', status: '' };
+      if (chip === 'all') return { ...filters, pending: '', status: '' };
+      if (chip) return { ...filters, status: chip, pending: '' };
+      return null;
+    },
+  });
+
+  useEffect(() => {
+    if (list.params.get('new') === '1') {
+      const cid = list.params.get('customer_id');
+      navigate(cid ? `/sales/delivery-notes/new?customer_id=${cid}` : '/sales/delivery-notes/new', {
+        replace: true,
+      });
+    }
+  }, [list.params, navigate]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
       { key: 'dn_number', label: 'DN #', type: 'text' },
       { key: 'customer_name', label: 'Customer', type: 'text' },
-      { key: 'status', label: 'Status', type: 'text' },
+      ...DATE_RANGE_FIELDS,
     ],
     [],
   );
 
   const filtered = useMemo(() => {
     const rows = data.filter((row) => {
-      if (!matchesRegex(row.dn_number, filters.dn_number)) return false;
-      if (!matchesRegex(row.customer_name, filters.customer_name)) return false;
-      if (filters.status && String(row.status) !== filters.status) return false;
+      if (
+        !matchesDocSearch(row, list.search, [
+          'dn_number',
+          'customer_name',
+          'party_name',
+          'status',
+        ])
+      ) {
+        return false;
+      }
+      if (!matchesRegex(row.dn_number, list.filters.dn_number)) return false;
+      if (!matchesRegex(row.customer_name || row.party_name, list.filters.customer_name)) {
+        return false;
+      }
+      if (list.filters.pending === '1' && !isPendingDnStatus(row.status)) return false;
+      if (list.filters.status && String(row.status) !== list.filters.status) return false;
+      if (!inDateRange(row.delivery_date, list.filters.date_from, list.filters.date_to)) {
+        return false;
+      }
       return true;
     });
-    return sortRows(rows, sort);
-  }, [data, filters, sort]);
+    return sortRows(
+      rows.map((r) => ({ ...r, net: amountOf(r) })),
+      list.sort,
+    ) as Array<(typeof data)[number] & { net: number }>;
+  }, [data, list.search, list.filters, list.sort]);
 
-  const pages = pageCount(filtered.length, PAGE_SIZE);
-  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+  const pulse = useMemo(() => listPulseMoney(filtered), [filtered]);
+  const pages = pageCount(filtered.length, list.pageSize);
+  useSyncedPage(list.page, pages, list.setPage);
+  const pageRows = paginate(filtered, Math.min(list.page, pages), list.pageSize);
+  const filtersActive = hasActiveListFilters(list.search, list.filters, DEFAULT_FILTERS);
 
-  type DnRow = (typeof data)[number];
+  type DnRow = (typeof data)[number] & { net?: number };
 
   const columns: EntityListColumn<DnRow>[] = useMemo(
     () => [
@@ -104,112 +162,159 @@ export function DeliveryNotesListPage() {
         id: 'dn_number',
         header: 'DN #',
         render: (row) => (
-          <span className="el-customer-name">{asCaption(row.dn_number) || String(row.id)}</span>
+          <button
+            type="button"
+            className="el-doc-link"
+            onClick={() => navigate(`/sales/delivery-notes/${row.id}`)}
+          >
+            {asCaption(row.dn_number) || String(row.id)}
+          </button>
         ),
       },
       {
         id: 'customer',
         header: 'Customer',
-        render: (row) => asCaption(row.customer_name) || <span className="el-muted">—</span>,
+        render: (row) =>
+          asCaption(row.customer_name || row.party_name) || <span className="el-muted">—</span>,
       },
       {
         id: 'status',
         header: 'Status',
-        render: (row) => asCaption(row.status) || <span className="el-muted">—</span>,
+        render: (row) => <StatusPill status={row.status} />,
       },
       {
         id: 'date',
         header: 'Date',
-        render: (row) =>
-          asCaption(row.delivery_date).slice(0, 10) || <span className="el-muted">—</span>,
+        render: (row) => dateKey(row.delivery_date) || <span className="el-muted">—</span>,
       },
       {
         id: 'amount',
         header: 'Amount',
         className: 'el-num',
         headerClassName: 'el-col-num',
-        render: (row) => formatMoney(Number(row.total_amount ?? 0)),
+        render: (row) => formatMoney(amountOf(row)),
       },
     ],
-    [],
+    [navigate],
   );
 
-  async function onCreate() {
-    setFormError('');
-    try {
-      const created = await createDn({
-        customer_id: customerId,
-        location_id: locationId,
-        sales_order_id: soId || null,
-        confirm: true,
-        lines: [{ product_id: productId, qty: Number(qty) || 0, rate: Number(rate) || 0 }],
-      }).unwrap();
-      setOpen(false);
-      navigate(`/sales/delivery-notes/${created.id}`);
-    } catch (e) {
-      setFormError(extractError(e));
-    }
+  const goNew = () => {
+    const cid = list.params.get('customer_id');
+    navigate(cid ? `/sales/delivery-notes/new?customer_id=${cid}` : '/sales/delivery-notes/new');
+  };
+
+  function setChip(id: string) {
+    list.setFilters((prev) => {
+      if (id === 'pending') return { ...prev, pending: '1', status: '' };
+      if (id === 'all') return { ...prev, pending: '', status: '' };
+      return { ...prev, status: id, pending: '' };
+    });
   }
 
+  const chipValue =
+    list.filters.pending === '1' ? 'pending' : list.filters.status || 'all';
+
   return (
-    <EntityListPage>
+    <EntityListPage className="el-page--sales">
       <EntityListHero
         kicker="Sales"
         title="Delivery Notes"
-        count={`${filtered.length} ${filtered.length === 1 ? 'note' : 'notes'}`}
+        count={
+          <>
+            {filtered.length} {filtered.length === 1 ? 'note' : 'notes'}
+            {filtered.length !== data.length ? ` · ${data.length} total` : ''}
+          </>
+        }
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setOpen(true);
-              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-            }}
-          >
-            New DN
-          </Button>
+          <>
+            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+              Refresh
+            </button>
+            <Button type="button" onClick={goNew}>
+              New DN
+            </Button>
+          </>
+        }
+        search={
+          <input
+            type="search"
+            value={list.search}
+            onChange={(e) => list.setSearch(e.target.value)}
+            placeholder="Search DN #, customer, amount…"
+            aria-label="Search delivery notes"
+          />
         }
         chips={
           <EntityListQuickFilters
-            ariaLabel="Status"
-            value={filters.status || 'all'}
-            onChange={(id) => {
-              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
-              setPage(1);
-            }}
+            ariaLabel="Delivery note filters"
+            value={chipValue}
+            onChange={setChip}
             options={STATUS_CHIPS}
           />
         }
         tools={
           <EntityListFilterSort
             filterFields={filterFields}
-            filters={filters}
+            filters={list.filters}
             defaultFilters={DEFAULT_FILTERS}
-            excludeKeys={['status']}
-            onFiltersChange={(next) => {
-              setFilters(next as typeof filters);
-              setPage(1);
-            }}
-            sort={sort}
+            excludeKeys={['status', 'pending']}
+            onFiltersChange={(next) => list.setFilters(next as DnFilters)}
+            sort={list.sort}
             defaultSort={DEFAULT_SORT}
             sortOptions={[
               { value: 'delivery_date', label: 'Date' },
               { value: 'dn_number', label: 'DN #' },
+              { value: 'net', label: 'Amount' },
               { value: 'status', label: 'Status' },
             ]}
-            onSortChange={(next) => {
-              setSort(next);
-              setPage(1);
-            }}
+            onSortChange={list.setSort}
           />
+        }
+        summary={
+          <div className="el-pulse">
+            <span>
+              Showing <strong>{pulse.count}</strong>
+            </span>
+            <span>
+              Total <strong>{formatMoney(pulse.total)}</strong>
+            </span>
+            <span>
+              This month <strong>{formatMoney(pulse.monthTotal)}</strong>
+            </span>
+          </div>
         }
       />
 
+      {isFetching && !isLoading ? <EntityListRefreshing /> : null}
       {isLoading ? <EntityListLoading>Loading delivery notes…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load delivery notes.</ErrorText> : null}
+
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>No delivery notes found.</strong>
+          {filtersActive ? (
+            <>
+              <strong>No matches</strong>
+              <p>Try clearing search or filters.</p>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  list.setSearch('');
+                  list.setFilters({ ...DEFAULT_FILTERS });
+                }}
+              >
+                Clear filters
+              </Button>
+            </>
+          ) : (
+            <>
+              <strong>No delivery notes yet</strong>
+              <p>Create a delivery note to ship against an order.</p>
+              <Button type="button" onClick={goNew}>
+                New DN
+              </Button>
+            </>
+          )}
         </EntityListEmpty>
       ) : null}
 
@@ -219,120 +324,58 @@ export function DeliveryNotesListPage() {
           rows={pageRows}
           rowKey={(row) => String(row.id)}
           actions={(row) => (
-            <EntityListActions onOpen={() => navigate(`/sales/delivery-notes/${row.id}`)} />
+            <EntityListActions
+              onOpen={() => navigate(`/sales/delivery-notes/${row.id}`)}
+              onEdit={() => navigate(`/sales/delivery-notes/${row.id}/edit`)}
+            />
           )}
         />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
         <EntityListFoot>
+          <div className="el-page-size">
+            <label>
+              Rows{' '}
+              <select
+                value={list.pageSize}
+                onChange={(e) =>
+                  list.setPageSize(Number(e.target.value) as (typeof PAGE_SIZE_OPTIONS)[number])
+                }
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="el-foot-pager">
-            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+            <PaginationBar
+              page={Math.min(list.page, pages)}
+              pageCount={pages}
+              onPage={list.setPage}
+            />
           </div>
         </EntityListFoot>
       ) : null}
-
-      <Modal
-        open={open}
-        title="New delivery note"
-        onClose={() => setOpen(false)}
-        footer={
-          <>
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={onCreate}
-              disabled={createState.isLoading || !customerId || !productId}
-            >
-              {createState.isLoading ? 'Saving…' : 'Create'}
-            </Button>
-          </>
-        }
-      >
-        <div style={{ display: 'grid', gap: 10 }}>
-          {formError ? <ErrorText>{formError}</ErrorText> : null}
-          <FormRow label="Customer *">
-            <select
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select customer</option>
-              {customers.map((cust) => (
-                <option key={String(cust.id)} value={String(cust.id)}>
-                  {asCaption(cust.customer_name || cust.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Sales order">
-            <select
-              value={soId}
-              onChange={(e) => setSoId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">None</option>
-              {orders.map((o) => (
-                <option key={String(o.id)} value={String(o.id)}>
-                  {asCaption(o.so_number)} — {asCaption(o.customer_name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Location">
-            <select
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Default</option>
-              {locations.map((l) => (
-                <option key={String(l.id)} value={String(l.id)}>
-                  {asCaption(l.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Product *">
-            <select
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select product</option>
-              {products.map((p) => (
-                <option key={String(p.id)} value={String(p.id)}>
-                  {asCaption(p.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <FormRow label="Qty">
-              <TextInput value={qty} onChange={(e) => setQty(e.target.value)} />
-            </FormRow>
-            <FormRow label="Rate">
-              <TextInput value={rate} onChange={(e) => setRate(e.target.value)} />
-            </FormRow>
-          </div>
-        </div>
-      </Modal>
     </EntityListPage>
   );
 }
 
 export function DeliveryNoteDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useGetDeliveryNoteQuery(id, { skip: !id });
   const [confirmDn] = useConfirmDeliveryNoteMutation();
   const [dispatchDn] = useDispatchDeliveryNoteMutation();
   const [deliverDn] = useDeliverDeliveryNoteMutation();
   const [actionError, setActionError] = useState('');
 
-  const lines = useMemo(
-    () => (data && Array.isArray(data.lines) ? (data.lines as Record<string, unknown>[]) : []),
+  const lines = useMemo(() => mapDocLines(data?.lines), [data]);
+  const summary = useMemo(
+    () => (data ? moneySummaryFromDoc(data as Record<string, unknown>) : []),
     [data],
   );
 
@@ -348,45 +391,81 @@ export function DeliveryNoteDetailPage() {
     }
   }
 
-  if (isLoading) return <p>Loading…</p>;
+  if (isLoading) return <EntityListLoading>Loading delivery note…</EntityListLoading>;
   if (error || !data) return <ErrorText>Delivery note not found.</ErrorText>;
 
+  const party = asCaption(data.customer_name) || '—';
+  const dateStr = dateCaption(data.delivery_date);
+  const soId = asCaption(data.sales_order_id);
+  const soLabel = asCaption(data.so_number) || soId;
+  const invId = asCaption(data.sales_invoice_id || data.reference_invoice_id);
+  const invLabel =
+    asCaption(data.store_invoice_number || data.invoice_number || data.voucher_number) || invId;
+
+  const actions: DocumentDetailAction[] = [
+    {
+      id: 'edit',
+      label: 'Edit',
+      variant: 'ghost',
+      onClick: () => navigate(`/sales/delivery-notes/${id}/edit`),
+    },
+  ];
+  if (statusIncludes(data.status, 'draft', 'pending')) {
+    actions.push({
+      id: 'confirm',
+      label: 'Confirm',
+      variant: 'ghost',
+      onClick: () => void run('confirm'),
+    });
+  }
+  if (statusIncludes(data.status, 'confirm')) {
+    actions.push({
+      id: 'dispatch',
+      label: 'Dispatch',
+      variant: 'ghost',
+      onClick: () => void run('dispatch'),
+    });
+  }
+  if (statusIncludes(data.status, 'dispatch')) {
+    actions.push({
+      id: 'deliver',
+      label: 'Deliver',
+      variant: 'primary',
+      onClick: () => void run('deliver'),
+    });
+  }
+
+  const related = [
+    soId ? { id: 'so', label: `Order ${soLabel}`, to: `/sales/orders/${soId}` } : null,
+    invId ? { id: 'inv', label: `Invoice ${invLabel}`, to: `/sales/invoices/${invId}` } : null,
+  ].filter(Boolean) as { id: string; label: string; to: string }[];
+
   return (
-    <div>
-      <p style={{ marginBottom: 12 }}>
-        <Link to="/sales/delivery-notes">← Delivery notes</Link>
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <div>
-          <h2 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>
-            {asCaption(data.dn_number) || id}
-          </h2>
-          <div style={{ color: '#667', marginTop: 6 }}>
-            {asCaption(data.customer_name)} · {asCaption(data.status)}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Button type="button" variant="ghost" onClick={() => run('confirm')}>
-            Confirm
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => run('dispatch')}>
-            Dispatch
-          </Button>
-          <Button type="button" onClick={() => run('deliver')}>
-            Deliver
-          </Button>
-        </div>
-      </div>
-      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-      <EntityCardGrid>
-        {lines.map((line) => (
-          <EntityCard
-            key={String(line.id || line.product_id)}
-            title={asCaption(line.product_name) || asCaption(line.product_id)}
-            captions={[`Qty ${Number(line.qty ?? 0)}`, formatMoney(Number(line.rate ?? 0))]}
-          />
-        ))}
-      </EntityCardGrid>
-    </div>
+    <DocumentDetail
+      backTo="/sales/delivery-notes"
+      backLabel="Delivery notes"
+      kicker="Delivery note"
+      title={asCaption(data.dn_number) || id}
+      status={asCaption(data.status) || undefined}
+      party={party}
+      facts={buildFacts([
+        ['Delivery date', dateStr],
+        ['Transport', asCaption(data.transport_mode || data.transporter)],
+        ['Vehicle', asCaption(data.vehicle_number)],
+        ['LR / AWB', asCaption(data.lr_number || data.awb_number)],
+      ])}
+      related={related.length ? related : undefined}
+      actions={actions}
+      error={actionError || null}
+      notes={notesFromDoc(data as Record<string, unknown>)}
+      lines={lines}
+      summary={
+        summary.length
+          ? summary
+          : Number(data.total_amount ?? 0)
+            ? [{ label: 'Grand total', value: Number(data.total_amount ?? 0) }]
+            : []
+      }
+    />
   );
 }

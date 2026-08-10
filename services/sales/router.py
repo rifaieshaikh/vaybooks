@@ -40,6 +40,8 @@ class SalesLineWrite(BaseModel):
     rate: float = 0.0
     product_name: str = ""
     discount: float = 0.0
+    discount_mode: str = "flat"
+    discount_input: float = 0.0
     location_id: str = ""
 
 
@@ -87,9 +89,17 @@ class InvoiceWrite(BaseModel):
     amount_received: float = 0.0
     discount_amount: float = 0.0
     invoice_discount: float = 0.0
+    invoice_discount_mode: str = "flat"
+    credit_applied: float = 0.0
+    advance_applied: float = 0.0
+    commission_agent_ids: List[str] = Field(default_factory=list)
+    sales_rep_ids: List[str] = Field(default_factory=list)
     reference_so_id: Optional[str] = None
     reference_dn_id: Optional[str] = None
     location_id: str = ""
+    terms_and_conditions: str = ""
+    bank_account_id: Optional[str] = None
+    custom_values: Optional[dict[str, Any]] = None
     lines: List[SalesLineWrite] = Field(min_length=1)
 
 
@@ -190,7 +200,7 @@ def _doc_dict(entity: Any, *, include_lines: bool = True) -> dict[str, Any]:
     return data
 
 
-def _invoice_dict(row: dict[str, Any]) -> dict[str, Any]:
+def _invoice_dict(row: dict[str, Any], *, include_lines: bool = False) -> dict[str, Any]:
     data = dict(row)
     data["description"] = _display_description(data.get("description") or data.get("line_items_note"))
     data["caption"] = " · ".join(
@@ -202,7 +212,8 @@ def _invoice_dict(row: dict[str, Any]) -> dict[str, Any]:
         ]
         if b
     )
-    data.pop("lines", None)
+    if not include_lines:
+        data.pop("lines", None)
     degraded = is_degraded_pending()
     data["degraded_pending"] = degraded
     data["stock_status"] = "posted" if not degraded else "degraded_pending"
@@ -211,7 +222,24 @@ def _invoice_dict(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _line_payloads(lines: List[SalesLineWrite]) -> list[dict[str, Any]]:
-    return [line.model_dump() for line in lines]
+    payloads: list[dict[str, Any]] = []
+    for line in lines:
+        payload = line.model_dump()
+        payload["discount_mode"] = line.discount_mode
+        payload["discount_input"] = line.discount_input
+        payloads.append(payload)
+    return payloads
+
+
+def _commission_tags(body: InvoiceWrite) -> Optional[dict[str, list[str]]]:
+    agents = list(body.commission_agent_ids or [])
+    reps = list(body.sales_rep_ids or [])
+    if not agents and not reps:
+        return None
+    return {
+        "commission_agent_ids": agents,
+        "sales_rep_ids": reps,
+    }
 
 
 @router.get("/health")
@@ -639,6 +667,21 @@ def get_delivery_note(dn_id: str) -> dict[str, Any]:
     return _doc_dict(dn)
 
 
+@router.put("/delivery-notes/{dn_id}")
+def update_delivery_note(dn_id: str, body: DeliveryNoteWrite) -> dict[str, Any]:
+    try:
+        dn = _svc().update_delivery_note(
+            dn_id,
+            delivery_date=_parse_date(body.delivery_date) or date.today(),
+            lines=_line_payloads(body.lines),
+            notes=body.notes,
+            location_id=body.location_id or None,
+        )
+        return _doc_dict(dn)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
 @router.post("/delivery-notes/{dn_id}/confirm")
 def confirm_delivery_note(dn_id: str) -> dict[str, Any]:
     try:
@@ -709,7 +752,16 @@ def create_invoice(body: InvoiceWrite) -> dict[str, Any]:
             reference_dn_id=body.reference_dn_id,
             line_items=lines,
             invoice_discount=body.invoice_discount,
+            credit_applied=body.credit_applied,
+            advance_applied=body.advance_applied,
+            commission_tags=_commission_tags(body),
             location_id=body.location_id,
+            document_content=_svc().build_document_content(
+                "sales_invoice",
+                custom_values=body.custom_values or None,
+                bank_account_id=body.bank_account_id,
+                terms_and_conditions=body.terms_and_conditions or None,
+            ),
         )
         row = _svc().get_sales_invoice(voucher.id) or {"id": voucher.id}
         return _invoice_dict(row)
@@ -719,10 +771,102 @@ def create_invoice(body: InvoiceWrite) -> dict[str, Any]:
 
 @router.get("/invoices/{invoice_id}")
 def get_invoice(invoice_id: str) -> dict[str, Any]:
+    from vaybooks.bms.domain.sales.line_items import parse_sales_line_items_note
+    from packages.services_kit.finance_container import get_finance_container
+
     row = _svc().get_sales_invoice(invoice_id)
     if not row:
         raise HTTPException(status_code=404, detail="Sales invoice not found")
-    return _invoice_dict(row)
+    data = _invoice_dict(row, include_lines=True)
+    try:
+        voucher = get_finance_container().accounting.get_voucher(invoice_id)
+    except Exception:
+        voucher = None
+    if voucher is not None:
+        items, invoice_discount, tax_summary = parse_sales_line_items_note(
+            getattr(voucher, "description", None) or ""
+        )
+        normalized: list[dict[str, Any]] = []
+        for item in items:
+            if isinstance(item, dict):
+                normalized.append(item)
+            elif hasattr(item, "to_line_dict"):
+                normalized.append(item.to_line_dict())
+            else:
+                normalized.append(
+                    {
+                        "product_id": str(getattr(item, "product_id", "")),
+                        "qty": float(getattr(item, "qty", 0) or 0),
+                        "rate": float(getattr(item, "rate", 0) or 0),
+                    }
+                )
+        data["lines"] = normalized
+        data["invoice_discount"] = float(invoice_discount or 0)
+        if tax_summary:
+            data["tax_summary"] = tax_summary
+        data["voucher_date"] = str(getattr(voucher, "voucher_date", "") or "")[:10]
+        data["store_account_id"] = str(
+            getattr(voucher, "store_account_id", "") or data.get("store_account_id") or ""
+        )
+        cust_acct = str(data.get("customer_account_id") or "")
+        if cust_acct and not data.get("customer_id"):
+            try:
+                acct = get_finance_container().accounting.get_account(cust_acct)
+                party_id = str(
+                    getattr(acct, "party_id", "") or getattr(acct, "customer_id", "") or ""
+                )
+                if party_id:
+                    data["customer_id"] = party_id
+            except Exception:
+                pass
+        for key in (
+            "commission_agent_ids",
+            "sales_rep_ids",
+            "location_id",
+            "bank_account_id",
+            "terms_and_conditions",
+        ):
+            val = getattr(voucher, key, None)
+            if val is not None and key not in data:
+                data[key] = val
+    return data
+
+
+@router.put("/invoices/{invoice_id}")
+def update_invoice(invoice_id: str, body: InvoiceWrite) -> dict[str, Any]:
+    try:
+        from packages.services_kit.finance_container import get_finance_container
+
+        customer_account = get_finance_container().accounting.get_customer_account(
+            body.customer_id
+        )
+        if not customer_account:
+            raise ValueError("Customer account not found")
+        lines = _line_payloads(body.lines)
+        for line in lines:
+            if body.location_id and not line.get("location_id"):
+                line["location_id"] = body.location_id
+        voucher = _svc().update_sales_invoice(
+            invoice_id,
+            customer_account_id=customer_account.id,
+            store_account_id=body.store_account_id,
+            store_invoice_number=body.store_invoice_number
+            or f"INV-{date.today().isoformat()}",
+            line_items=lines,
+            amount_received=body.amount_received,
+            voucher_date=_parse_date(body.voucher_date) or date.today(),
+            invoice_discount=body.invoice_discount,
+            credit_applied=body.credit_applied,
+            advance_applied=body.advance_applied,
+            commission_tags=_commission_tags(body),
+            bank_account_id=body.bank_account_id,
+            terms_and_conditions=body.terms_and_conditions or None,
+            custom_values=body.custom_values,
+        )
+        row = _svc().get_sales_invoice(voucher.id) or {"id": voucher.id}
+        return _invoice_dict(row)
+    except Exception as exc:
+        raise _http_err(exc) from exc
 
 
 @router.get("/invoices/{invoice_id}/pdf")
@@ -796,6 +940,25 @@ def get_return(return_id: str) -> dict[str, Any]:
     if not ret:
         raise HTTPException(status_code=404, detail="Sales return not found")
     return _doc_dict(ret)
+
+
+@router.put("/returns/{return_id}")
+def update_return(return_id: str, body: SalesReturnWrite) -> dict[str, Any]:
+    try:
+        ret = _svc().update_sales_return(
+            return_id,
+            customer_id=body.customer_id,
+            return_date=_parse_date(body.return_date) or date.today(),
+            lines=[line.model_dump() for line in body.lines],
+            source_invoice_id=body.source_invoice_id,
+            notes=body.notes,
+            return_reason=body.return_reason,
+            restock_items=body.restock_items,
+            location_id=body.location_id or None,
+        )
+        return _doc_dict(ret)
+    except Exception as exc:
+        raise _http_err(exc) from exc
 
 
 @router.post("/returns/{return_id}/approve")

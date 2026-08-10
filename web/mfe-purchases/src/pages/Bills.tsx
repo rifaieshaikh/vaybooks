@@ -1,15 +1,12 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  useCreatePurchaseBillMutation,
   useGetPurchaseBillQuery,
-  useListInventoryLocationsQuery,
-  useListInventoryProductsQuery,
   useListPurchaseBillsQuery,
-  useListVendorsQuery,
 } from '@vaybooks/store';
 import {
   Button,
+  DocumentDetail,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -20,20 +17,26 @@ import {
   EntityListQuickFilters,
   EntityListTable,
   ErrorText,
-  FormRow,
-  Modal,
   PAGE_SIZE,
   PaginationBar,
-  TextInput,
   matchesRegex,
   pageCount,
   paginate,
   sortRows,
+  type DocumentDetailAction,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
-import { asCaption, extractError, formatMoney } from '../utils';
+import { asCaption, formatMoney } from '../utils';
+import { canEditInvoiceMonth } from '../editors/linePreview';
+import {
+  buildFacts,
+  dateCaption,
+  mapDocLines,
+  moneySummaryFromDoc,
+  notesFromDoc,
+} from './documentDetailHelpers';
 
 const DEFAULT_FILTERS = {
   vendor_bill_number: '',
@@ -50,23 +53,21 @@ const VOUCHER_CHIPS = [
 
 export function PurchaseBillsListPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const { data = [], isLoading, error } = useListPurchaseBillsQuery();
-  const { data: vendors = [] } = useListVendorsQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
-  const { data: locations = [] } = useListInventoryLocationsQuery();
-  const [createBill, createState] = useCreatePurchaseBillMutation();
 
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
-  const [open, setOpen] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [vendorId, setVendorId] = useState('');
-  const [billNumber, setBillNumber] = useState('');
-  const [locationId, setLocationId] = useState('');
-  const [productId, setProductId] = useState('');
-  const [qty, setQty] = useState('1');
-  const [rate, setRate] = useState('0');
+
+  useEffect(() => {
+    if (params.get('new') === '1') {
+      const vid = params.get('vendor_id');
+      navigate(vid ? `/purchases/bills/new?vendor_id=${vid}` : '/purchases/bills/new', {
+        replace: true,
+      });
+    }
+  }, [params, navigate]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
@@ -138,21 +139,10 @@ export function PurchaseBillsListPage() {
     [],
   );
 
-  async function onCreate() {
-    setFormError('');
-    try {
-      const created = await createBill({
-        vendor_id: vendorId,
-        vendor_bill_number: billNumber,
-        location_id: locationId,
-        lines: [{ product_id: productId, qty: Number(qty) || 0, rate: Number(rate) || 0 }],
-      }).unwrap();
-      setOpen(false);
-      navigate(`/purchases/bills/${created.id}`);
-    } catch (e) {
-      setFormError(extractError(e));
-    }
-  }
+  const goNew = () => {
+    const vid = params.get('vendor_id');
+    navigate(vid ? `/purchases/bills/new?vendor_id=${vid}` : '/purchases/bills/new');
+  };
 
   return (
     <EntityListPage>
@@ -161,14 +151,7 @@ export function PurchaseBillsListPage() {
         title="Purchase Bills"
         count={`${filtered.length} ${filtered.length === 1 ? 'bill' : 'bills'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setOpen(true);
-              if (!locationId && locations[0]) setLocationId(String(locations[0].id));
-            }}
-          >
+          <Button type="button" onClick={goNew}>
             New bill
           </Button>
         }
@@ -213,6 +196,10 @@ export function PurchaseBillsListPage() {
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
           <strong>No bills found.</strong>
+          <p>Create a bill to record a vendor purchase.</p>
+          <Button type="button" onClick={goNew}>
+            New bill
+          </Button>
         </EntityListEmpty>
       ) : null}
 
@@ -234,107 +221,78 @@ export function PurchaseBillsListPage() {
           </div>
         </EntityListFoot>
       ) : null}
-
-      <Modal
-        open={open}
-        title="New purchase bill"
-        onClose={() => setOpen(false)}
-        footer={
-          <>
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={onCreate}
-              disabled={createState.isLoading || !vendorId || !billNumber || !productId}
-            >
-              {createState.isLoading ? 'Saving…' : 'Create'}
-            </Button>
-          </>
-        }
-      >
-        <div style={{ display: 'grid', gap: 10 }}>
-          {formError ? <ErrorText>{formError}</ErrorText> : null}
-          <FormRow label="Vendor *">
-            <select
-              value={vendorId}
-              onChange={(e) => setVendorId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select vendor</option>
-              {vendors.map((v) => (
-                <option key={String(v.id)} value={String(v.id)}>
-                  {asCaption(v.vendor_name || v.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Vendor bill # *">
-            <TextInput value={billNumber} onChange={(e) => setBillNumber(e.target.value)} />
-          </FormRow>
-          <FormRow label="Location">
-            <select
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">None</option>
-              {locations.map((l) => (
-                <option key={String(l.id)} value={String(l.id)}>
-                  {asCaption(l.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Product *">
-            <select
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select product</option>
-              {products.map((p) => (
-                <option key={String(p.id)} value={String(p.id)}>
-                  {asCaption(p.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <FormRow label="Qty">
-              <TextInput value={qty} onChange={(e) => setQty(e.target.value)} />
-            </FormRow>
-            <FormRow label="Rate">
-              <TextInput value={rate} onChange={(e) => setRate(e.target.value)} />
-            </FormRow>
-          </div>
-        </div>
-      </Modal>
     </EntityListPage>
   );
 }
 
 export function PurchaseBillDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error } = useGetPurchaseBillQuery(id, { skip: !id });
 
-  if (isLoading) return <p>Loading…</p>;
+  const lines = useMemo(
+    () => mapDocLines(data?.lines || data?.items),
+    [data],
+  );
+  const summary = useMemo(
+    () => (data ? moneySummaryFromDoc(data as Record<string, unknown>) : []),
+    [data],
+  );
+
+  if (isLoading) return <EntityListLoading>Loading bill…</EntityListLoading>;
   if (error || !data) return <ErrorText>Purchase bill not found.</ErrorText>;
 
+  const dateStr = dateCaption(data.bill_date || data.voucher_date);
+  const editable = canEditInvoiceMonth(dateStr);
+  const party = asCaption(data.vendor_name || data.party_name) || '—';
+  const poId = asCaption(data.purchase_order_id);
+  const poLabel = asCaption(data.po_number) || poId;
+  const grnId = asCaption(data.reference_grn_id || data.grn_id);
+  const grnLabel = asCaption(data.grn_number) || grnId;
+
+  const actions: DocumentDetailAction[] = [
+    {
+      id: 'edit',
+      label: 'Edit',
+      variant: 'ghost',
+      disabled: !editable,
+      title: editable ? 'Edit bill' : 'Bills can only be edited in the same calendar month',
+      onClick: () => navigate(`/purchases/bills/${id}/edit`),
+    },
+  ];
+
+  const related = [
+    poId ? { id: 'po', label: `PO ${poLabel}`, to: `/purchases/orders/${poId}` } : null,
+    grnId
+      ? { id: 'grn', label: `GRN ${grnLabel}`, to: `/purchases/goods-receipt/${grnId}` }
+      : null,
+  ].filter(Boolean) as { id: string; label: string; to: string }[];
+
   return (
-    <div>
-      <p style={{ marginBottom: 12 }}>
-        <Link to="/purchases/bills">← Bills</Link>
-      </p>
-      <h2 style={{ margin: '0 0 8px', color: 'var(--vb-color-primary, #185c4c)' }}>
-        {asCaption(data.vendor_bill_number) || asCaption(data.voucher_number) || id}
-      </h2>
-      <div style={{ color: '#667', marginBottom: 16 }}>
-        {asCaption(data.vendor_name || data.party_name)} · {asCaption(data.bill_date).slice(0, 10)} ·{' '}
-        {formatMoney(Number(data.total ?? data.amount ?? 0))}
-      </div>
-      <p>{asCaption(data.description)}</p>
-    </div>
+    <DocumentDetail
+      backTo="/purchases/bills"
+      backLabel="Bills"
+      kicker="Purchase bill"
+      title={asCaption(data.vendor_bill_number) || asCaption(data.voucher_number) || id}
+      status={asCaption(data.status || data.payment_status) || undefined}
+      party={party}
+      facts={buildFacts([
+        ['Bill date', dateStr],
+        ['Due date', dateCaption(data.due_date)],
+        ['Payment', asCaption(data.payment_mode || data.payment_status)],
+        ['Vendor GSTIN', asCaption(data.vendor_gstin || data.gstin)],
+        ['Voucher', asCaption(data.voucher_number)],
+      ])}
+      related={related.length ? related : undefined}
+      actions={actions}
+      error={!editable ? 'Edit is locked — bill date is outside the current month.' : null}
+      notes={notesFromDoc(data as Record<string, unknown>)}
+      lines={lines}
+      summary={
+        summary.length
+          ? summary
+          : [{ label: 'Grand total', value: Number(data.total ?? data.amount ?? 0) }]
+      }
+    />
   );
 }
