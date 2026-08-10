@@ -10,7 +10,7 @@ Aggregates activity catalogs based on the org's enabled modules:
 """
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from typing import Iterable, List
 
 from vaybooks.bms.domain.entitlements.catalog import (
     MODULE_BOUTIQUE,

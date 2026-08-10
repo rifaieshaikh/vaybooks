@@ -917,13 +917,20 @@ async def upload_item_attachment(
 
 
 @router.get("/attachments/{attachment_id}")
-def download_attachment(attachment_id: str):
+def download_attachment(
+    attachment_id: str,
+    _: str = Depends(require_permission("boutique.orders.view")),
+):
     try:
         attachments = _c().attachments
         if not attachments:
             raise HTTPException(status_code=404, detail="Attachment not found")
         attachment = attachments.get(attachment_id)
         if not attachment:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        order_id = getattr(attachment, "order_id", "") or ""
+        order = _c().orders.get_order_detail(order_id) if order_id else None
+        if not order:
             raise HTTPException(status_code=404, detail="Attachment not found")
         payload = attachment.data or b""
         filename = attachment.name or attachment_id
@@ -942,10 +949,20 @@ def download_attachment(attachment_id: str):
 
 
 @router.delete("/attachments/{attachment_id}")
-def delete_attachment(attachment_id: str) -> dict[str, str]:
+def delete_attachment(
+    attachment_id: str,
+    _: str = Depends(require_permission("boutique.orders.edit")),
+) -> dict[str, str]:
     try:
         attachments = _c().attachments
         if not attachments:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        attachment = attachments.get(attachment_id)
+        if not attachment:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        order_id = getattr(attachment, "order_id", "") or ""
+        order = _c().orders.get_order_detail(order_id) if order_id else None
+        if not order:
             raise HTTPException(status_code=404, detail="Attachment not found")
         attachments.delete(attachment_id)
         return {"status": "deleted", "id": attachment_id}

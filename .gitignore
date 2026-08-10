@@ -2,7 +2,7 @@
 seed.toml
 qa-output/
 dev-orchestrator-output/
-tasks/
+/tasks/
 __pycache__/
 *.pyc
 .env

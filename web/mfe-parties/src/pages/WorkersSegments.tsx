@@ -31,6 +31,7 @@ import {
   useCalculateWorkerSalaryMutation,
   usePayWorkerSalaryMutation,
   useListFinanceAccountsQuery,
+  useListWorkerActivityOptionsQuery,
   useCreatePartySegmentMutation,
   useDeletePartySegmentMutation,
   useListPartySegmentsQuery,
@@ -63,6 +64,9 @@ export function WorkersListPage() {
   const [calculateSalary, calcState] = useCalculateWorkerSalaryMutation();
   const [paySalary, payState] = usePayWorkerSalaryMutation();
   const { data: accounts = [] } = useListFinanceAccountsQuery();
+  const { data: activityOptions = [] } = useListWorkerActivityOptionsQuery({
+    active_only: true,
+  });
 
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_WORKER_SORT);
   const [page, setPage] = useState(1);
@@ -76,6 +80,7 @@ export function WorkersListPage() {
   const [otThreshold, setOtThreshold] = useState('0');
   const [otMult, setOtMult] = useState('1.5');
   const [locationIds, setLocationIds] = useState('default');
+  const [activityKeys, setActivityKeys] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
   const [periodFrom, setPeriodFrom] = useState('');
   const [periodTo, setPeriodTo] = useState('');
@@ -98,13 +103,20 @@ export function WorkersListPage() {
 
   async function submit() {
     setFormError('');
+    const refs = activityKeys
+      .map((key) => {
+        const [source, activityId] = key.split(':');
+        if (!source || !activityId) return null;
+        return { activity_id: activityId, source };
+      })
+      .filter(Boolean);
     const body = {
       worker_name: name,
       default_hourly_rate: Number(rate) || 0,
       base_salary: Number(baseSalary) || 0,
       ot_threshold_hours: Number(otThreshold) || 0,
       ot_multiplier: Number(otMult) || 1.5,
-      activity_refs: [] as string[],
+      activity_refs: refs,
       location_ids: parseLocationIds(locationIds),
       is_active: true,
     };
@@ -117,6 +129,7 @@ export function WorkersListPage() {
       setBaseSalary('0');
       setOtThreshold('0');
       setOtMult('1.5');
+      setActivityKeys([]);
       refetch();
     } catch {
       setFormError('Save failed');
@@ -134,6 +147,17 @@ export function WorkersListPage() {
     setOtMult(String(row.ot_multiplier ?? 1.5));
     setLocationIds(
       Array.isArray(row.location_ids) ? (row.location_ids as string[]).join(', ') : 'default',
+    );
+    const refs = Array.isArray(row.activity_refs) ? row.activity_refs : [];
+    setActivityKeys(
+      refs
+        .map((ref) => {
+          const item = ref as { activity_id?: string; source?: string };
+          const id = String(item.activity_id || '').trim();
+          const source = String(item.source || 'customization').trim();
+          return id ? `${source}:${id}` : '';
+        })
+        .filter(Boolean),
     );
     setFormError('');
     setDialog('edit');
@@ -235,7 +259,11 @@ export function WorkersListPage() {
               setEditId(null);
               setName('');
               setRate('0');
+              setBaseSalary('0');
+              setOtThreshold('0');
+              setOtMult('1.5');
               setLocationIds('default');
+              setActivityKeys([]);
               setFormError('');
               setDialog('add');
             }}
@@ -353,6 +381,44 @@ export function WorkersListPage() {
           </FormRow>
           <FormRow label="OT multiplier">
             <TextInput type="number" value={otMult} onChange={(e) => setOtMult(e.target.value)} />
+          </FormRow>
+          <FormRow label="Activities">
+            <div
+              style={{
+                maxHeight: 180,
+                overflow: 'auto',
+                border: '1px solid #ddd',
+                borderRadius: 6,
+                padding: 8,
+                display: 'grid',
+                gap: 6,
+              }}
+            >
+              {activityOptions.length === 0 ? (
+                <span className="el-muted">No activities available for enabled modules.</span>
+              ) : (
+                activityOptions.map((opt) => {
+                  const key = String(opt.key || `${opt.source}:${opt.activity_id}`);
+                  const checked = activityKeys.includes(key);
+                  return (
+                    <label key={key} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          setActivityKeys((prev) =>
+                            e.target.checked
+                              ? [...prev, key]
+                              : prev.filter((item) => item !== key),
+                          );
+                        }}
+                      />
+                      <span>{String(opt.label || opt.activity_name || key)}</span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
           </FormRow>
           <LocationIdsField value={locationIds} onChange={setLocationIds} />
         </div>

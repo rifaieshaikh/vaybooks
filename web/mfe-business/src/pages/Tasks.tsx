@@ -8,6 +8,7 @@ import {
   useListBusinessTasksQuery,
   useListWorkersQuery,
   useSetBusinessTaskStatusMutation,
+  useUpdateBusinessTaskMutation,
 } from '@vaybooks/store';
 import {
   Button,
@@ -61,6 +62,7 @@ export function BusinessTasksPage() {
   const activities = useMemo(() => unwrapPaged(actRaw), [actRaw]);
   const { data: workers = [] } = useListWorkersQuery({ active_only: true });
   const [createTask, createState] = useCreateBusinessTaskMutation();
+  const [updateTask, updateState] = useUpdateBusinessTaskMutation();
   const [assignTask] = useAssignBusinessTaskMutation();
   const [setStatus] = useSetBusinessTaskStatusMutation();
   const [completeTask] = useCompleteBusinessTaskMutation();
@@ -163,6 +165,13 @@ export function BusinessTasksPage() {
       return;
     }
     try {
+      await updateTask({
+        id: editingId,
+        body: {
+          title,
+          notes,
+        },
+      }).unwrap();
       if (workerId !== undefined) {
         await assignTask({ id: editingId, worker_id: workerId }).unwrap();
       }
@@ -280,8 +289,12 @@ export function BusinessTasksPage() {
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" onClick={() => void onSave()} disabled={createState.isLoading}>
-              {createState.isLoading ? 'Saving…' : 'Save'}
+            <Button
+              type="button"
+              onClick={() => void onSave()}
+              disabled={createState.isLoading || updateState.isLoading}
+            >
+              {createState.isLoading || updateState.isLoading ? 'Saving…' : 'Save'}
             </Button>
           </>
         }

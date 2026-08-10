@@ -291,21 +291,29 @@ class MeasurementAppService:
         record = self._record_repo.find_by_id(record_id)
         if not record:
             raise ValidationError("Measurement record not found")
-        if self._order_repo:
-            labels: list[str] = []
-            for order in self._order_repo.list_by_customer(record.customer_id):
-                for item in getattr(order, "customization_items", None) or []:
-                    mid = getattr(item, "measurement_id", None) or ""
-                    if mid == record_id:
-                        bill = getattr(item, "bill_number", "") or getattr(
-                            item, "item_id", ""
-                        )
-                        labels.append(
-                            f"{getattr(order, 'order_number', order.id)} / {bill}"
-                        )
-            if labels:
-                raise ValidationError(
-                    "This measurement is linked to customization items and cannot be "
-                    "removed: " + "; ".join(labels[:5])
-                )
+        if not self._order_repo:
+            raise ValidationError(
+                "Cannot verify measurement links; order repository unavailable"
+            )
+        labels: list[str] = []
+        orders = []
+        if hasattr(self._order_repo, "list_all"):
+            orders = list(self._order_repo.list_all())
+        elif record.customer_id and hasattr(self._order_repo, "list_by_customer"):
+            orders = list(self._order_repo.list_by_customer(record.customer_id))
+        for order in orders:
+            for item in getattr(order, "customization_items", None) or []:
+                mid = getattr(item, "measurement_id", None) or ""
+                if mid == record_id:
+                    bill = getattr(item, "bill_number", "") or getattr(
+                        item, "item_id", ""
+                    )
+                    labels.append(
+                        f"{getattr(order, 'order_number', order.id)} / {bill}"
+                    )
+        if labels:
+            raise ValidationError(
+                "This measurement is linked to customization items and cannot be "
+                "removed: " + "; ".join(labels[:5])
+            )
         self._record_repo.delete(record_id)

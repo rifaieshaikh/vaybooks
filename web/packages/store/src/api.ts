@@ -593,6 +593,19 @@ export const baseApi = createApi({
       }),
       providesTags: ['Worker'],
     }),
+    listWorkerActivityOptions: build.query<
+      Record<string, unknown>[],
+      { active_only?: boolean } | void
+    >({
+      query: (args) => ({
+        url: '/parties/worker-activity-options',
+        params:
+          args && 'active_only' in args
+            ? { active_only: args.active_only ?? true }
+            : undefined,
+      }),
+      providesTags: ['Worker'],
+    }),
     createWorker: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/parties/workers', method: 'POST', body }),
       invalidatesTags: ['Worker'],
@@ -1814,6 +1827,13 @@ export const baseApi = createApi({
       query: (body) => ({ url: '/business/tasks', method: 'POST', body }),
       invalidatesTags: ['BusinessTask'],
     }),
+    updateBusinessTask: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/business/tasks/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['BusinessTask'],
+    }),
     assignBusinessTask: build.mutation<
       Record<string, unknown>,
       { id: string; worker_id: string }
@@ -2802,6 +2822,7 @@ export const {
   useUpdateCommissionAgentMutation,
   useGetCommissionAgentSummaryQuery,
   useListWorkersQuery,
+  useListWorkerActivityOptionsQuery,
   useCreateWorkerMutation,
   useGetWorkerQuery,
   useUpdateWorkerMutation,
@@ -3010,6 +3031,7 @@ export const {
   useDeactivateBusinessActivityMutation,
   useListBusinessTasksQuery,
   useCreateBusinessTaskMutation,
+  useUpdateBusinessTaskMutation,
   useAssignBusinessTaskMutation,
   useSetBusinessTaskStatusMutation,
   useCompleteBusinessTaskMutation,

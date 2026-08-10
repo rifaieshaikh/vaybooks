@@ -93,7 +93,7 @@ class WorkerActivityRefIn(BaseModel):
 
 class WorkerWrite(BaseModel):
     worker_name: str = Field(min_length=1)
-    activity_refs: List[WorkerActivityRefIn] = Field(default_factory=list)
+    activity_refs: Optional[List[WorkerActivityRefIn]] = None
     is_active: bool = True
     default_hourly_rate: float = 0.0
     base_salary: float = 0.0

@@ -100,6 +100,21 @@ def test_business_task_flow_create_assign_time_complete():
     assert completed.status == "Completed"
 
 
+def test_salary_includes_project_hours_math():
+    """Project hours are duration-only; payroll math still applies OT split."""
+    worker = Worker(
+        worker_name="Pat",
+        base_salary=0,
+        default_hourly_rate=50,
+        ot_threshold_hours=8,
+        ot_multiplier=2.0,
+    )
+    preview = calculate_salary(worker, date(2026, 8, 1), date(2026, 8, 7), attributed_hours=10)
+    assert preview.regular_hours == 8
+    assert preview.ot_hours == 2
+    assert preview.total == 8 * 50 + 2 * 50 * 2
+
+
 def test_salary_prorate_and_hourly():
     worker = Worker(
         worker_name="Sam",

@@ -625,6 +625,82 @@ def agent_summary(agent_id: str) -> dict[str, Any]:
 # --- Workers -------------------------------------------------------------------
 
 
+def _activity_options_service():
+    """Compose module-aware catalogs for the employee activity picker."""
+    from packages.services_kit.access_container import get_access_container
+    from packages.services_kit.boutique_container import get_boutique_container
+    from packages.services_kit.business_container import get_business_container
+    from packages.services_kit.production_container import get_production_container
+    from packages.services_kit.projects_container import get_projects_container
+    from packages.services_kit.store_container import get_store_container
+    from vaybooks.bms.application.parties.workers.activity_options import (
+        EmployeeActivityOptionsService,
+    )
+
+    plans = get_access_container().plans
+    store = get_store_container().activities
+    boutique = None
+    projects = None
+    business = None
+    production = None
+    try:
+        boutique = get_boutique_container().activities
+    except Exception:
+        boutique = None
+    try:
+        projects = get_projects_container().activity_configs
+    except Exception:
+        projects = None
+    try:
+        business = get_business_container().activities
+    except Exception:
+        business = None
+    try:
+        production = get_production_container().activities
+    except Exception:
+        production = None
+    return EmployeeActivityOptionsService(
+        plans,
+        store,
+        boutique,
+        projects,
+        business_activity_service=business,
+        production_activity_service=production,
+    )
+
+
+def _worker_refs_payload(body: WorkerWrite, existing=None) -> list[dict[str, str]]:
+    if body.activity_refs is None:
+        if existing is None:
+            return []
+        return [
+            {"activity_id": ref.activity_id, "source": ref.source}
+            for ref in (getattr(existing, "activity_refs", None) or [])
+        ]
+    return [
+        {"activity_id": r.activity_id, "source": r.source} for r in body.activity_refs
+    ]
+
+
+@router.get("/worker-activity-options")
+def list_worker_activity_options(active_only: bool = True) -> list[dict[str, Any]]:
+    try:
+        options = _activity_options_service().list_options(active_only=active_only)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return [
+        {
+            "activity_id": o.activity_id,
+            "activity_name": o.activity_name,
+            "source": o.source,
+            "label": o.label,
+            "key": o.key,
+            "is_active": o.is_active,
+        }
+        for o in options
+    ]
+
+
 @router.get("/workers")
 def list_workers(active_only: bool = True) -> list[dict[str, Any]]:
     return [entity_dict(r) for r in _svc().workers.list_workers(active_only=active_only)]
@@ -632,7 +708,7 @@ def list_workers(active_only: bool = True) -> list[dict[str, Any]]:
 
 @router.post("/workers", status_code=201)
 def create_worker(body: WorkerWrite) -> dict[str, Any]:
-    refs = [{"activity_id": r.activity_id, "source": r.source} for r in body.activity_refs]
+    refs = _worker_refs_payload(body, existing=None)
     try:
         worker = _svc().workers.create_worker(
             body.worker_name,
@@ -669,7 +745,10 @@ def get_worker(worker_id: str) -> dict[str, Any]:
 
 @router.put("/workers/{worker_id}")
 def update_worker(worker_id: str, body: WorkerWrite) -> dict[str, Any]:
-    refs = [{"activity_id": r.activity_id, "source": r.source} for r in body.activity_refs]
+    existing = _svc().workers.get_worker(worker_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="worker not found")
+    refs = _worker_refs_payload(body, existing=existing)
     try:
         worker = _svc().workers.update_worker(
             worker_id,
@@ -706,6 +785,9 @@ def _parse_iso_date(value: str):
 
 def _attributed_hours(worker_id: str, period_from, period_to) -> float:
     """Sum completed labour minutes attributed to worker across modules."""
+    import logging
+
+    logger = logging.getLogger(__name__)
     minutes = 0
 
     def _in_range(work_date) -> bool:
@@ -714,7 +796,7 @@ def _attributed_hours(worker_id: str, period_from, period_to) -> float:
         d = work_date.date() if hasattr(work_date, "date") else work_date
         return period_from <= d <= period_to
 
-    def _add_entry(entry, id_attrs: tuple[str, ...]) -> None:
+    def _add_timed_entry(entry, id_attrs: tuple[str, ...]) -> None:
         nonlocal minutes
         if not _in_range(getattr(entry, "work_date", None)):
             return
@@ -735,25 +817,35 @@ def _attributed_hours(worker_id: str, period_from, period_to) -> float:
         from packages.services_kit.boutique_container import get_boutique_container
 
         for entry in get_boutique_container().time_tracking.list_all():
-            _add_entry(entry, ("assignee_worker_id", "worker_id"))
-    except Exception:
-        pass
+            _add_timed_entry(entry, ("assignee_worker_id", "worker_id"))
+    except Exception as exc:
+        logger.warning("salary hours: boutique time unavailable: %s", exc)
 
     try:
         from packages.services_kit.store_container import get_store_container
 
         for entry in get_store_container().time_tracking.list_all():
-            _add_entry(entry, ("worker_id",))
-    except Exception:
-        pass
+            _add_timed_entry(entry, ("worker_id",))
+    except Exception as exc:
+        logger.warning("salary hours: store time unavailable: %s", exc)
 
     try:
         from packages.services_kit.business_container import get_business_container
 
         for entry in get_business_container().time_tracking.list_all():
-            _add_entry(entry, ("worker_id",))
-    except Exception:
-        pass
+            _add_timed_entry(entry, ("worker_id",))
+    except Exception as exc:
+        logger.warning("salary hours: business time unavailable: %s", exc)
+
+    try:
+        from packages.services_kit.projects_container import get_projects_container
+
+        for entry in get_projects_container().time.list_by_worker(worker_id):
+            if not _in_range(getattr(entry, "work_date", None)):
+                continue
+            minutes += int(getattr(entry, "duration_minutes", 0) or 0)
+    except Exception as exc:
+        logger.warning("salary hours: project time unavailable: %s", exc)
 
     return round(minutes / 60.0, 2)
 
