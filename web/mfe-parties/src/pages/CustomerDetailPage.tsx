@@ -1,4 +1,19 @@
-import { Button, ErrorText, FormRow, TextInput } from '@vaybooks/ui-kit';
+import {
+  Button,
+  EntityDetailBack,
+  EntityDetailBanner,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailPanel,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
+  EntityDetailTabs,
+  EntityListLoading,
+  ErrorText,
+  FormRow,
+  StatusPill,
+  TextInput,
+} from '@vaybooks/ui-kit';
 import {
   useBlacklistCustomerMutation,
   useCan,
@@ -15,11 +30,12 @@ import {
   useSettleCustomerMutation,
   useUpdateCustomerMutation,
 } from '@vaybooks/store';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import {
   CustomerFormFields,
   customerBody,
+  customerLocationIds,
   customerToForm,
   emptyCustomerForm,
   validateCustomerForm,
@@ -27,6 +43,7 @@ import {
 import { CustomerPricingPanel } from '../components/CustomerPricingPanel';
 import { Modal } from '../components/Modal';
 import { type PartyFormValues } from '../components/PartyFields';
+import { usePartyLocationIds } from '../components/PartyLocationFields';
 import './CustomerDetail.css';
 
 type TabId = 'overview' | 'activity' | 'finance' | 'products' | 'prices' | 'pricing' | 'crm';
@@ -99,19 +116,22 @@ function CrmRelatedBlock({
   rows,
   hrefOf,
   labelOf,
+  limit,
 }: {
   title: string;
   rows: Record<string, unknown>[];
   hrefOf: (r: Record<string, unknown>) => string | null;
   labelOf: (r: Record<string, unknown>) => string;
+  limit?: number;
 }) {
+  const shown = typeof limit === 'number' ? rows.slice(0, limit) : rows;
   return (
     <section className="cd-activity-block">
       <h4>{title}</h4>
-      {rows.length === 0 ? (
+      {shown.length === 0 ? (
         <div className="cd-empty">No linked records.</div>
       ) : (
-        rows.map((r, i) => {
+        shown.map((r, i) => {
           const href = hrefOf(r);
           const label = labelOf(r);
           return (
@@ -135,8 +155,15 @@ function CrmRelatedBlock({
   );
 }
 
+function formatWhen(v: unknown) {
+  if (v == null || v === '') return '—';
+  const raw = String(v);
+  return raw.length > 16 ? raw.slice(0, 16).replace('T', ' ') : raw;
+}
+
 export function CustomerDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const can = useCan();
   const canEdit = can('parties.customers.edit');
@@ -200,6 +227,15 @@ export function CustomerDetailPage() {
   const [values, setValues] = useState<PartyFormValues>(emptyCustomerForm());
   const [formError, setFormError] = useState('');
   const [actionError, setActionError] = useState('');
+  const existingLocationIds = useMemo(
+    () => (data ? customerLocationIds(data as Record<string, unknown>) : []),
+    [data],
+  );
+  const locationState = usePartyLocationIds({
+    mode: 'edit',
+    existingIds: existingLocationIds,
+    resetKey: editOpen ? id : '',
+  });
 
   const segmentOptions = useMemo(
     () => segments.map((s) => ({ id: String(s.id), name: String(s.name || s.id) })),
@@ -213,28 +249,29 @@ export function CustomerDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="cd-page">
-        <p className="cd-empty">Loading customer…</p>
-      </div>
+      <EntityDetailPage className="cd-page">
+        <EntityListLoading>Loading customer…</EntityListLoading>
+      </EntityDetailPage>
     );
   }
   if (error || !data) {
     return (
-      <div className="cd-page">
-        <Link className="cd-back" to="/parties/customers">
-          ← Customers
-        </Link>
-        <p style={{ color: '#a12828' }}>Customer not found.</p>
-      </div>
+      <EntityDetailPage className="cd-page">
+        <EntityDetailBack to="/parties/customers" label="Customers" />
+        <ErrorText>Customer not found.</ErrorText>
+      </EntityDetailPage>
     );
   }
 
-  const segmentIds = Array.isArray(data.segment_ids) ? (data.segment_ids as string[]).map(String) : [];
+  const customer = data;
+  const segmentIds = Array.isArray(customer.segment_ids)
+    ? (customer.segment_ids as string[]).map(String)
+    : [];
   const segmentLabels = segmentIds
     .map((sid) => segmentOptions.find((s) => s.id === sid)?.name || sid)
     .filter(Boolean);
   const s = summary.data || {};
-  const blacklisted = Boolean(data.is_blacklisted);
+  const blacklisted = Boolean(customer.is_blacklisted);
 
   const salesCounts = (salesRel.data?.counts || {}) as Record<string, number>;
   const boutiqueSummary = (boutiqueRel.data?.summary || {}) as Record<string, unknown>;
@@ -326,50 +363,71 @@ export function CustomerDetailPage() {
     setSettleOpen(true);
   }
 
-  return (
-    <div className="cd-page">
-      <Link className="cd-back" to="/parties/customers">
-        ← Customers
-      </Link>
-
-      <header className="cd-hero">
-        <div className="cd-hero-top">
-          <div className="cd-identity">
-            <p className="cd-kicker">Customer profile</p>
-            <div className="cd-name-row">
-              <h1 className="cd-name">{String(data.customer_name)}</h1>
-              <span className={`cd-status ${blacklisted ? 'cd-status-bad' : 'cd-status-ok'}`}>
-                {blacklisted ? 'Blacklisted' : 'Active'}
+  const snapshotItems = [
+    {
+      label: 'Phone',
+      value: String(customer.phone_number || '—'),
+    },
+    ...(customer.email
+      ? [{ label: 'Email', value: String(customer.email) }]
+      : []),
+    ...(canFinance
+      ? [
+          {
+            label: 'Outstanding',
+            value: (
+              <span style={{ color: outstandingDue ? 'var(--cd-danger, #a12828)' : 'var(--cd-ok, #0f6b4c)' }}>
+                {money(s.open_invoice_outstanding ?? s.receivable_balance)}
               </span>
-            </div>
-            <p className="cd-meta">
-              {String(data.phone_number || 'No phone on file')}
-              {data.email ? ` · ${String(data.email)}` : ''}
-              {data.gstin ? ` · GSTIN ${String(data.gstin)}` : ''}
-            </p>
-            {segmentLabels.length > 0 ? (
-              <div className="cd-segments">
-                {segmentLabels.map((label) => (
-                  <span className="cd-chip" key={label}>
-                    {label}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-          </div>
+            ),
+          },
+          { label: 'Balance', value: money(s.balance) },
+          { label: 'Credit', value: money(s.credit_balance) },
+          { label: 'Advance', value: money(s.advance) },
+          { label: 'Parked', value: money(s.parked_settlement) },
+        ]
+      : []),
+  ];
 
-          <div className="cd-hero-actions">
-            {canEdit ? (
-              <Button
-                onClick={() => {
-                  setValues(customerToForm(data));
-                  setFormError('');
-                  setEditOpen(true);
-                }}
-              >
-                Edit
-              </Button>
+  function openEdit() {
+    setValues(customerToForm(customer as Record<string, unknown>));
+    setFormError('');
+    setEditOpen(true);
+  }
+
+  return (
+    <EntityDetailPage className="cd-page">
+      <EntityDetailBack to="/parties/customers" label="Customers" />
+
+      <EntityDetailHero
+        kicker="Parties · Customer"
+        title={String(customer.customer_name)}
+        lead={
+          <>
+            <StatusPill
+              status={blacklisted ? 'Blacklisted' : 'Active'}
+              tone={blacklisted ? 'danger' : 'success'}
+            />
+            <span className="ed-lead-sep">
+              {' '}
+              · {String(customer.phone_number || 'No phone on file')}
+            </span>
+            {customer.email ? <span className="ed-lead-sep"> · {String(customer.email)}</span> : null}
+            {customer.gstin ? (
+              <span className="ed-lead-sep"> · GSTIN {String(customer.gstin)}</span>
             ) : null}
+          </>
+        }
+        actions={
+          <>
+            {canEdit ? <Button onClick={openEdit}>Edit</Button> : null}
+            <Button
+              variant="ghost"
+              data-kb-action="customers.view_orders"
+              onClick={() => navigate(`/boutique/orders?customer_id=${encodeURIComponent(id)}`)}
+            >
+              View orders
+            </Button>
             {canBlacklist ? (
               <Button
                 variant="ghost"
@@ -390,38 +448,27 @@ export function CustomerDetailPage() {
             >
               Refresh
             </Button>
-          </div>
-        </div>
+          </>
+        }
+      />
 
-        {canFinance ? (
-          <div className="cd-finance">
-            <div>
-              <p className="cd-outstanding-label">Outstanding</p>
-              <p className={`cd-outstanding-value ${outstandingDue ? 'is-due' : 'is-clear'}`}>
-                {money(s.open_invoice_outstanding ?? s.receivable_balance)}
-              </p>
-            </div>
-            <div className="cd-finance-side">
-              <div className="cd-finance-side-item">
-                <span>Balance</span>
-                <strong>{money(s.balance)}</strong>
-              </div>
-              <div className="cd-finance-side-item">
-                <span>Credit</span>
-                <strong>{money(s.credit_balance)}</strong>
-              </div>
-              <div className="cd-finance-side-item">
-                <span>Advance</span>
-                <strong>{money(s.advance)}</strong>
-              </div>
-              <div className="cd-finance-side-item">
-                <span>Parked</span>
-                <strong>{money(s.parked_settlement)}</strong>
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </header>
+      {segmentLabels.length > 0 ? (
+        <div className="cd-segments">
+          {segmentLabels.map((label) => (
+            <span className="cd-chip" key={label}>
+              {label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <EntityDetailSnapshot ariaLabel="Customer facts" items={snapshotItems} />
+
+      {blacklisted ? (
+        <EntityDetailBanner>
+          This customer is blacklisted. Creates are blocked — Settle remains available when permitted.
+        </EntityDetailBanner>
+      ) : null}
 
       {showQa ? (
         <section className="cd-qa" aria-label="Quick actions">
@@ -449,22 +496,16 @@ export function CustomerDetailPage() {
       {actionError ? <ErrorText>{actionError}</ErrorText> : null}
 
       {visibleTabs.length > 1 ? (
-        <nav className="cd-tabs" aria-label="Customer sections">
-          {visibleTabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={`cd-tab${activeTab === t.id ? ' is-active' : ''}`}
-              onClick={() => selectTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
+        <EntityDetailTabs
+          value={activeTab}
+          ariaLabel="Customer sections"
+          onChange={(next) => selectTab(next as TabId)}
+          options={visibleTabs.map((t) => ({ id: t.id, label: t.label }))}
+        />
       ) : null}
 
       {activeTab === 'overview' ? (
-        <div className="cd-panel" key="overview">
+        <EntityDetailPanel key="overview" title="Overview">
           {canInsights ? (
             <section className="cd-insight">
               <h3>{buyingStyle}</h3>
@@ -613,11 +654,11 @@ export function CustomerDetailPage() {
           ) : (
             <p className="cd-empty">Overview shows identity and finance. Insights require additional permission.</p>
           )}
-        </div>
+        </EntityDetailPanel>
       ) : null}
 
       {activeTab === 'activity' && canInsights ? (
-        <div className="cd-panel cd-activity" key="activity">
+        <EntityDetailPanel key="activity" title="Activity" className="cd-activity">
           <ActivityBlock title="Recent sales" rows={(salesRel.data?.recent as Record<string, unknown>[]) || []} />
           <ActivityBlock
             title="Recent boutique orders"
@@ -627,11 +668,31 @@ export function CustomerDetailPage() {
             title="Recent projects"
             rows={(projectsRel.data?.recent as Record<string, unknown>[]) || []}
           />
-        </div>
+        </EntityDetailPanel>
       ) : null}
 
       {activeTab === 'crm' && canCrm ? (
-        <div className="cd-panel cd-activity" key="crm">
+        <EntityDetailPanel
+          key="crm"
+          title="CRM"
+          className="cd-activity"
+          headerEnd={
+            <div className="cd-crm-actions">
+              <Link
+                className="cd-text-link"
+                to={`/crm/activities?new=1&customer_id=${encodeURIComponent(id)}`}
+              >
+                New activity
+              </Link>
+              <Link
+                className="cd-text-link"
+                to={`/crm/activities?new=1&customer_id=${encodeURIComponent(id)}&activity_type=${encodeURIComponent('Payment Reminder')}`}
+              >
+                Log collection follow-up
+              </Link>
+            </div>
+          }
+        >
           {crmRel.isLoading ? (
             <p className="cd-empty">Loading CRM records…</p>
           ) : crmRel.error ? (
@@ -640,45 +701,131 @@ export function CustomerDetailPage() {
             </p>
           ) : (
             <>
-              <CrmRelatedBlock
-                title="Leads"
-                rows={(crmRel.data?.leads as Record<string, unknown>[]) || []}
-                hrefOf={(r) => (r.id ? `/crm/leads/${String(r.id)}` : null)}
-                labelOf={(r) =>
-                  String(r.name || r.lead_number || r.id || 'Lead')
-                }
-              />
-              <CrmRelatedBlock
-                title="Enquiries"
-                rows={(crmRel.data?.enquiries as Record<string, unknown>[]) || []}
-                hrefOf={(r) => (r.id ? `/crm/enquiries/${String(r.id)}` : null)}
-                labelOf={(r) =>
-                  String(r.enquiry_number || r.party_name || r.id || 'Enquiry')
-                }
-              />
-              <CrmRelatedBlock
-                title="Activities"
-                rows={(crmRel.data?.activities as Record<string, unknown>[]) || []}
-                hrefOf={(r) => (r.id ? `/crm/activities/${String(r.id)}` : null)}
-                labelOf={(r) =>
-                  String(r.activity_type || r.title || r.id || 'Activity')
-                }
-              />
+              {(() => {
+                const leadRows = (crmRel.data?.leads as Record<string, unknown>[]) || [];
+                const enquiryRows =
+                  (crmRel.data?.enquiries as Record<string, unknown>[]) || [];
+                const activityRows =
+                  (crmRel.data?.activities as Record<string, unknown>[]) || [];
+                const timelineRows =
+                  (crmRel.data?.recent_activities as Record<string, unknown>[]) ||
+                  (crmRel.data?.timeline as Record<string, unknown>[]) ||
+                  activityRows;
+                const crmOutstanding =
+                  crmRel.data?.open_invoice_outstanding ??
+                  crmRel.data?.outstanding_balance ??
+                  s.open_invoice_outstanding ??
+                  s.receivable_balance;
+                const primaryLead = leadRows[0];
+                const primaryEnquiry = enquiryRows[0];
+                return (
+                  <>
+                    <div className="cd-crm-strip">
+                      <div className="cd-kpi">
+                        <span>Outstanding</span>
+                        <strong>{money(crmOutstanding)}</strong>
+                      </div>
+                      <div className="cd-kpi">
+                        <span>Last contact</span>
+                        <strong>{formatWhen(crmRel.data?.last_contact_at)}</strong>
+                      </div>
+                      <div className="cd-kpi">
+                        <span>Next follow-up</span>
+                        <strong>{formatWhen(crmRel.data?.next_follow_up_at)}</strong>
+                      </div>
+                    </div>
+                    <div className="cd-crm-actions" style={{ marginBottom: '0.85rem' }}>
+                      {primaryLead?.id ? (
+                        <Link className="cd-text-link" to={`/crm/leads/${String(primaryLead.id)}`}>
+                          Open lead
+                        </Link>
+                      ) : (
+                        <Link
+                          className="cd-text-link"
+                          to={`/crm/leads?new=1&customer_id=${encodeURIComponent(id)}`}
+                        >
+                          New lead
+                        </Link>
+                      )}
+                      {primaryEnquiry?.id ? (
+                        <Link
+                          className="cd-text-link"
+                          to={`/crm/enquiries/${String(primaryEnquiry.id)}`}
+                        >
+                          Open enquiry
+                        </Link>
+                      ) : (
+                        <Link
+                          className="cd-text-link"
+                          to={`/crm/enquiries?new=1&customer_id=${encodeURIComponent(id)}`}
+                        >
+                          New enquiry
+                        </Link>
+                      )}
+                      <Link className="cd-text-link" to="/crm/collections">
+                        Collections
+                      </Link>
+                    </div>
+                    <p className="cd-empty" style={{ margin: '0 0 0.75rem', padding: 0 }}>
+                      {leadRows.length} lead{leadRows.length === 1 ? '' : 's'} ·{' '}
+                      {enquiryRows.length} enquir
+                      {enquiryRows.length === 1 ? 'y' : 'ies'} ·{' '}
+                      {activityRows.length} activit
+                      {activityRows.length === 1 ? 'y' : 'ies'}
+                    </p>
+                    <CrmRelatedBlock
+                      title="Timeline"
+                      rows={timelineRows}
+                      limit={8}
+                      hrefOf={(r) => (r.id ? `/crm/activities/${String(r.id)}` : null)}
+                      labelOf={(r) =>
+                        String(r.activity_type || r.title || r.outcome || r.id || 'Activity')
+                      }
+                    />
+                    <CrmRelatedBlock
+                      title="Leads"
+                      rows={leadRows}
+                      hrefOf={(r) => (r.id ? `/crm/leads/${String(r.id)}` : null)}
+                      labelOf={(r) =>
+                        String(r.name || r.lead_number || r.id || 'Lead')
+                      }
+                    />
+                    <CrmRelatedBlock
+                      title="Enquiries"
+                      rows={enquiryRows}
+                      hrefOf={(r) => (r.id ? `/crm/enquiries/${String(r.id)}` : null)}
+                      labelOf={(r) =>
+                        String(r.enquiry_number || r.party_name || r.id || 'Enquiry')
+                      }
+                    />
+                    <CrmRelatedBlock
+                      title="Activities"
+                      rows={activityRows}
+                      hrefOf={(r) => (r.id ? `/crm/activities/${String(r.id)}` : null)}
+                      labelOf={(r) =>
+                        String(r.activity_type || r.title || r.id || 'Activity')
+                      }
+                    />
+                  </>
+                );
+              })()}
             </>
           )}
-        </div>
+        </EntityDetailPanel>
       ) : null}
 
       {activeTab === 'finance' && canFinance ? (
-        <div className="cd-panel" key="finance">
-          <div className="cd-ledger-head">
-            <h3>Ledger (Finance)</h3>
-            {accountId && canAccounts ? (
+        <EntityDetailPanel
+          key="finance"
+          title="Ledger (Finance)"
+          headerEnd={
+            accountId && canAccounts ? (
               <Link className="cd-text-link" to={`/finance/accounts/${accountId}`}>
                 Open full account
               </Link>
-            ) : null}
-          </div>
+            ) : null
+          }
+        >
           {!accountId ? (
             <p className="cd-empty">No ledger account linked.</p>
           ) : financeAcct.isLoading ? (
@@ -711,14 +858,11 @@ export function CustomerDetailPage() {
               </table>
             </div>
           )}
-        </div>
+        </EntityDetailPanel>
       ) : null}
 
       {activeTab === 'products' && canProducts ? (
-        <div className="cd-panel" key="products">
-          <div className="cd-ledger-head">
-            <h3>Ledger (Product)</h3>
-          </div>
+        <EntityDetailPanel key="products" title="Ledger (Product)">
           {productHistory.isLoading ? (
             <p className="cd-empty">Loading product history…</p>
           ) : (productHistory.data || []).length === 0 ? (
@@ -754,19 +898,21 @@ export function CustomerDetailPage() {
               </table>
             </div>
           )}
-        </div>
+        </EntityDetailPanel>
       ) : null}
 
       {activeTab === 'prices' && canPrices ? (
-        <div className="cd-panel" key="prices">
-          <div className="cd-ledger-head">
-            <h3>Price ledger</h3>
-            {canPricing ? (
+        <EntityDetailPanel
+          key="prices"
+          title="Price ledger"
+          headerEnd={
+            canPricing ? (
               <button type="button" className="cd-text-link" onClick={() => selectTab('pricing')}>
                 Add rate
               </button>
-            ) : null}
-          </div>
+            ) : null
+          }
+        >
           {priceRows.isLoading ? (
             <p className="cd-empty">Loading prices…</p>
           ) : (priceRows.data || []).length === 0 ? (
@@ -802,19 +948,37 @@ export function CustomerDetailPage() {
               </button>
             </p>
           ) : null}
-        </div>
+        </EntityDetailPanel>
       ) : null}
 
       {activeTab === 'pricing' && canPricing ? (
-        <div className="cd-panel" key="pricing">
+        <EntityDetailPanel key="pricing" title="Pricing">
           <CustomerPricingPanel
             customerId={id}
-            customerName={String(data.customer_name || '')}
+            customerName={String(customer.customer_name || '')}
             segmentIds={segmentIds}
             onSeeAllPrices={canPrices ? () => selectTab('prices') : undefined}
           />
-        </div>
+        </EntityDetailPanel>
       ) : null}
+
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/parties/customers')}>
+            Back to list
+          </Button>
+        }
+        end={
+          <>
+            {canSettle ? (
+              <Button type="button" variant="ghost" onClick={openSettle}>
+                Settle
+              </Button>
+            ) : null}
+            {canEdit ? <Button type="button" onClick={openEdit}>Edit</Button> : null}
+          </>
+        }
+      />
 
       <Modal
         title="Edit Customer"
@@ -825,15 +989,21 @@ export function CustomerDetailPage() {
           <>
             <Button
               type="button"
+              data-kb-action="customers.save"
               onClick={async () => {
                 const validation = validateCustomerForm(values);
                 if (validation) {
                   setFormError(validation);
                   return;
                 }
+                const loc = locationState.resolveForSave();
+                if (loc.error) {
+                  setFormError(loc.error);
+                  return;
+                }
                 setFormError('');
                 try {
-                  await updateCustomer({ id, body: customerBody(values) }).unwrap();
+                  await updateCustomer({ id, body: customerBody(values, loc.locationIds) }).unwrap();
                   setEditOpen(false);
                   refetch();
                 } catch (e: unknown) {
@@ -861,6 +1031,12 @@ export function CustomerDetailPage() {
             if (formError) setFormError('');
           }}
           segmentOptions={segmentOptions}
+          locationPicker={{
+            showPicker: locationState.showPicker,
+            locationIds: locationState.locationIds,
+            setLocationIds: locationState.setLocationIds,
+            accessible: locationState.accessible,
+          }}
         />
       </Modal>
 
@@ -957,6 +1133,6 @@ export function CustomerDetailPage() {
           <p>Remove blacklist from this customer?</p>
         )}
       </Modal>
-    </div>
+    </EntityDetailPage>
   );
 }

@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
+  useCreateCrmActivityMutation,
   useGetCrmCollectionsQuery,
+  useListCrmOwnersQuery,
   usePreviewCrmWhatsappPaymentReminderMutation,
 } from '@vaybooks/store';
 import {
   Button,
+  Drawer,
   EntityListEmpty,
   EntityListHero,
   EntityListLoading,
@@ -13,32 +16,93 @@ import {
   EntityListTable,
   ErrorText,
   FormRow,
-  Modal,
   type EntityListColumn,
 } from '@vaybooks/ui-kit';
 import { SectionForm, WhatsAppButton } from '../components';
-import { useCrmCan } from '../hooks';
+import { useCrmCan, useCrmFieldVisibility } from '../hooks';
+import { daysPastDue, groupByAgingBucket } from '../collectionsAging';
 import { asEntityList, entityCaption, entityId, formatOutstanding } from '../overviewHelpers';
 import { asCaption, extractError } from '../utils';
 
 type Row = Record<string, unknown>;
 
+function ownerMatches(row: Row, ownerId: string): boolean {
+  if (!ownerId) return true;
+  return String(row.assigned_user_id || '') === ownerId;
+}
+
+function invoiceHref(row: Row): string | null {
+  const invId = entityId(row, 'invoice_id', 'id');
+  if (!invId) return null;
+  // Prefer sales invoice deep-link; ledger voucher ids also resolve via sales detail when linked.
+  return `/sales/invoices/${invId}`;
+}
+
 export function CrmCollectionsPage() {
   const navigate = useNavigate();
   const can = useCrmCan();
-  const { data, isLoading, error, refetch, isFetching } = useGetCrmCollectionsQuery();
+  const visibility = useCrmFieldVisibility();
+  const collectionsEnabled = visibility.collections;
+  const { data, isLoading, error, refetch, isFetching } = useGetCrmCollectionsQuery(undefined, {
+    skip: !collectionsEnabled,
+  });
+  const { data: owners = [] } = useListCrmOwnersQuery(undefined, { skip: !collectionsEnabled });
   const [previewReminder, previewState] = usePreviewCrmWhatsappPaymentReminderMutation();
+  const [createActivity, createState] = useCreateCrmActivityMutation();
 
+  const [ownerId, setOwnerId] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewText, setPreviewText] = useState('');
   const [previewPhone, setPreviewPhone] = useState('');
   const [previewError, setPreviewError] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Row | null>(null);
+  const [actionMsg, setActionMsg] = useState('');
 
   const snap = (data || {}) as Record<string, unknown>;
-  const balances = useMemo(() => asEntityList(snap.balances), [snap.balances]);
-  const followUps = useMemo(() => asEntityList(snap.follow_ups), [snap.follow_ups]);
-  const promises = useMemo(() => asEntityList(snap.payment_promises), [snap.payment_promises]);
+  const balancesRaw = useMemo(() => asEntityList(snap.balances), [snap.balances]);
+  const openInvoicesRaw = useMemo(() => asEntityList(snap.open_invoices), [snap.open_invoices]);
+  const followUpsRaw = useMemo(() => asEntityList(snap.follow_ups), [snap.follow_ups]);
+  const promisesRaw = useMemo(
+    () => asEntityList(snap.payment_promises),
+    [snap.payment_promises],
+  );
+
+  const followUps = useMemo(
+    () => followUpsRaw.filter((row) => ownerMatches(row, ownerId)),
+    [followUpsRaw, ownerId],
+  );
+  const promises = useMemo(
+    () => promisesRaw.filter((row) => ownerMatches(row, ownerId)),
+    [promisesRaw, ownerId],
+  );
+  const balances = useMemo(() => {
+    const hasOwnerField = balancesRaw.some(
+      (row) => row.assigned_user_id != null && String(row.assigned_user_id) !== '',
+    );
+    if (!ownerId || !hasOwnerField) return balancesRaw;
+    return balancesRaw.filter((row) => ownerMatches(row, ownerId));
+  }, [balancesRaw, ownerId]);
+
+  const openInvoices = useMemo(() => {
+    const hasOwnerField = openInvoicesRaw.some(
+      (row) => row.assigned_user_id != null && String(row.assigned_user_id) !== '',
+    );
+    if (!ownerId || !hasOwnerField) return openInvoicesRaw;
+    return openInvoicesRaw.filter((row) => ownerMatches(row, ownerId));
+  }, [openInvoicesRaw, ownerId]);
+
+  const agingRows = openInvoices.length > 0 ? openInvoices : balances;
+
+  const agingGroups = useMemo(
+    () =>
+      groupByAgingBucket(agingRows, {
+        agingAvailable: Boolean(snap.aging_available),
+      }),
+    [agingRows, snap.aging_available],
+  );
+  const hasAging = agingGroups.length > 0 || Boolean(snap.aging_available);
+
+  const showingInvoices = openInvoices.length > 0 && hasAging;
   const canSend = Boolean(snap.can_send_payment_reminders) && can.sendWhatsapp;
 
   async function openPreview(row: Row) {
@@ -51,7 +115,9 @@ export function CrmCollectionsPage() {
       const result = await previewReminder({
         customer_id: entityId(row, 'customer_id', 'id'),
         phone: String(row.phone || row.mobile || ''),
-        outstanding_amount: Number(row.outstanding_amount ?? row.balance ?? row.amount ?? 0) || undefined,
+        outstanding_amount:
+          Number(row.outstanding_amount ?? row.outstanding_balance ?? row.outstanding ?? row.balance ?? row.amount ?? 0) ||
+          undefined,
       }).unwrap();
       setPreviewText(
         String(result.message || result.preview || result.body || result.text || JSON.stringify(result)),
@@ -59,6 +125,42 @@ export function CrmCollectionsPage() {
       if (result.phone) setPreviewPhone(String(result.phone));
     } catch (e) {
       setPreviewError(extractError(e));
+    }
+  }
+
+  async function logCollectionActivity(row: Row, kind: 'follow-up' | 'promise') {
+    setActionMsg('');
+    const customerId = entityId(row, 'customer_id', 'id');
+    if (!customerId) {
+      setActionMsg('Customer id is required');
+      return;
+    }
+    const owner = owners.find((o) => o.id === ownerId);
+    const invRef = entityCaption(row, 'reference') || entityId(row, 'invoice_id');
+    try {
+      const activity = await createActivity({
+        activity_type: kind === 'promise' ? 'Contacted for Credit' : 'Payment Reminder',
+        customer_id: customerId,
+        party_name: entityCaption(row, 'customer_name', 'party_name', 'name'),
+        outcome: kind === 'promise' ? 'Payment Promised' : '',
+        notes:
+          kind === 'promise'
+            ? invRef
+              ? `Logged from collections: payment promise (${invRef})`
+              : 'Logged from collections: payment promise'
+            : invRef
+              ? `Logged from collections: follow-up (${invRef})`
+              : 'Logged from collections: follow-up',
+        assigned_user_id: ownerId || undefined,
+        assigned_user_name: owner?.name || undefined,
+        status: 'Scheduled',
+      }).unwrap();
+      setActionMsg(kind === 'promise' ? 'Promise logged' : 'Follow-up logged');
+      const aid = String(activity.id || '');
+      if (aid) navigate(`/crm/activities/${aid}`);
+      else void refetch();
+    } catch (e) {
+      setActionMsg(extractError(e));
     }
   }
 
@@ -79,21 +181,97 @@ export function CrmCollectionsPage() {
         </div>
       ),
     },
+    ...(showingInvoices
+      ? [
+          {
+            id: 'invoice',
+            header: 'Invoice',
+            render: (row: Row) => {
+              const label =
+                entityCaption(row, 'reference') || entityId(row, 'invoice_id') || '—';
+              const href = invoiceHref(row);
+              if (!href) return <span>{label}</span>;
+              return (
+                <Link to={href} onClick={(e) => e.stopPropagation()}>
+                  {label}
+                </Link>
+              );
+            },
+          } as EntityListColumn<Row>,
+        ]
+      : []),
     {
       id: 'outstanding',
       header: 'Outstanding',
       className: 'el-num',
       headerClassName: 'el-col-num',
       render: (row) =>
-        formatOutstanding(row.outstanding_amount ?? row.balance ?? row.amount) || '—',
+        formatOutstanding(
+          row.outstanding_amount ??
+            row.outstanding_balance ??
+            row.outstanding ??
+            row.balance ??
+            row.amount,
+        ) || '—',
     },
+    ...(hasAging
+      ? [
+          {
+            id: 'aging',
+            header: 'Days past due',
+            render: (row: Row) => {
+              const days = daysPastDue(row);
+              return days == null ? <span className="el-muted">—</span> : <span>{days}</span>;
+            },
+          } as EntityListColumn<Row>,
+        ]
+      : []),
     {
       id: 'actions',
-      header: 'Reminder',
+      header: 'Actions',
       render: (row) => {
         const phone = String(row.phone || row.mobile || '');
+        const cid = entityId(row, 'customer_id', 'id');
         return (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {cid ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => navigate(`/parties/customers/${cid}?tab=crm`)}
+              >
+                Customer
+              </Button>
+            ) : null}
+            {showingInvoices && invoiceHref(row) ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => navigate(invoiceHref(row)!)}
+              >
+                Invoice
+              </Button>
+            ) : null}
+            {can.createActivities ? (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => void logCollectionActivity(row, 'follow-up')}
+                  disabled={createState.isLoading}
+                >
+                  Log follow-up
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => void logCollectionActivity(row, 'promise')}
+                  disabled={createState.isLoading}
+                >
+                  Log promise
+                </Button>
+              </>
+            ) : null}
             {canSend ? (
               <Button
                 type="button"
@@ -104,7 +282,7 @@ export function CrmCollectionsPage() {
                 Preview WA
               </Button>
             ) : null}
-            {phone ? <WhatsAppButton phone={phone} label="WhatsApp" /> : null}
+            {can.sendWhatsapp && phone ? <WhatsAppButton phone={phone} label="WhatsApp" /> : null}
           </div>
         );
       },
@@ -125,6 +303,11 @@ export function CrmCollectionsPage() {
       ),
     },
     {
+      id: 'owner',
+      header: 'Owner',
+      render: (row) => asCaption(row.assigned_user_name) || '—',
+    },
+    {
       id: 'status',
       header: 'Status',
       render: (row) => asCaption(row.status),
@@ -132,9 +315,74 @@ export function CrmCollectionsPage() {
     {
       id: 'when',
       header: 'Scheduled',
-      render: (row) => asCaption(row.scheduled_at || row.due_at),
+      render: (row) => asCaption(row.scheduled_at || row.due_at || row.promised_date),
+    },
+    {
+      id: 'promise',
+      header: 'Promised',
+      render: (row) => {
+        const amt = row.promised_amount;
+        if (amt == null || amt === '' || Number(amt) === 0) {
+          return asCaption(row.promised_date) || '—';
+        }
+        return (
+          <span>
+            {formatOutstanding(amt)}
+            {row.promised_date ? ` · ${asCaption(row.promised_date)}` : ''}
+          </span>
+        );
+      },
     },
   ];
+
+  function renderBalanceTable(rows: Row[]) {
+    if (rows.length === 0) {
+      return (
+        <EntityListEmpty>
+          <strong>No outstanding balances</strong>
+        </EntityListEmpty>
+      );
+    }
+    return (
+      <EntityListTable
+        columns={balanceColumns}
+        rows={rows}
+        rowKey={(row) =>
+          entityId(row, 'invoice_id') ||
+          entityId(row, 'customer_id', 'id') ||
+          String(row.customer_name)
+        }
+        keyboardNav
+        onActivateRow={(row) => {
+          const inv = invoiceHref(row);
+          if (showingInvoices && inv) {
+            navigate(inv);
+            return;
+          }
+          const cid = entityId(row, 'customer_id', 'id');
+          if (cid) navigate(`/parties/customers/${cid}?tab=crm`);
+        }}
+      />
+    );
+  }
+
+  if (!collectionsEnabled) {
+    return (
+      <EntityListPage>
+        <EntityListHero kicker="CRM" title="Collections" count="Not enabled" />
+        <EntityListEmpty>
+          <strong>Collections is not enabled for this CRM mode</strong>
+          <p className="el-muted" style={{ margin: '8px 0 0' }}>
+            Enable the collections field pack under CRM settings, or switch to a mode that includes
+            it (e.g. trade).
+          </p>
+          <p style={{ margin: '12px 0 0' }}>
+            <Link to="/settings/crm">Open CRM settings</Link>
+          </p>
+        </EntityListEmpty>
+      </EntityListPage>
+    );
+  }
 
   return (
     <EntityListPage>
@@ -144,45 +392,77 @@ export function CrmCollectionsPage() {
         count={
           isFetching && !isLoading
             ? 'Refreshing…'
-            : `${balances.length} balance${balances.length === 1 ? '' : 's'}`
+            : showingInvoices
+              ? `${openInvoices.length} invoice${openInvoices.length === 1 ? '' : 's'}`
+              : `${balances.length} balance${balances.length === 1 ? '' : 's'}`
         }
         actions={
           <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
             Refresh
           </button>
         }
+        chips={
+          <FormRow label="Owner">
+            <select
+              value={ownerId}
+              onChange={(e) => setOwnerId(e.target.value)}
+              style={{ minWidth: 180 }}
+            >
+              <option value="">All owners</option>
+              {owners.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </FormRow>
+        }
       />
 
+      {actionMsg ? <p style={{ marginTop: 0 }}>{actionMsg}</p> : null}
       {isLoading ? <EntityListLoading>Loading collections…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load collections.</ErrorText> : null}
 
       {!isLoading && !error ? (
         <div style={{ display: 'grid', gap: 28 }}>
-          <SectionForm
-            title="Outstanding balances"
-            description="Customers with open balances."
-            style={{ borderBottom: 'none', paddingTop: 0 }}
-          >
-            {balances.length === 0 ? (
-              <EntityListEmpty>
-                <strong>No outstanding balances</strong>
-              </EntityListEmpty>
+          {hasAging ? (
+            agingGroups.length === 0 ? (
+              <SectionForm
+                title="Outstanding"
+                description="No rows matched aging buckets."
+                style={{ borderBottom: 'none', paddingTop: 0 }}
+              >
+                {renderBalanceTable([])}
+              </SectionForm>
             ) : (
-              <EntityListTable
-                columns={balanceColumns}
-                rows={balances}
-                rowKey={(row) => entityId(row, 'customer_id', 'id') || String(row.customer_name)}
-                onActivateRow={(row) => {
-                  const cid = entityId(row, 'customer_id', 'id');
-                  if (cid) navigate(`/parties/customers/${cid}`);
-                }}
-              />
-            )}
-          </SectionForm>
+              agingGroups.map((group) => (
+                <SectionForm
+                  key={group.label}
+                  title={group.label}
+                  description={
+                    showingInvoices
+                      ? 'Open invoices by days past due.'
+                      : 'Aging bucket from due date / days past due.'
+                  }
+                  style={{ borderBottom: 'none', paddingTop: group === agingGroups[0] ? 0 : undefined }}
+                >
+                  {renderBalanceTable(group.rows)}
+                </SectionForm>
+              ))
+            )
+          ) : (
+            <SectionForm
+              title="Outstanding balances"
+              description="Customers with open balances. Aging buckets appear when invoice due dates are available."
+              style={{ borderBottom: 'none', paddingTop: 0 }}
+            >
+              {renderBalanceTable(balances)}
+            </SectionForm>
+          )}
 
           <SectionForm
-            title="Payment promises"
-            description="Open promise-related collection activities."
+            title="Promise register"
+            description="Open payment-promise style collection activities."
             style={{ borderBottom: 'none' }}
           >
             {promises.length === 0 ? (
@@ -194,17 +474,36 @@ export function CrmCollectionsPage() {
                 columns={activityColumns}
                 rows={promises}
                 rowKey={(row) => entityId(row) || String(row.activity_type)}
+                keyboardNav
+                onActivateRow={(row) => {
+                  const aid = entityId(row);
+                  if (aid) navigate(`/crm/activities/${aid}`);
+                }}
                 actions={(row) => {
                   const aid = entityId(row);
-                  return aid ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => navigate(`/crm/activities/${aid}`)}
-                    >
-                      Open
-                    </Button>
-                  ) : null;
+                  const cid = entityId(row, 'customer_id');
+                  return (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {cid ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => navigate(`/parties/customers/${cid}?tab=crm`)}
+                        >
+                          Customer
+                        </Button>
+                      ) : null}
+                      {aid ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => navigate(`/crm/activities/${aid}`)}
+                        >
+                          Open
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
                 }}
               />
             )}
@@ -224,17 +523,36 @@ export function CrmCollectionsPage() {
                 columns={activityColumns}
                 rows={followUps}
                 rowKey={(row) => entityId(row) || String(row.activity_type)}
+                keyboardNav
+                onActivateRow={(row) => {
+                  const aid = entityId(row);
+                  if (aid) navigate(`/crm/activities/${aid}`);
+                }}
                 actions={(row) => {
                   const aid = entityId(row);
-                  return aid ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => navigate(`/crm/activities/${aid}`)}
-                    >
-                      Open
-                    </Button>
-                  ) : null;
+                  const cid = entityId(row, 'customer_id');
+                  return (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {cid ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => navigate(`/parties/customers/${cid}?tab=crm`)}
+                        >
+                          Customer
+                        </Button>
+                      ) : null}
+                      {aid ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => navigate(`/crm/activities/${aid}`)}
+                        >
+                          Open
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
                 }}
               />
             )}
@@ -246,16 +564,17 @@ export function CrmCollectionsPage() {
         </div>
       ) : null}
 
-      <Modal
+      <Drawer
         open={previewOpen}
         title="WhatsApp payment reminder"
         onClose={() => setPreviewOpen(false)}
+        size="md"
         footer={
           <>
             <Button type="button" variant="ghost" onClick={() => setPreviewOpen(false)}>
               Close
             </Button>
-            {previewPhone ? (
+            {can.sendWhatsapp && previewPhone ? (
               <WhatsAppButton phone={previewPhone} message={previewText} label="Open WhatsApp" />
             ) : null}
           </>
@@ -289,7 +608,7 @@ export function CrmCollectionsPage() {
             />
           </FormRow>
         </div>
-      </Modal>
+      </Drawer>
     </EntityListPage>
   );
 }

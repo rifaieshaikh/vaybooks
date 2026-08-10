@@ -15,9 +15,9 @@ import {
 import {
   Button,
   CalendarView,
+  Drawer,
   ErrorText,
   FormRow,
-  Modal,
   type CalendarCategory,
   type CalendarEvent,
   type CalendarViewMode,
@@ -49,7 +49,7 @@ const STATUS_FILTERS = [
   { value: 'Missed', label: 'Missed' },
 ] as const;
 
-type ModalMode = 'create' | 'event' | null;
+type DrawerMode = 'create' | 'event' | null;
 
 export function CrmCalendarPage() {
   const navigate = useNavigate();
@@ -122,7 +122,7 @@ export function CrmCalendarPage() {
   const [cancelActivity, cancelState] = useCancelCrmActivityMutation();
   const [rescheduleActivity, rescheduleState] = useRescheduleCrmActivityMutation();
 
-  const [modalMode, setModalMode] = useState<ModalMode>(null);
+  const [drawerMode, setDrawerMode] = useState<DrawerMode>(null);
   const [selected, setSelected] = useState<Record<string, unknown> | null>(null);
   const [message, setMessage] = useState('');
   const [formError, setFormError] = useState('');
@@ -212,7 +212,7 @@ export function CrmCalendarPage() {
     setCreateScheduledAt(slotScheduledAt(day, defaultSlotHour));
     setCreateAssignee(assigneeId);
     setSelected(null);
-    setModalMode('create');
+    setDrawerMode('create');
   }
 
   function openBoutiqueEvent(ev: CalendarEvent) {
@@ -249,7 +249,7 @@ export function CrmCalendarPage() {
     setCancelReason('');
     setRescheduleAt(toDatetimeLocalValue(String(row.scheduled_at || ev.start || '')));
     setRescheduleReason('');
-    setModalMode('event');
+    setDrawerMode('event');
   }
 
   function onMyRouteToday() {
@@ -289,7 +289,7 @@ export function CrmCalendarPage() {
         assigned_user_id: createAssignee || undefined,
         assigned_user_name: owner?.name || undefined,
       }).unwrap();
-      setModalMode(null);
+      setDrawerMode(null);
       setMessage('Activity created');
       refetch();
       if (row?.id) navigate(`/crm/activities/${row.id}`);
@@ -307,7 +307,7 @@ export function CrmCalendarPage() {
         outcome: outcome || undefined,
         notes: completeNotes || undefined,
       }).unwrap();
-      setModalMode(null);
+      setDrawerMode(null);
       setMessage('Activity completed');
       refetch();
     } catch (e) {
@@ -324,7 +324,7 @@ export function CrmCalendarPage() {
     }
     try {
       await cancelActivity({ id: String(selected.id), reason: cancelReason.trim() }).unwrap();
-      setModalMode(null);
+      setDrawerMode(null);
       setMessage('Activity cancelled');
       refetch();
     } catch (e) {
@@ -345,7 +345,7 @@ export function CrmCalendarPage() {
         scheduled_at: fromDatetimeLocalValue(rescheduleAt),
         reason: rescheduleReason,
       }).unwrap();
-      setModalMode(null);
+      setDrawerMode(null);
       setMessage('Activity rescheduled');
       refetch();
     } catch (e) {
@@ -507,20 +507,21 @@ export function CrmCalendarPage() {
       <p style={{ color: '#667', marginTop: 12 }}>
         Manage follow-ups from <Link to="/crm/activities">Activities</Link>
         {catalogs.calendarDragEnabled && can.editActivities
-          ? ' · Drag events in week/day view to reschedule'
+          ? ' · Drag events onto days to reschedule'
           : null}
         {boutiqueEnabled ? ' · Boutique tasks overlay when enabled' : null}
         {' · Shortcuts: T today, ←/→ navigate'}
         .
       </p>
 
-      <Modal
-        open={modalMode === 'create'}
+      <Drawer
+        open={drawerMode === 'create'}
         title="Schedule activity"
-        onClose={() => setModalMode(null)}
+        size="md"
+        onClose={() => setDrawerMode(null)}
         footer={
           <>
-            <Button type="button" variant="ghost" onClick={() => setModalMode(null)}>
+            <Button type="button" variant="ghost" onClick={() => setDrawerMode(null)}>
               Cancel
             </Button>
             <Button
@@ -587,15 +588,16 @@ export function CrmCalendarPage() {
             <input value={createNotes} onChange={(e) => setCreateNotes(e.target.value)} />
           </FormRow>
         </div>
-      </Modal>
+      </Drawer>
 
-      <Modal
-        open={modalMode === 'event' && Boolean(selected)}
+      <Drawer
+        open={drawerMode === 'event' && Boolean(selected)}
         title={selected ? activityEventTitle(selected) : 'Activity'}
-        onClose={() => setModalMode(null)}
+        size="md"
+        onClose={() => setDrawerMode(null)}
         footer={
           <>
-            <Button type="button" variant="ghost" onClick={() => setModalMode(null)}>
+            <Button type="button" variant="ghost" onClick={() => setDrawerMode(null)}>
               Close
             </Button>
             {selected?.id ? (
@@ -702,7 +704,7 @@ export function CrmCalendarPage() {
             ) : null}
           </div>
         ) : null}
-      </Modal>
+      </Drawer>
     </div>
   );
 }

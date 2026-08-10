@@ -193,6 +193,7 @@ class ActivityCreate(BaseModel):
     scheduled_at: Optional[str] = None
     due_at: Optional[str] = None
     next_follow_up_at: Optional[str] = None
+    duration_minutes: Optional[int] = None
     priority: str = "Medium"
     status: str = "Scheduled"
     promised_amount: float = 0.0
@@ -208,6 +209,7 @@ class ActivityPatch(BaseModel):
     priority: Optional[str] = None
     scheduled_at: Optional[str] = None
     due_at: Optional[str] = None
+    duration_minutes: Optional[int] = None
     next_action: Optional[str] = None
     next_follow_up_at: Optional[str] = None
     assigned_user_id: Optional[str] = None
@@ -294,10 +296,25 @@ class ReportPresetCreate(BaseModel):
     filters: dict[str, Any] = Field(default_factory=dict)
 
 
+class ListViewCreate(BaseModel):
+    name: str = Field(min_length=1)
+    entity: str = Field(min_length=1)
+    filters: dict[str, Any] = Field(default_factory=dict)
+    sort: Optional[list[Any]] = None
+    columns: Optional[list[Any]] = None
+
+
 _AUDIT_ENTITY_TYPES = {
     "lead": "crm_lead",
     "enquiry": "crm_enquiry",
     "activity": "crm_activity",
+}
+
+_LIST_VIEW_ENTITIES = {"lead", "enquiry", "activity"}
+_LIST_VIEW_PERMISSIONS = {
+    "lead": "crm.leads.view",
+    "enquiry": "crm.enquiries.view",
+    "activity": "crm.activities.view",
 }
 
 _RESTORE_PERMISSIONS = {
@@ -305,6 +322,8 @@ _RESTORE_PERMISSIONS = {
     "enquiry": "crm.enquiries.delete",
     "activity": "crm.activities.edit",
 }
+
+_DELETED_MODES = frozenset({"exclude", "only", "include"})
 
 
 # ---- helpers ----------------------------------------------------------------
@@ -373,6 +392,16 @@ def _ensure_permission(username: str, key: str) -> None:
         raise HTTPException(status_code=403, detail=f"Permission denied: {key}")
 
 
+def _parse_deleted_mode(deleted: str = "exclude") -> str:
+    mode = (deleted or "exclude").strip().lower()
+    if mode not in _DELETED_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail="deleted must be one of: exclude, only, include",
+        )
+    return mode
+
+
 def _access_users():
     try:
         from packages.services_kit.access_container import get_access_container
@@ -397,6 +426,105 @@ def _filter_by_scope(rows: list, policy: CrmAccessPolicy) -> list:
         if policy.can_access_assigned(assignee, team_user_ids=allowed):
             out.append(row)
     return out
+
+
+def _parse_day_bound(value: Optional[str], *, end_of_day: bool = False) -> Optional[datetime]:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    if len(raw) >= 10:
+        try:
+            day = date.fromisoformat(raw[:10])
+            if len(raw) == 10 or "T" not in raw.upper():
+                if end_of_day:
+                    return datetime(day.year, day.month, day.day, 23, 59, 59)
+                return datetime(day.year, day.month, day.day, 0, 0, 0)
+        except ValueError:
+            pass
+    text = raw.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime: {value}") from exc
+
+
+def _entity_dt(row: Any, *attrs: str) -> Optional[datetime]:
+    for attr in attrs:
+        val = getattr(row, attr, None)
+        if isinstance(val, datetime):
+            return val
+    return None
+
+
+def _filter_by_date_range(
+    rows: list,
+    *,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    attrs: tuple[str, ...] = ("created_at",),
+) -> list:
+    start = _parse_day_bound(date_from, end_of_day=False)
+    end = _parse_day_bound(date_to, end_of_day=True)
+    if start is None and end is None:
+        return rows
+    out = []
+    for row in rows:
+        stamp = _entity_dt(row, *attrs)
+        if stamp is None:
+            continue
+        if start is not None and stamp < start:
+            continue
+        if end is not None and stamp > end:
+            continue
+        out.append(row)
+    return out
+
+
+def _sort_entities(
+    rows: list,
+    *,
+    sort_by: Optional[str] = None,
+    sort_desc: bool = True,
+) -> list:
+    key_name = (sort_by or "").strip()
+    if not key_name:
+        return rows
+
+    def sort_key(row: Any) -> Any:
+        val = getattr(row, key_name, None)
+        if val is None:
+            return ("", "")
+        if isinstance(val, datetime):
+            return (0, val)
+        if isinstance(val, (int, float)):
+            return (0, val)
+        return (1, str(val).lower())
+
+    try:
+        return sorted(rows, key=sort_key, reverse=bool(sort_desc))
+    except TypeError:
+        return rows
+
+
+def _list_view_entity(entity: str) -> str:
+    key = (entity or "").strip().lower()
+    if key not in _LIST_VIEW_ENTITIES:
+        raise ValidationError("entity must be lead, enquiry, or activity")
+    return key
+
+
+def _serialize_list_view(doc: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": doc.get("_id"),
+        "name": doc.get("name") or "",
+        "entity": doc.get("entity") or "",
+        "filters": doc.get("filters") or {},
+        "sort": doc.get("sort") or [],
+        "columns": doc.get("columns") or [],
+        "username": doc.get("username") or "",
+        "created_at": doc.get("created_at"),
+        "updated_at": doc.get("updated_at"),
+    }
 
 
 def _page_entities(rows: list, *, page: int, page_size: int) -> dict[str, Any]:
@@ -547,13 +675,23 @@ def list_leads(
     search: Optional[str] = None,
     assigned_user_id: Optional[str] = None,
     source: Optional[str] = None,
+    priority: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_desc: bool = True,
+    deleted: str = "exclude",
     page: int = 1,
     page_size: int = 50,
     username: str = Depends(require_permission("crm.leads.view")),
 ) -> dict[str, Any]:
     try:
         policy = _policy_for(username)
-        kwargs: dict[str, Any] = {"limit": 5000, "search": search or ""}
+        kwargs: dict[str, Any] = {
+            "limit": 5000,
+            "search": search or "",
+            "deleted": _parse_deleted_mode(deleted),
+        }
         if status:
             kwargs["status"] = status
         if source:
@@ -566,7 +704,18 @@ def list_leads(
         rows = _filter_by_scope(_c().leads.list_leads(**kwargs), policy)
         if assigned_user_id and not own:
             rows = [r for r in rows if str(r.assigned_user_id or "") == assigned_user_id]
+        if priority:
+            rows = [r for r in rows if str(getattr(r, "priority", "") or "") == priority]
+        rows = _filter_by_date_range(
+            rows,
+            date_from=date_from,
+            date_to=date_to,
+            attrs=("created_at",),
+        )
+        rows = _sort_entities(rows, sort_by=sort_by, sort_desc=sort_desc)
         return _page_entities(rows, page=page, page_size=page_size)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -765,10 +914,13 @@ def import_leads_commit(
 @router.get("/leads/{lead_id}")
 def get_lead(
     lead_id: str,
+    include_deleted: bool = False,
     username: str = Depends(require_permission("crm.leads.view")),
 ) -> dict[str, Any]:
     try:
-        lead = _c().leads.get_lead(lead_id)
+        if include_deleted:
+            _ensure_permission(username, "crm.leads.delete")
+        lead = _c().leads.get_lead(lead_id, include_deleted=include_deleted)
         policy = _policy_for(username)
         if not policy.can_access_assigned(
             lead.assigned_user_id, team_user_ids=_team_ids(policy)
@@ -901,15 +1053,25 @@ def list_enquiries(
     status: Optional[str] = None,
     search: Optional[str] = None,
     assigned_user_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_desc: bool = True,
+    deleted: str = "exclude",
     page: int = 1,
     page_size: int = 50,
     username: str = Depends(require_permission("crm.enquiries.view")),
 ) -> dict[str, Any]:
     try:
         policy = _policy_for(username)
-        kwargs: dict[str, Any] = {"limit": 5000}
+        kwargs: dict[str, Any] = {
+            "limit": 5000,
+            "deleted": _parse_deleted_mode(deleted),
+        }
         if status:
             kwargs["status"] = status
+        if search:
+            kwargs["search"] = search
         own = policy.scoped_assigned_user_id()
         if own:
             kwargs["assigned_user_id"] = own
@@ -929,7 +1091,16 @@ def list_enquiries(
                 or needle in (r.party_name or "").lower()
                 or needle in (r.product_interest or "").lower()
             ]
+        rows = _filter_by_date_range(
+            rows,
+            date_from=date_from,
+            date_to=date_to,
+            attrs=("enquiry_date", "created_at"),
+        )
+        rows = _sort_entities(rows, sort_by=sort_by, sort_desc=sort_desc)
         return _page_entities(rows, page=page, page_size=page_size)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -1012,10 +1183,18 @@ def bulk_status_enquiries(
 
 @router.get("/enquiries/{enquiry_id}")
 def get_enquiry(
-    enquiry_id: str, _: str = Depends(require_permission("crm.enquiries.view"))
+    enquiry_id: str,
+    include_deleted: bool = False,
+    username: str = Depends(require_permission("crm.enquiries.view")),
 ) -> dict[str, Any]:
     try:
-        return entity_dict(_c().enquiries.get_enquiry(enquiry_id))
+        if include_deleted:
+            _ensure_permission(username, "crm.enquiries.delete")
+        return entity_dict(
+            _c().enquiries.get_enquiry(enquiry_id, include_deleted=include_deleted)
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -1100,15 +1279,26 @@ def list_activities(
     status: Optional[str] = None,
     activity_type: Optional[str] = None,
     assigned_user_id: Optional[str] = None,
+    search: Optional[str] = None,
     scheduled_from: Optional[str] = None,
     scheduled_to: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_desc: bool = True,
+    needs_correction: Optional[bool] = None,
+    origin: Optional[str] = None,
+    deleted: str = "exclude",
     page: int = 1,
     page_size: int = 50,
     username: str = Depends(require_permission("crm.activities.view")),
 ) -> dict[str, Any]:
     try:
         policy = _policy_for(username)
-        kwargs: dict[str, Any] = {"limit": 5000}
+        kwargs: dict[str, Any] = {
+            "limit": 5000,
+            "deleted": _parse_deleted_mode(deleted),
+        }
         if lead_id:
             kwargs["lead_id"] = lead_id
         if enquiry_id:
@@ -1117,19 +1307,42 @@ def list_activities(
             kwargs["status"] = status
         if activity_type:
             kwargs["activity_type"] = activity_type
+        if origin:
+            kwargs["origin"] = origin
+        if needs_correction is not None:
+            kwargs["needs_correction"] = needs_correction
         own = policy.scoped_assigned_user_id()
         if own:
             kwargs["assigned_user_id"] = own
         elif assigned_user_id:
             kwargs["assigned_user_id"] = assigned_user_id
-        start = _parse_dt(scheduled_from)
-        end = _parse_dt(scheduled_to)
+        start = _parse_day_bound(scheduled_from or date_from, end_of_day=False)
+        end = _parse_day_bound(scheduled_to or date_to, end_of_day=True)
         if start is not None:
             kwargs["scheduled_from"] = start
         if end is not None:
             kwargs["scheduled_to"] = end
         rows = _filter_by_scope(_c().activities.list_activities(**kwargs), policy)
+        if search:
+            needle = search.strip().lower()
+            rows = [
+                r
+                for r in rows
+                if needle
+                in " ".join(
+                    [
+                        str(getattr(r, "activity_type", "") or ""),
+                        str(getattr(r, "party_name", "") or ""),
+                        str(getattr(r, "status", "") or ""),
+                        str(getattr(r, "notes", "") or ""),
+                        str(getattr(r, "origin", "") or ""),
+                    ]
+                ).lower()
+            ]
+        rows = _sort_entities(rows, sort_by=sort_by, sort_desc=sort_desc)
         return _page_entities(rows, page=page, page_size=page_size)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -1159,6 +1372,7 @@ def create_activity(
             scheduled_at=_parse_dt(body.scheduled_at),
             due_at=_parse_dt(body.due_at),
             next_follow_up_at=_parse_dt(body.next_follow_up_at),
+            duration_minutes=body.duration_minutes,
             priority=body.priority,
             status=body.status,
             promised_amount=body.promised_amount,
@@ -1187,10 +1401,18 @@ def create_activity(
 
 @router.get("/activities/{activity_id}")
 def get_activity(
-    activity_id: str, _: str = Depends(require_permission("crm.activities.view"))
+    activity_id: str,
+    include_deleted: bool = False,
+    username: str = Depends(require_permission("crm.activities.view")),
 ) -> dict[str, Any]:
     try:
-        return entity_dict(_c().activities.get_activity(activity_id))
+        if include_deleted:
+            _ensure_permission(username, "crm.activities.edit")
+        return entity_dict(
+            _c().activities.get_activity(activity_id, include_deleted=include_deleted)
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -1199,14 +1421,24 @@ def get_activity(
 def update_activity(
     activity_id: str,
     body: ActivityPatch,
-    _: str = Depends(require_permission("crm.activities.edit")),
+    username: str = Depends(require_permission("crm.activities.edit")),
 ) -> dict[str, Any]:
     try:
+        policy = _policy_for(username)
         fields = {k: v for k, v in body.model_dump().items() if v is not None}
         fields = _coerce_dt_fields(
             fields, "scheduled_at", "due_at", "next_follow_up_at", "promised_date"
         )
-        return entity_dict(_c().activities.update_activity(activity_id, **fields))
+        allow_automatic = (
+            policy.can_correct_automatic_activities()
+            or "*" in policy.permission_keys
+            or "crm.corrections.review" in policy.permission_keys
+        )
+        return entity_dict(
+            _c().activities.update_activity(
+                activity_id, allow_automatic=allow_automatic, **fields
+            )
+        )
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -1460,10 +1692,107 @@ def whatsapp_payment_reminder(
         raise _http_err(exc) from exc
 
 
+def _collections_owner_by_customer(collection_related: list[Any]) -> dict[str, dict[str, str]]:
+    """Latest open collection activity owner per customer (for balance owner filter)."""
+    from vaybooks.bms.application.crm.collections_aging import activity_sort_key
+
+    by_customer: dict[str, Any] = {}
+    for row in sorted(collection_related, key=activity_sort_key, reverse=True):
+        cid = (getattr(row, "customer_id", None) or "").strip()
+        if not cid or cid in by_customer:
+            continue
+        by_customer[cid] = row
+    return {
+        cid: {
+            "assigned_user_id": getattr(act, "assigned_user_id", "") or "",
+            "assigned_user_name": getattr(act, "assigned_user_name", "") or "",
+        }
+        for cid, act in by_customer.items()
+    }
+
+
+def _enrich_collections_balances(
+    balances: list[dict[str, Any]],
+    *,
+    owner_by_customer: dict[str, dict[str, str]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Attach open invoice due dates / days_past_due when accounting is available."""
+    from vaybooks.bms.application.crm.collections_aging import (
+        build_open_invoice_rows,
+        enrich_balance_row,
+    )
+
+    accounting = getattr(_c(), "accounting", None)
+    customers = getattr(_c(), "customers", None)
+    open_invoices: list[dict[str, Any]] = []
+    enriched_balances: list[dict[str, Any]] = []
+
+    for balance in balances:
+        if not isinstance(balance, dict):
+            continue
+        customer_id = str(balance.get("customer_id") or "").strip()
+        customer_name = str(balance.get("customer_name") or "")
+        owner = owner_by_customer.get(customer_id) or {}
+        phone = ""
+        if customers and customer_id:
+            try:
+                detail = customers.get_customer_detail(customer_id)
+                phone = (getattr(detail, "phone_number", None) or "") if detail else ""
+            except Exception:
+                phone = ""
+
+        invoice_rows: list[dict[str, Any]] = []
+        if accounting and customer_id:
+            try:
+                acct = accounting.get_customer_account(customer_id)
+                account_id = getattr(acct, "id", None) if acct else None
+                if account_id:
+                    raw = (
+                        accounting.list_open_sales_invoices_for_customer(account_id)
+                        or []
+                    )
+                    invoice_rows = build_open_invoice_rows(
+                        customer_id=customer_id,
+                        customer_name=customer_name,
+                        invoices=raw,
+                        phone=phone,
+                        assigned_user_id=owner.get("assigned_user_id") or "",
+                        assigned_user_name=owner.get("assigned_user_name") or "",
+                    )
+            except Exception:
+                invoice_rows = []
+
+        open_invoices.extend(invoice_rows)
+        enriched_balances.append(
+            enrich_balance_row(
+                balance,
+                invoice_rows,
+                phone=phone,
+                assigned_user_id=owner.get("assigned_user_id") or "",
+                assigned_user_name=owner.get("assigned_user_name") or "",
+            )
+        )
+
+    open_invoices.sort(
+        key=lambda row: (
+            -(row["days_past_due"] if row.get("days_past_due") is not None else -10**9),
+            -(float(row.get("outstanding") or 0)),
+        )
+    )
+    return enriched_balances, open_invoices
+
+
 @router.get("/collections")
 def collections(
     username: str = Depends(require_permission("crm.dashboard.view")),
 ) -> dict[str, Any]:
+    """Collections work queue for CRM.
+
+    When accounting is available, balances are enriched with open sales invoice
+    ``due_date`` / ``days_past_due`` (via
+    ``AccountingService.list_open_sales_invoices_for_customer``) and an
+    ``open_invoices`` list is returned for client-side aging buckets.
+    """
     try:
         policy = _policy_for(username)
         if not (
@@ -1497,13 +1826,22 @@ def collections(
         follow_ups = [
             entity_dict(r) for r in collection_related if r.id not in promise_ids
         ]
+        owner_by_customer = _collections_owner_by_customer(collection_related)
+        balances, open_invoices = _enrich_collections_balances(
+            balances, owner_by_customer=owner_by_customer
+        )
         reminders = _c().payment_reminders
         return {
             "balances": balances,
+            "open_invoices": open_invoices,
             "payment_promises": payment_promises,
             "follow_ups": follow_ups,
             "payment_reminders_available": reminders is not None,
             "can_send_payment_reminders": bool(policy.can_send_payment_reminders()),
+            "aging_available": any(
+                row.get("due_date") is not None or row.get("days_past_due") is not None
+                for row in open_invoices
+            ),
         }
     except HTTPException:
         raise
@@ -1517,6 +1855,9 @@ def customer_related(
     _: str = Depends(require_permission("crm.leads.view")),
 ) -> dict[str, Any]:
     try:
+        from vaybooks.bms.application.crm.collections_aging import build_customer_timeline
+        from vaybooks.bms.domain.shared.date_utils import utc_now
+
         cid = (customer_id or "").strip()
         if not cid:
             raise ValidationError("customer_id is required")
@@ -1529,16 +1870,136 @@ def customer_related(
             entity_dict(r)
             for r in _c().enquiries.list_enquiries(customer_id=cid, limit=2000)
         ]
-        activities = [
-            entity_dict(r)
-            for r in _c().activities.list_activities(customer_id=cid, limit=2000)
-        ]
+        activity_entities = list(
+            _c().activities.list_activities(customer_id=cid, limit=2000)
+        )
+        activities = [entity_dict(r) for r in activity_entities]
+        timeline = build_customer_timeline(activity_entities, limit=15, now=utc_now())
+        outstanding_balance = None
+        open_invoice_outstanding = None
+        accounting = getattr(_c(), "accounting", None)
+        if accounting:
+            try:
+                acct = accounting.get_customer_account(cid)
+                account_id = getattr(acct, "id", None) if acct else None
+                if account_id:
+                    try:
+                        outstanding_balance = float(
+                            accounting.customer_receivable_balance(account_id) or 0
+                        )
+                    except Exception:
+                        outstanding_balance = float(
+                            getattr(acct, "current_balance", 0) or 0
+                        )
+                    try:
+                        open_rows = (
+                            accounting.list_open_sales_invoices_for_customer(account_id)
+                            or []
+                        )
+                        total = 0.0
+                        for inv in open_rows:
+                            if isinstance(inv, dict):
+                                total += float(inv.get("outstanding", 0.0) or 0.0)
+                            else:
+                                total += float(getattr(inv, "outstanding", 0.0) or 0.0)
+                        open_invoice_outstanding = total
+                    except Exception:
+                        open_invoice_outstanding = outstanding_balance
+            except Exception:
+                pass
         return {
             "customer_id": cid,
             "leads": leads,
             "enquiries": enquiries,
             "activities": activities,
+            "recent_activities": [
+                entity_dict(r) for r in timeline["recent_activities"]
+            ],
+            "timeline": [entity_dict(r) for r in timeline["timeline"]],
+            "last_contact_at": timeline["last_contact_at"],
+            "next_follow_up_at": timeline["next_follow_up_at"],
+            "outstanding_balance": outstanding_balance,
+            "open_invoice_outstanding": open_invoice_outstanding,
         }
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/list-views")
+def list_list_views(
+    *,
+    entity: str,
+    username: str = Depends(require_permission()),
+) -> dict[str, Any]:
+    try:
+        key = _list_view_entity(entity)
+        _ensure_permission(username, _LIST_VIEW_PERMISSIONS[key])
+        db = _c().db
+        if db is None:
+            raise ValidationError("CRM storage unavailable")
+        docs = list(
+            db.crm_list_views.find({"username": username, "entity": key}).sort(
+                "updated_at", -1
+            )
+        )
+        items = [_serialize_list_view(doc) for doc in docs]
+        return {"items": items, "total": len(items)}
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/list-views", status_code=201)
+def create_list_view(
+    body: ListViewCreate,
+    username: str = Depends(require_permission()),
+) -> dict[str, Any]:
+    try:
+        key = _list_view_entity(body.entity)
+        _ensure_permission(username, _LIST_VIEW_PERMISSIONS[key])
+        db = _c().db
+        if db is None:
+            raise ValidationError("CRM storage unavailable")
+        name = body.name.strip()
+        if not name:
+            raise ValidationError("name is required")
+        now = datetime.utcnow()
+        view_id = uuid4().hex
+        doc = {
+            "_id": view_id,
+            "username": username,
+            "name": name,
+            "entity": key,
+            "filters": dict(body.filters or {}),
+            "sort": list(body.sort or []),
+            "columns": list(body.columns or []),
+            "created_at": now,
+            "updated_at": now,
+        }
+        db.crm_list_views.insert_one(doc)
+        return _serialize_list_view(doc)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.delete("/list-views/{view_id}")
+def delete_list_view(
+    view_id: str,
+    username: str = Depends(require_permission()),
+) -> dict[str, Any]:
+    try:
+        db = _c().db
+        if db is None:
+            raise ValidationError("CRM storage unavailable")
+        existing = db.crm_list_views.find_one({"_id": view_id, "username": username})
+        if not existing:
+            raise LookupError("List view not found")
+        entity = str(existing.get("entity") or "")
+        if entity in _LIST_VIEW_PERMISSIONS:
+            _ensure_permission(username, _LIST_VIEW_PERMISSIONS[entity])
+        result = db.crm_list_views.delete_one({"_id": view_id, "username": username})
+        if result.deleted_count == 0:
+            raise LookupError("List view not found")
+        return {"ok": True, "id": view_id}
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -1714,6 +2175,33 @@ async def upload_attachment(
             "size_bytes": doc["size_bytes"],
             "entity_type": entity_type,
             "entity_id": entity_id,
+        }
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/attachments/{attachment_id}/meta")
+def attachment_meta(
+    attachment_id: str, _: str = Depends(require_permission("crm.leads.view"))
+) -> dict[str, Any]:
+    """Return attachment metadata without file bytes."""
+    try:
+        db = _c().db
+        if db is None:
+            raise ValidationError("CRM storage unavailable")
+        doc = db.crm_attachments.find_one(
+            {"_id": attachment_id},
+            {"data": 0},
+        )
+        if not doc:
+            raise LookupError("Attachment not found")
+        return {
+            "id": doc.get("_id") or attachment_id,
+            "name": doc.get("name") or "file",
+            "content_type": doc.get("content_type") or "application/octet-stream",
+            "size_bytes": int(doc.get("size_bytes") or 0),
+            "entity_type": doc.get("entity_type") or "",
+            "entity_id": doc.get("entity_id") or "",
         }
     except Exception as exc:
         raise _http_err(exc) from exc

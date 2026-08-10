@@ -154,9 +154,11 @@ class CrmEnquiryAppService:
                 )
         return saved
 
-    def get_enquiry(self, enquiry_id: str) -> CrmEnquiry:
+    def get_enquiry(self, enquiry_id: str, *, include_deleted: bool = False) -> CrmEnquiry:
         enquiry = self._enquiries.find_by_id(enquiry_id)
-        if not enquiry or enquiry.is_deleted:
+        if not enquiry:
+            raise ValidationError("Enquiry not found")
+        if enquiry.is_deleted and not include_deleted:
             raise ValidationError("Enquiry not found")
         return enquiry
 

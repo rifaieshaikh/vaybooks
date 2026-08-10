@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useAssignCrmLeadMutation,
   useBulkAssignCrmLeadsMutation,
@@ -21,38 +21,70 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
+  EntityDetailBack,
+  EntityDetailBanner,
+  EntityDetailHero,
+  EntityDetailPage,
+  EntityDetailPanel,
+  EntityDetailSnapshot,
+  EntityDetailStickyActions,
+  EntityDetailTabs,
   EntityListActions,
   EntityListEmpty,
   EntityListFoot,
+  EntityListFilterSort,
   EntityListHero,
   EntityListLoading,
   EntityListPage,
   EntityListQuickFilters,
   EntityListTable,
   ErrorText,
+  Drawer,
   FormRow,
-  Modal,
   PAGE_SIZE,
   PaginationBar,
   displayName,
   pageCount,
   type EntityListColumn,
+  type FilterFieldDef,
+  type SortCriterion,
 } from '@vaybooks/ui-kit';
 import {
   AttachmentList,
   AuditPanel,
   BulkActionBar,
   CustomFieldsForm,
-  EntityWorkspace,
+  EMPTY_LEAD_COMMERCIAL,
   ImportLeadsModal,
   KanbanBoard,
+  LeadCommercialFieldGroups,
   LocationSelect,
+  SavedListViewsBar,
   SectionForm,
   StatusPill,
+  TimelineComposer,
   WhatsAppButton,
+  leadCommercialPayload,
+  parseEntityWorkspaceTab,
+  type EntityWorkspaceTab,
+  type LeadCommercialValues,
 } from '../components';
-import { crmPagedItems, useCrmCan, useCrmSettingsCatalogs } from '../hooks';
-import { asCaption, extractError } from '../utils';
+import { fromDatetimeLocalValue, toDatetimeLocalValue } from '../calendarHelpers';
+import { crmDetailPath } from '../collectionsAging';
+import { crmPagedItems, useCrmCan, useCrmFieldVisibility, useCrmSettingsCatalogs } from '../hooks';
+import {
+  CRM_DATE_RANGE_FIELDS,
+  DEFAULT_LEAD_FILTERS,
+  DEFAULT_LEAD_SORT,
+  mergeAppliedFilters,
+  sortQueryParams,
+} from '../listHelpers';
+import { asCaption, downloadCsv, extractError } from '../utils';
+
+const LIFECYCLE_CHIPS = [
+  { id: 'active', label: 'Active' },
+  { id: 'deleted', label: 'Deleted' },
+] as const;
 
 const FALLBACK_LEAD_STATUSES = [
   'New',
@@ -68,9 +100,19 @@ const FALLBACK_LEAD_STATUSES = [
 
 type LeadRow = Record<string, unknown>;
 
+const LEAD_SORT_OPTIONS = [
+  { value: 'name', label: 'Name' },
+  { value: 'created_at', label: 'Created' },
+  { value: 'status', label: 'Status' },
+  { value: 'priority', label: 'Priority' },
+  { value: 'next_follow_up_at', label: 'Next follow-up' },
+];
+
 export function CrmLeadsListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const can = useCrmCan();
+  const visibility = useCrmFieldVisibility();
   const { catalogs } = useCrmSettingsCatalogs();
   const statuses = catalogs.leadStatuses.length ? catalogs.leadStatuses : FALLBACK_LEAD_STATUSES;
   const statusChips = useMemo(
@@ -79,7 +121,10 @@ export function CrmLeadsListPage() {
   );
 
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
+  const [filters, setFilters] = useState({ ...DEFAULT_LEAD_FILTERS });
+  const [sort, setSort] = useState<SortCriterion[]>([...DEFAULT_LEAD_SORT]);
+  const status = filters.status;
+  const [lifecycle, setLifecycle] = useState<'active' | 'deleted'>('active');
   const [page, setPage] = useState(1);
   const [view, setView] = useState<'table' | 'board'>('table');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -91,35 +136,77 @@ export function CrmLeadsListPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [source, setSource] = useState('');
-  const [locationId, setLocationId] = useState('');
+  const [commercial, setCommercial] = useState<LeadCommercialValues>(EMPTY_LEAD_COMMERCIAL);
   const [formError, setFormError] = useState('');
   const [dupInfo, setDupInfo] = useState<Record<string, unknown> | null>(null);
   const [allowDuplicate, setAllowDuplicate] = useState(false);
+
+  const showDeleted = lifecycle === 'deleted' && can.deleteLeads;
 
   const listArgs = useMemo(
     () => ({
       status: status || undefined,
       search: search.trim() || undefined,
+      assigned_user_id: filters.assigned_user_id || undefined,
+      priority: filters.priority || undefined,
+      date_from: filters.date_from || undefined,
+      date_to: filters.date_to || undefined,
+      ...sortQueryParams(sort),
       page: view === 'board' ? 1 : page,
       page_size: view === 'board' ? 200 : PAGE_SIZE,
+      deleted: (showDeleted ? 'only' : 'exclude') as 'only' | 'exclude',
     }),
-    [status, search, page, view],
+    [status, search, filters, sort, page, view, showDeleted],
   );
 
-  const { data, isLoading, error, refetch } = useListCrmLeadsQuery(listArgs);
-  const { data: owners = [] } = useListCrmOwnersQuery(undefined, { skip: !can.assignLeads });
+  function openLead(id: string) {
+    navigate(crmDetailPath('leads', id, { deleted: showDeleted }));
+  }
+
+  const { data, isLoading, isFetching, error, refetch } = useListCrmLeadsQuery(listArgs);
   const [createLead, createState] = useCreateCrmLeadMutation();
   const [detectDup] = useDetectCrmLeadDuplicatesMutation();
   const [bulkAssign, bulkAssignState] = useBulkAssignCrmLeadsMutation();
   const [bulkSetStatus, bulkStatusState] = useBulkStatusCrmLeadsMutation();
   const [setLeadStatus] = useSetCrmLeadStatusMutation();
 
+  const { data: owners = [] } = useListCrmOwnersQuery(undefined, {
+    skip: !can.assignLeads && !can.viewLeads,
+  });
+
+  const filterFields: FilterFieldDef[] = useMemo(
+    () => [
+      {
+        key: 'assigned_user_id',
+        label: 'Owner',
+        type: 'select',
+        allLabel: 'All owners',
+        options: owners.map((o) => ({ value: o.id, label: o.name })),
+      },
+      {
+        key: 'priority',
+        label: 'Priority',
+        type: 'select',
+        allLabel: 'All priorities',
+        options: [
+          { value: 'High', label: 'High' },
+          { value: 'Medium', label: 'Medium' },
+          { value: 'Low', label: 'Low' },
+        ],
+      },
+      ...CRM_DATE_RANGE_FIELDS,
+    ],
+    [owners],
+  );
+
   const rows = useMemo(() => crmPagedItems<LeadRow>(data), [data]);
   const total = Number((data as { total?: number } | undefined)?.total ?? rows.length);
   const pages = view === 'board' ? 1 : Math.max(1, pageCount(total, PAGE_SIZE));
   const pageRows = rows;
+
+  useEffect(() => {
+    if (page > pages) setPage(pages);
+  }, [page, pages]);
 
   const columns: EntityListColumn<LeadRow>[] = useMemo(
     () => [
@@ -222,17 +309,31 @@ export function CrmLeadsListPage() {
     setAllowDuplicate(false);
     setName('');
     setPhone('');
-    setEmail('');
-    setSource(catalogs.leadSources[0] || '');
-    setLocationId('');
+    setCommercial({
+      ...EMPTY_LEAD_COMMERCIAL,
+      source: catalogs.leadSources[0] || '',
+    });
     setOpen(true);
   }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    openCreate();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   async function onCreate(forceDuplicate = false) {
     setFormError('');
     try {
       if (!forceDuplicate && !allowDuplicate) {
-        const dup = await detectDup({ name, phone, email }).unwrap();
+        const dup = await detectDup({
+          name,
+          phone,
+          email: commercial.email,
+          gstin: commercial.gstin,
+        }).unwrap();
         if (dup?.is_duplicate) {
           setDupInfo(dup);
           return;
@@ -241,9 +342,7 @@ export function CrmLeadsListPage() {
       const row = await createLead({
         name,
         phone,
-        email,
-        source,
-        location_id: locationId,
+        ...leadCommercialPayload(commercial),
         allow_duplicate: forceDuplicate || allowDuplicate,
       }).unwrap();
       setOpen(false);
@@ -282,6 +381,22 @@ export function CrmLeadsListPage() {
     }
   }
 
+  function onExportSelected() {
+    const exportRows = pageRows
+      .filter((row) => selected.has(String(row.id)))
+      .map((row) => ({
+        id: row.id,
+        lead_number: row.lead_number,
+        name: row.name,
+        phone: row.phone,
+        status: row.status,
+        source: row.source,
+        assigned_user_name: row.assigned_user_name,
+        estimated_value: row.estimated_value,
+      }));
+    downloadCsv('crm-leads.csv', exportRows);
+  }
+
   return (
     <EntityListPage>
       <EntityListHero
@@ -300,12 +415,12 @@ export function CrmLeadsListPage() {
             >
               {view === 'table' ? 'Board' : 'Table'}
             </button>
-            {can.importLeads ? (
+            {can.importLeads && !showDeleted ? (
               <button type="button" className="el-btn-ghost" onClick={() => setImportOpen(true)}>
                 Import
               </button>
             ) : null}
-            {can.createLeads ? (
+            {can.createLeads && !showDeleted ? (
               <Button type="button" onClick={openCreate}>
                 New lead
               </Button>
@@ -325,40 +440,116 @@ export function CrmLeadsListPage() {
           />
         }
         chips={
-          <EntityListQuickFilters
-            ariaLabel="Status"
-            value={status || 'all'}
-            onChange={(id) => {
-              setStatus(id === 'all' ? '' : id);
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            {can.deleteLeads ? (
+              <EntityListQuickFilters
+                ariaLabel="Lifecycle"
+                value={lifecycle}
+                onChange={(id) => {
+                  setLifecycle(id === 'deleted' ? 'deleted' : 'active');
+                  setSelected(new Set());
+                  setPage(1);
+                  if (id === 'deleted') setView('table');
+                }}
+                options={[...LIFECYCLE_CHIPS]}
+              />
+            ) : null}
+            <EntityListQuickFilters
+              ariaLabel="Status"
+              value={status || 'all'}
+              onChange={(id) => {
+                setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+                setPage(1);
+              }}
+              options={statusChips}
+            />
+          </div>
+        }
+        tools={
+          <EntityListFilterSort
+            filterFields={filterFields}
+            filters={filters}
+            defaultFilters={DEFAULT_LEAD_FILTERS}
+            excludeKeys={['status']}
+            onFiltersChange={(next) => {
+              setFilters({ ...DEFAULT_LEAD_FILTERS, ...next, status: filters.status });
               setPage(1);
             }}
-            options={statusChips}
+            sort={sort}
+            defaultSort={DEFAULT_LEAD_SORT}
+            sortOptions={LEAD_SORT_OPTIONS}
+            onSortChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
           />
         }
       />
 
-      {bulkMsg ? <p style={{ marginTop: 0 }}>{bulkMsg}</p> : null}
-      <BulkActionBar
-        selectedCount={selected.size}
-        owners={owners}
-        statuses={statuses.filter((s) => s !== 'Converted')}
-        assigneeId={bulkAssignee}
-        onAssigneeChange={setBulkAssignee}
-        status={bulkStatus}
-        onStatusChange={setBulkStatus}
-        onAssign={() => void onBulkAssign()}
-        onStatus={() => void onBulkStatus()}
-        onClear={() => setSelected(new Set())}
-        assignDisabled={!can.assignLeads}
-        statusDisabled={!can.editLeads}
-        busy={bulkAssignState.isLoading || bulkStatusState.isLoading}
-      />
+      <div style={{ margin: '8px 0 12px' }}>
+        <SavedListViewsBar
+          entity="lead"
+          current={{ search, filters, sort }}
+          onApply={(viewState) => {
+            setSearch(viewState.search);
+            setFilters(mergeAppliedFilters(DEFAULT_LEAD_FILTERS, viewState.filters));
+            setSort(viewState.sort.length ? viewState.sort : [...DEFAULT_LEAD_SORT]);
+            setPage(1);
+          }}
+        />
+      </div>
 
-      {isLoading ? <EntityListLoading>Loading leads…</EntityListLoading> : null}
+      {view === 'board' && !showDeleted ? (
+        <p className="el-muted" style={{ margin: '0 0 12px' }}>
+          Board shows up to 200 records
+        </p>
+      ) : null}
+      {isFetching && !isLoading ? (
+        <p className="el-muted" style={{ margin: '0 0 8px' }}>
+          Refreshing…
+        </p>
+      ) : null}
+
+      {bulkMsg ? <p style={{ marginTop: 0 }}>{bulkMsg}</p> : null}
+      {!showDeleted ? (
+        <BulkActionBar
+          selectedCount={selected.size}
+          owners={owners}
+          statuses={statuses.filter((s) => s !== 'Converted')}
+          assigneeId={bulkAssignee}
+          onAssigneeChange={setBulkAssignee}
+          status={bulkStatus}
+          onStatusChange={setBulkStatus}
+          onAssign={() => void onBulkAssign()}
+          onStatus={() => void onBulkStatus()}
+          onClear={() => setSelected(new Set())}
+          assignDisabled={!can.assignLeads}
+          statusDisabled={!can.editLeads}
+          busy={bulkAssignState.isLoading || bulkStatusState.isLoading}
+          extra={
+            <Button type="button" variant="ghost" onClick={onExportSelected}>
+              Export CSV
+            </Button>
+          }
+        />
+      ) : null}
+
+      {isLoading && view !== 'board' ? <EntityListLoading>Loading leads…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load leads.</ErrorText> : null}
-      {!isLoading && !error && rows.length === 0 ? (
+      {!isLoading && !error && rows.length === 0 && view === 'table' ? (
         <EntityListEmpty>
-          <strong>{search.trim() || status ? 'No matching leads' : 'No leads yet'}</strong>
+          <strong>
+            {showDeleted
+              ? 'No deleted leads'
+              : search.trim() ||
+                  status ||
+                  filters.assigned_user_id ||
+                  filters.priority ||
+                  filters.date_from ||
+                  filters.date_to
+                ? 'No matching leads'
+                : 'No leads yet'}
+          </strong>
         </EntityListEmpty>
       ) : null}
 
@@ -367,23 +558,34 @@ export function CrmLeadsListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
-          onActivateRow={(row) => navigate(`/crm/leads/${row.id}`)}
+          keyboardNav
+          onActivateRow={(row) => openLead(String(row.id))}
+          onNew={can.createLeads && !showDeleted ? openCreate : undefined}
           actions={(row) => (
-            <EntityListActions onOpen={() => navigate(`/crm/leads/${row.id}`)} />
+            <EntityListActions onOpen={() => openLead(String(row.id))} />
           )}
         />
       ) : null}
 
-      {!isLoading && !error && view === 'board' && rows.length > 0 ? (
+      {view === 'board' && !showDeleted && !error ? (
         <KanbanBoard
           columns={kanbanColumns}
           cards={kanbanCards}
-          onOpen={(id) => navigate(`/crm/leads/${id}`)}
+          loading={isLoading}
+          emptyLabel={
+            search.trim() ||
+            status ||
+            filters.assigned_user_id ||
+            filters.date_from ||
+            filters.date_to
+              ? 'No matching leads'
+              : 'No leads yet'
+          }
+          onOpen={(id) => openLead(id)}
           onMove={
             can.editLeads
               ? async (id, nextStatus) => {
                   await setLeadStatus({ id, status: nextStatus }).unwrap();
-                  refetch();
                 }
               : undefined
           }
@@ -398,9 +600,10 @@ export function CrmLeadsListPage() {
         </EntityListFoot>
       ) : null}
 
-      <Modal
+      <Drawer
         open={open}
         title="New lead"
+        size="lg"
         onClose={() => setOpen(false)}
         footer={
           <>
@@ -448,22 +651,18 @@ export function CrmLeadsListPage() {
           <FormRow label="Phone">
             <input value={phone} onChange={(e) => setPhone(e.target.value)} />
           </FormRow>
-          <FormRow label="Email">
-            <input value={email} onChange={(e) => setEmail(e.target.value)} />
-          </FormRow>
-          <FormRow label="Source">
-            <select value={source} onChange={(e) => setSource(e.target.value)}>
-              <option value="">Select…</option>
-              {catalogs.leadSources.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <LocationSelect value={locationId} onChange={setLocationId} required />
+          <LeadCommercialFieldGroups
+            values={commercial}
+            onChange={(patch) => setCommercial((f) => ({ ...f, ...patch }))}
+            visibility={visibility}
+            sources={catalogs.leadSources}
+            compact
+            showLocation
+            locationRequired
+            locationAutoSelect
+          />
         </div>
-      </Modal>
+      </Drawer>
 
       <ImportLeadsModal
         open={importOpen}
@@ -477,11 +676,17 @@ export function CrmLeadsListPage() {
 export function CrmLeadDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const can = useCrmCan();
+  const visibility = useCrmFieldVisibility();
   const { catalogs } = useCrmSettingsCatalogs();
   const statuses = catalogs.leadStatuses.length ? catalogs.leadStatuses : FALLBACK_LEAD_STATUSES;
+  const workspaceTab = parseEntityWorkspaceTab(searchParams.get('tab'));
 
-  const { data, isLoading, error, refetch } = useGetCrmLeadQuery(id, { skip: !id });
+  const [includeDeleted, setIncludeDeleted] = useState(searchParams.get('deleted') === '1');
+  const getArg = includeDeleted ? { id, include_deleted: true } : id;
+
+  const { data, isLoading, error, refetch, isError } = useGetCrmLeadQuery(getArg, { skip: !id });
   const { data: timeline = [], refetch: refetchTimeline } = useGetCrmLeadTimelineQuery(id, {
     skip: !id,
   });
@@ -493,6 +698,16 @@ export function CrmLeadDetailPage() {
     skip: !can.assignLeads && !can.editLeads,
   });
 
+  useEffect(() => {
+    if (searchParams.get('deleted') === '1') setIncludeDeleted(true);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (isError && can.deleteLeads && !includeDeleted) {
+      setIncludeDeleted(true);
+    }
+  }, [isError, can.deleteLeads, includeDeleted]);
+
   const [updateLead, updateState] = useUpdateCrmLeadMutation();
   const [assignLead, assignState] = useAssignCrmLeadMutation();
   const [setStatus, statusState] = useSetCrmLeadStatusMutation();
@@ -502,16 +717,9 @@ export function CrmLeadDetailPage() {
   const [deleteLead, deleteState] = useDeleteCrmLeadMutation();
   const [restoreEntity, restoreState] = useRestoreCrmEntityMutation();
 
-  const [form, setForm] = useState({
-    name: '',
-    phone: '',
-    email: '',
-    source: '',
-    notes: '',
-    interested_products: '',
-    priority: 'Medium',
-    location_id: '',
-  });
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [commercial, setCommercial] = useState<LeadCommercialValues>(EMPTY_LEAD_COMMERCIAL);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
   const [assigneeId, setAssigneeId] = useState('');
   const [status, setStatusValue] = useState('');
@@ -520,14 +728,27 @@ export function CrmLeadDetailPage() {
 
   useEffect(() => {
     if (!data) return;
-    setForm({
-      name: String(data.name || ''),
-      phone: String(data.phone || ''),
+    setName(String(data.name || ''));
+    setPhone(String(data.phone || ''));
+    setCommercial({
+      contact_person: String(data.contact_person || ''),
+      alternate_phone: String(data.alternate_phone || ''),
       email: String(data.email || ''),
-      source: String(data.source || ''),
-      notes: String(data.notes || ''),
-      interested_products: String(data.interested_products || ''),
+      address_line1: String(data.address_line1 || ''),
+      address_line2: String(data.address_line2 || ''),
+      area: String(data.area || ''),
+      city: String(data.city || ''),
+      state_code: String(data.state_code || ''),
+      pincode: String(data.pincode || ''),
+      gstin: String(data.gstin || ''),
+      estimated_value: data.estimated_value == null || data.estimated_value === ''
+        ? ''
+        : String(data.estimated_value),
       priority: String(data.priority || 'Medium'),
+      source: String(data.source || ''),
+      interested_products: String(data.interested_products || ''),
+      next_follow_up_at: toDatetimeLocalValue(data.next_follow_up_at as string | null | undefined),
+      notes: String(data.notes || ''),
       location_id: String(data.location_id || ''),
     });
     setCustomFieldValues(
@@ -545,6 +766,13 @@ export function CrmLeadDetailPage() {
     return items.filter((e) => String(e.lead_id || '') === id);
   }, [enquiriesPage, id]);
 
+  function setWorkspaceTab(next: ReturnType<typeof parseEntityWorkspaceTab>) {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'details') params.delete('tab');
+    else params.set('tab', next);
+    setSearchParams(params, { replace: true });
+  }
+
   async function refresh() {
     await Promise.all([refetch(), refetchTimeline()]);
   }
@@ -552,7 +780,19 @@ export function CrmLeadDetailPage() {
   async function onSave() {
     setMsg('');
     try {
-      await updateLead({ id, body: { ...form, custom_field_values: customFieldValues } }).unwrap();
+      const payload = leadCommercialPayload(commercial);
+      await updateLead({
+        id,
+        body: {
+          name,
+          phone,
+          ...payload,
+          next_follow_up_at: commercial.next_follow_up_at
+            ? fromDatetimeLocalValue(commercial.next_follow_up_at)
+            : null,
+          custom_field_values: customFieldValues,
+        },
+      }).unwrap();
       setMsg('Saved');
       refresh();
     } catch (e) {
@@ -643,8 +883,21 @@ export function CrmLeadDetailPage() {
     }
   }
 
-  if (isLoading) return <p>Loading…</p>;
-  if (error || !data) return <ErrorText>Lead not found.</ErrorText>;
+  if (isLoading) {
+    return (
+      <EntityDetailPage>
+        <EntityListLoading>Loading lead…</EntityListLoading>
+      </EntityDetailPage>
+    );
+  }
+  if (error || !data) {
+    return (
+      <EntityDetailPage>
+        <EntityDetailBack to="/crm/leads" label="Leads" />
+        <ErrorText>Lead not found.</ErrorText>
+      </EntityDetailPage>
+    );
+  }
 
   const isLost = data.status === 'Lost';
   const isConverted = data.status === 'Converted';
@@ -652,138 +905,204 @@ export function CrmLeadDetailPage() {
   const attachmentIds = Array.isArray(data.attachment_ids)
     ? data.attachment_ids.map(String)
     : [];
+  const timelineItems = Array.isArray(timeline) ? (timeline as LeadRow[]) : [];
+  const ownerName =
+    owners.find((o) => o.id === assigneeId)?.name ||
+    asCaption(data.assigned_user_name) ||
+    'Unassigned';
+
+  const tabOptions: { id: EntityWorkspaceTab; label: string }[] = [
+    { id: 'details', label: 'Details' },
+    { id: 'timeline', label: 'Timeline' },
+    { id: 'related', label: 'Related' },
+    { id: 'files', label: 'Files' },
+    ...(can.viewAudit ? [{ id: 'audit' as const, label: 'Audit' }] : []),
+  ];
+  const activeTab = tabOptions.some((t) => t.id === workspaceTab) ? workspaceTab : 'details';
+
+  const heroActions = (
+    <>
+      <WhatsAppButton phone={String(data.phone || '')} />
+      {can.editLeads && !isDeleted ? (
+        <Button type="button" onClick={() => void onSave()} disabled={updateState.isLoading}>
+          {updateState.isLoading ? 'Saving…' : 'Save'}
+        </Button>
+      ) : null}
+      {can.convertLeads && !isConverted && !isDeleted ? (
+        <Button type="button" onClick={() => void onConvert()} disabled={convertState.isLoading}>
+          Convert
+        </Button>
+      ) : null}
+      {can.deleteLeads && !isDeleted ? (
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => void onDelete()}
+          disabled={deleteState.isLoading}
+        >
+          Delete
+        </Button>
+      ) : null}
+    </>
+  );
 
   return (
-    <div>
-      <p>
-        <Link to="/crm/leads">← Leads</Link>
-      </p>
-      {msg ? <p>{msg}</p> : null}
-      {isDeleted ? (
-        <p style={{ color: 'var(--vb-color-danger, #b42318)' }}>
-          This lead is soft-deleted.
-          {can.deleteLeads ? (
-            <>
-              {' '}
-              <Button type="button" onClick={() => void onRestore()} disabled={restoreState.isLoading}>
-                Restore
-              </Button>
-            </>
-          ) : null}
-        </p>
-      ) : null}
+    <EntityDetailPage>
+      <EntityDetailBack to="/crm/leads" label="Leads" />
 
-      <EntityWorkspace
+      <EntityDetailHero
+        kicker="CRM · Lead"
         title={asCaption(data.name)}
-        subtitle={
-          <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {asCaption(data.lead_number)} · <StatusPill status={data.status} /> ·{' '}
-            {asCaption(data.phone)}
-          </span>
-        }
-        headerActions={
+        lead={
           <>
-            <WhatsAppButton phone={String(data.phone || '')} />
-            {can.convertLeads && !isConverted && !isDeleted ? (
-              <Button type="button" onClick={() => void onConvert()} disabled={convertState.isLoading}>
-                Convert
-              </Button>
-            ) : null}
-            {can.deleteLeads && !isDeleted ? (
-              <Button type="button" variant="ghost" onClick={() => void onDelete()} disabled={deleteState.isLoading}>
-                Delete
-              </Button>
-            ) : null}
+            <StatusPill status={data.status} />
+            <span className="ed-lead-sep"> · {asCaption(data.lead_number)}</span>
+            {data.phone ? <span className="ed-lead-sep"> · {asCaption(data.phone)}</span> : null}
           </>
         }
-        details={
-          <div style={{ display: 'grid', gap: 8, maxWidth: 640 }}>
-            <SectionForm title="Details">
-              <FormRow label="Name">
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  disabled={!can.editLeads || isDeleted}
-                />
-              </FormRow>
-              <FormRow label="Phone">
-                <input
-                  value={form.phone}
-                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                  disabled={!can.editLeads || isDeleted}
-                />
-              </FormRow>
-              <FormRow label="Email">
-                <input
-                  value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  disabled={!can.editLeads || isDeleted}
-                />
-              </FormRow>
-              <FormRow label="Source">
-                <select
-                  value={form.source}
-                  onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))}
-                  disabled={!can.editLeads || isDeleted}
-                >
-                  <option value="">Select…</option>
-                  {catalogs.leadSources.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </FormRow>
-              <FormRow label="Interest">
-                <input
-                  value={form.interested_products}
-                  onChange={(e) => setForm((f) => ({ ...f, interested_products: e.target.value }))}
-                  disabled={!can.editLeads || isDeleted}
-                />
-              </FormRow>
-              <FormRow label="Priority">
-                <select
-                  value={form.priority}
-                  onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}
-                  disabled={!can.editLeads || isDeleted}
-                >
-                  {['Low', 'Medium', 'High'].map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </FormRow>
-              <LocationSelect
-                value={form.location_id}
-                onChange={(location_id) => setForm((f) => ({ ...f, location_id }))}
-                disabled={!can.editLeads || isDeleted}
-                autoSelect={false}
-              />
-              <FormRow label="Notes">
-                <textarea
-                  value={form.notes}
-                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                  rows={4}
-                  style={{ width: '100%' }}
-                  disabled={!can.editLeads || isDeleted}
-                />
-              </FormRow>
-              <CustomFieldsForm
-                values={customFieldValues}
-                onChange={setCustomFieldValues}
-                disabled={!can.editLeads || isDeleted}
-              />
-              {can.editLeads && !isDeleted ? (
-                <Button type="button" onClick={() => void onSave()} disabled={updateState.isLoading}>
-                  {updateState.isLoading ? 'Saving…' : 'Save'}
-                </Button>
-              ) : null}
-            </SectionForm>
+        actions={heroActions}
+      />
 
-            <SectionForm title="Owner & status">
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
-                <FormRow label="Owner">
+      <EntityDetailSnapshot
+        ariaLabel="Lead facts"
+        items={[
+          { label: 'Status', value: asCaption(data.status) || '—' },
+          { label: 'Phone', value: asCaption(data.phone) || '—' },
+          { label: 'Owner', value: ownerName },
+          { label: 'Priority', value: asCaption(data.priority) || '—' },
+          { label: 'Next follow-up', value: asCaption(data.next_follow_up_at) || '—' },
+        ]}
+      />
+
+      {isDeleted ? (
+        <EntityDetailBanner>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div>
+              <strong>Deleted lead</strong>
+              <p style={{ margin: '4px 0 0' }}>
+                Soft-deleted {asCaption(data.deleted_at) || '—'}. Restore to edit again.
+              </p>
+            </div>
+            {can.deleteLeads ? (
+              <Button
+                type="button"
+                onClick={() => void onRestore()}
+                disabled={restoreState.isLoading}
+              >
+                {restoreState.isLoading ? 'Restoring…' : 'Restore'}
+              </Button>
+            ) : null}
+          </div>
+        </EntityDetailBanner>
+      ) : null}
+
+      {msg ? <p className="crm-ew-msg">{msg}</p> : null}
+
+      <EntityDetailTabs
+        value={activeTab}
+        ariaLabel="Lead sections"
+        onChange={(next) => setWorkspaceTab(next as EntityWorkspaceTab)}
+        options={tabOptions}
+      />
+
+      {activeTab === 'details' ? (
+        <EntityDetailPanel key="details" title="Details">
+          <div className="crm-ew-details-cols">
+            <div className="crm-ew-details-main">
+              <SectionForm title="Details">
+                <FormRow label="Name">
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    disabled={!can.editLeads || isDeleted}
+                  />
+                </FormRow>
+                <FormRow label="Phone">
+                  <input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    disabled={!can.editLeads || isDeleted}
+                  />
+                </FormRow>
+              </SectionForm>
+              <LeadCommercialFieldGroups
+                values={commercial}
+                onChange={(patch) => setCommercial((f) => ({ ...f, ...patch }))}
+                visibility={visibility}
+                sources={catalogs.leadSources}
+                disabled={!can.editLeads || isDeleted}
+                showLocation={false}
+              />
+              <SectionForm title="Custom fields">
+                <CustomFieldsForm
+                  values={customFieldValues}
+                  onChange={setCustomFieldValues}
+                  disabled={!can.editLeads || isDeleted}
+                />
+              </SectionForm>
+              <SectionForm title="Lifecycle">
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
+                  <FormRow label="Status">
+                    <select
+                      value={status}
+                      onChange={(e) => setStatusValue(e.target.value)}
+                      disabled={!can.editLeads || isConverted || isDeleted}
+                    >
+                      {statuses.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </FormRow>
+                  {can.editLeads && !isConverted && !isDeleted ? (
+                    <Button
+                      type="button"
+                      onClick={() => void onStatus()}
+                      disabled={!status || statusState.isLoading}
+                    >
+                      Update status
+                    </Button>
+                  ) : null}
+                  <FormRow label="Lost reason">
+                    <select
+                      value={lostReason}
+                      onChange={(e) => setLostReason(e.target.value)}
+                      disabled={isDeleted}
+                    >
+                      <option value="">Select…</option>
+                      {catalogs.lostReasons.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </FormRow>
+                  {can.editLeads && !isConverted && !isDeleted ? (
+                    <Button
+                      type="button"
+                      onClick={() => void onMarkLost()}
+                      disabled={lostState.isLoading}
+                    >
+                      Mark lost
+                    </Button>
+                  ) : null}
+                  {isLost && can.editLeads && !isDeleted ? (
+                    <Button
+                      type="button"
+                      onClick={() => void onReopen()}
+                      disabled={reopenState.isLoading}
+                    >
+                      Reopen
+                    </Button>
+                  ) : null}
+                </div>
+              </SectionForm>
+            </div>
+            <aside className="crm-ew-details-rail">
+              <div className="crm-ew-rail-card">
+                <h3>Owner</h3>
+                <FormRow label="Assignee">
                   <select
                     value={assigneeId}
                     onChange={(e) => setAssigneeId(e.target.value)}
@@ -802,101 +1121,97 @@ export function CrmLeadDetailPage() {
                     type="button"
                     onClick={() => void onAssign()}
                     disabled={!assigneeId || assignState.isLoading}
+                    style={{ marginTop: 8 }}
                   >
                     Assign
                   </Button>
                 ) : null}
-                <FormRow label="Status">
-                  <select
-                    value={status}
-                    onChange={(e) => setStatusValue(e.target.value)}
-                    disabled={!can.editLeads || isConverted || isDeleted}
-                  >
-                    {statuses.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </FormRow>
-                {can.editLeads && !isConverted && !isDeleted ? (
-                  <Button
-                    type="button"
-                    onClick={() => void onStatus()}
-                    disabled={!status || statusState.isLoading}
-                  >
-                    Update status
-                  </Button>
-                ) : null}
+                <div className="crm-ew-rail-row" style={{ marginTop: 10 }}>
+                  <span>Current</span>
+                  <strong>{ownerName}</strong>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
-                <FormRow label="Lost reason">
-                  <select
-                    value={lostReason}
-                    onChange={(e) => setLostReason(e.target.value)}
-                    disabled={isDeleted}
-                  >
-                    <option value="">Select…</option>
-                    {catalogs.lostReasons.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </FormRow>
-                {can.editLeads && !isConverted && !isDeleted ? (
-                  <Button type="button" onClick={() => void onMarkLost()} disabled={lostState.isLoading}>
-                    Mark lost
-                  </Button>
-                ) : null}
-                {isLost && can.editLeads && !isDeleted ? (
-                  <Button type="button" onClick={() => void onReopen()} disabled={reopenState.isLoading}>
-                    Reopen
-                  </Button>
-                ) : null}
+              <div className="crm-ew-rail-card">
+                <h3>Location</h3>
+                <LocationSelect
+                  value={commercial.location_id}
+                  onChange={(locationId) =>
+                    setCommercial((f) => ({ ...f, location_id: locationId }))
+                  }
+                  disabled={!can.editLeads || isDeleted}
+                  autoSelect={false}
+                />
               </div>
-            </SectionForm>
-
-            {can.viewAudit ? <AuditPanel entityType="lead" entityId={id} /> : null}
+              <div className="crm-ew-rail-card">
+                <h3>Dates</h3>
+                <div className="crm-ew-rail-row">
+                  <span>Created</span>
+                  <strong>{asCaption(data.created_at) || '—'}</strong>
+                </div>
+                <div className="crm-ew-rail-row">
+                  <span>Updated</span>
+                  <strong>{asCaption(data.updated_at) || '—'}</strong>
+                </div>
+                <div className="crm-ew-rail-row">
+                  <span>Next follow-up</span>
+                  <strong>{asCaption(data.next_follow_up_at) || '—'}</strong>
+                </div>
+              </div>
+              <div className="crm-ew-rail-card">
+                <h3>WhatsApp</h3>
+                <WhatsAppButton phone={String(data.phone || '')} />
+              </div>
+            </aside>
           </div>
-        }
-        timeline={
-          <section>
-            {(Array.isArray(timeline) ? timeline : []).length === 0 ? (
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'timeline' ? (
+        <EntityDetailPanel key="timeline" title="Timeline">
+          <div className="crm-ew-timeline">
+            {!isDeleted && can.createActivities ? (
+              <TimelineComposer leadId={id} onLogged={() => void refresh()} />
+            ) : null}
+            {timelineItems.length === 0 ? (
               <p className="el-muted">No activity yet.</p>
             ) : (
-              <ol>
-                {(timeline as LeadRow[]).map((item) => (
-                  <li key={String(item.id)}>
-                    <strong>{asCaption(item.activity_type)}</strong> · {asCaption(item.status)} ·{' '}
-                    {asCaption(item.scheduled_at || item.activity_at)}
-                    {item.notes ? ` — ${asCaption(item.notes)}` : ''}
+              <ul className="crm-ew-timeline-list">
+                {timelineItems.map((item) => (
+                  <li key={String(item.id)} className="crm-ew-timeline-item">
+                    <strong>{asCaption(item.activity_type)}</strong>
+                    <div className="crm-ew-timeline-meta">
+                      {asCaption(item.status)} · {asCaption(item.scheduled_at || item.activity_at)}
+                      {item.notes ? ` — ${asCaption(item.notes)}` : ''}
+                    </div>
                   </li>
                 ))}
-              </ol>
+              </ul>
             )}
-          </section>
-        }
-        related={
-          <div style={{ display: 'grid', gap: 16 }}>
-            {data.customer_id ? (
-              <SectionForm title="Customer">
-                <p style={{ margin: 0 }}>
+          </div>
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'related' ? (
+        <EntityDetailPanel key="related" title="Related">
+          <div className="crm-ew-related-grid">
+            <div className="crm-ew-related-card">
+              <h3>Customer</h3>
+              {data.customer_id ? (
+                <p>
                   <Link to={`/parties/customers/${String(data.customer_id)}`}>
                     {asCaption(data.customer_name || data.customer_id)}
                   </Link>
                 </p>
-              </SectionForm>
-            ) : (
-              <p className="el-muted">Not converted to a customer yet.</p>
-            )}
-            <SectionForm title="Enquiries">
-              {relatedEnquiries.length === 0 ? (
-                <p className="el-muted" style={{ margin: 0 }}>
-                  No linked enquiries.
-                </p>
               ) : (
-                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                <p className="el-muted">Not converted yet.</p>
+              )}
+            </div>
+            <div className="crm-ew-related-card">
+              <h3>Enquiries</h3>
+              {relatedEnquiries.length === 0 ? (
+                <p className="el-muted">No linked enquiries.</p>
+              ) : (
+                <ul>
                   {relatedEnquiries.map((enq) => (
                     <li key={String(enq.id)}>
                       <button
@@ -910,10 +1225,13 @@ export function CrmLeadDetailPage() {
                   ))}
                 </ul>
               )}
-            </SectionForm>
+            </div>
           </div>
-        }
-        files={
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'files' ? (
+        <EntityDetailPanel key="files" title="Files">
           <AttachmentList
             entityType="lead"
             entityId={id}
@@ -921,8 +1239,23 @@ export function CrmLeadDetailPage() {
             onChanged={() => void refresh()}
             readOnly={isDeleted || !can.editLeads}
           />
+        </EntityDetailPanel>
+      ) : null}
+
+      {activeTab === 'audit' && can.viewAudit ? (
+        <EntityDetailPanel key="audit" title="Audit">
+          <AuditPanel entityType="lead" entityId={id} />
+        </EntityDetailPanel>
+      ) : null}
+
+      <EntityDetailStickyActions
+        start={
+          <Button type="button" variant="ghost" onClick={() => navigate('/crm/leads')}>
+            Back to list
+          </Button>
         }
+        end={heroActions}
       />
-    </div>
+    </EntityDetailPage>
   );
 }

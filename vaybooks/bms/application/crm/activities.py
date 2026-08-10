@@ -51,6 +51,7 @@ class CrmActivityAppService:
         activity_at: Optional[datetime] = None,
         scheduled_at: Optional[datetime] = None,
         due_at: Optional[datetime] = None,
+        duration_minutes: Optional[int] = None,
         outcome: str = "",
         notes: str = "",
         next_action: str = "",
@@ -101,6 +102,9 @@ class CrmActivityAppService:
             activity_at=activity_at or utc_now(),
             scheduled_at=scheduled_at or activity_at or utc_now(),
             due_at=due_at,
+            duration_minutes=(
+                int(duration_minutes) if duration_minutes is not None else None
+            ),
             outcome=outcome or "",
             notes=notes or "",
             next_action=next_action or "",
@@ -118,9 +122,11 @@ class CrmActivityAppService:
         self._touch_lead_activity(saved)
         return saved
 
-    def get_activity(self, activity_id: str) -> CrmActivity:
+    def get_activity(self, activity_id: str, *, include_deleted: bool = False) -> CrmActivity:
         activity = self._activities.find_by_id(activity_id)
-        if not activity or activity.is_deleted:
+        if not activity:
+            raise ValidationError("Activity not found")
+        if activity.is_deleted and not include_deleted:
             raise ValidationError("Activity not found")
         return activity
 
@@ -149,6 +155,7 @@ class CrmActivityAppService:
             "activity_at",
             "scheduled_at",
             "due_at",
+            "duration_minutes",
             "outcome",
             "notes",
             "next_action",
@@ -164,11 +171,20 @@ class CrmActivityAppService:
             "attachment_ids",
             "needs_correction",
         }
+        content_keys = allowed - {"needs_correction"}
+        updating_content = any(
+            key in content_keys and value is not None for key, value in fields.items()
+        )
+        explicit_clear = fields.get("needs_correction") is False
         for key, value in fields.items():
             if key in allowed and value is not None:
                 setattr(activity, key, value)
         if "activity_type" in fields:
             activity.activity_type_key = activity_type_key(activity.activity_type)
+        # Content edits on automatic activities re-flag for correction review
+        # unless the caller explicitly clears needs_correction.
+        if activity.is_automatic and updating_content and not explicit_clear:
+            activity.needs_correction = True
         activity.touch(actor_id=actor_id, actor_name=actor_name)
         return self._activities.save(activity)
 

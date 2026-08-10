@@ -13,6 +13,8 @@ export {
 export type { ButtonProps, DataTableColumn, DataTableProps } from './controls';
 
 export { Modal, ModalForm } from './Modal';
+export { Drawer, DrawerForm } from './Drawer';
+export type { DrawerSize } from './Drawer';
 export {
   ListToolbar,
   FiltersDialog,
@@ -54,6 +56,19 @@ export {
 } from './EntityList';
 export type { EntityListColumn, EntityListQuickFilter, StatusPillTone } from './EntityList';
 export {
+  EntityDetailPage,
+  EntityDetailBack,
+  EntityDetailHero,
+  EntityDetailSnapshot,
+  EntityDetailTabs,
+  EntityDetailPanel,
+  EntityDetailStickyActions,
+  EntityDetailBanner,
+  EntityDetailEmptyCta,
+  EntityDetailForm,
+} from './EntityDetail';
+export type { EntityDetailFact, EntityDetailTab } from './EntityDetail';
+export {
   ListKeyboardBindingsProvider,
   useListKeyboardBindings,
   listBindingsFromActions,
@@ -63,6 +78,10 @@ export {
   formatChordHint,
 } from './ListKeyboard';
 export type { ListKeyboardBindings } from './ListKeyboard';
+export {
+  useDetailKeyboardBack,
+  hasActiveDetailKeyboardBack,
+} from './useDetailKeyboardBack';
 export {
   CalendarView,
   toDateKey,

@@ -33,7 +33,12 @@ export {
   formatOverviewWhen,
 } from './overviewHelpers';
 
-export { useCrmSettingsCatalogs, useCrmCan, crmPagedItems } from './hooks';
+export {
+  useCrmSettingsCatalogs,
+  useCrmFieldVisibility,
+  useCrmCan,
+  crmPagedItems,
+} from './hooks';
 
 export {
   StatusPill,
@@ -44,6 +49,7 @@ export {
   LocationSelect,
   SectionForm,
   EntityWorkspace,
+  parseEntityWorkspaceTab,
   CustomFieldsForm,
 } from './components';
 export type { CrmStatusPillTone, CrmAttachmentEntityType, EntityWorkspaceTab, CustomFieldDef } from './components';

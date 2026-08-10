@@ -208,6 +208,12 @@ function ActivityListPage({
     [],
   );
 
+  function openCreate() {
+    setFormError('');
+    setName('');
+    setDialog(true);
+  }
+
   async function onCreate() {
     setFormError('');
     try {
@@ -227,14 +233,7 @@ function ActivityListPage({
         title={title}
         count={`${filtered.length} ${filtered.length === 1 ? singular : `${singular}s`}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setName('');
-              setDialog(true);
-            }}
-          >
+          <Button type="button" onClick={openCreate}>
             Add {singular}
           </Button>
         }
@@ -283,7 +282,13 @@ function ActivityListPage({
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
-        <EntityListTable columns={columns} rows={pageRows} rowKey={(row) => String(row.id)} />
+        <EntityListTable
+          columns={columns}
+          rows={pageRows}
+          rowKey={(row) => String(row.id)}
+          keyboardNav
+          onNew={openCreate}
+        />
       ) : null}
 
       {!isLoading && !error && pageRows.length > 0 ? (
@@ -609,6 +614,9 @@ export function MeasurementSpecsPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={(row) => openEdit(row)}
+          onNew={openAdd}
           actions={(row) => (
             <EntityListActions
               onEdit={() => openEdit(row)}
@@ -886,6 +894,9 @@ export function ServicesSettingsPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={(row) => openEdit(row)}
+          onNew={openAdd}
           actions={(row) => <EntityListActions onEdit={() => openEdit(row)} />}
         />
       ) : null}
@@ -1130,6 +1141,9 @@ export function SettingsLocationsPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          keyboardNav
+          onEditRow={(row) => openEdit(row)}
+          onNew={openAdd}
           actions={(row) => (
             <EntityListActions
               onEdit={() => openEdit(row)}
@@ -1198,6 +1212,24 @@ export function SettingsLocationsPage() {
 
 const CRM_MODES = ['trade', 'retail', 'services', 'projects', 'boutique', 'light'] as const;
 
+const CRM_FIELD_PACKS = [
+  { key: 'gstin_address', label: 'GSTIN / address' },
+  { key: 'sku_interest', label: 'SKU interest' },
+  { key: 'appointment_duration', label: 'Appointment duration' },
+  { key: 'project_site', label: 'Project site' },
+  { key: 'collections', label: 'Collections' },
+] as const;
+
+/** Matches useCrmFieldVisibility MODE_PACK_DEFAULTS in mfe-crm. */
+const CRM_MODE_PACK_DEFAULTS: Record<string, string[]> = {
+  trade: ['gstin_address', 'sku_interest', 'collections'],
+  retail: ['sku_interest'],
+  services: ['appointment_duration'],
+  boutique: ['appointment_duration'],
+  projects: ['project_site', 'gstin_address'],
+  light: [],
+};
+
 const CRM_CATALOG_FIELDS = [
   { key: 'lead_sources', label: 'Lead sources' },
   { key: 'lead_statuses', label: 'Lead statuses' },
@@ -1218,20 +1250,352 @@ const CRM_NOTIF_KEYS = [
   { key: 'payment_reminder_due', label: 'Payment reminder due' },
 ] as const;
 
-function jsonText(value: unknown, fallback: string = '[]'): string {
-  try {
-    return JSON.stringify(value ?? JSON.parse(fallback), null, 2);
-  } catch {
-    return fallback;
+const CUSTOM_FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'select'] as const;
+
+type CatalogItem = {
+  label: string;
+  active?: boolean;
+  sort_order?: number;
+  outcome_required?: boolean;
+  automatic?: boolean;
+  key?: string;
+};
+
+type CustomFieldDefDraft = {
+  key: string;
+  label: string;
+  type: string;
+  options: string;
+  required: boolean;
+};
+
+function packsFromMode(mode: string): Record<string, boolean> {
+  const enabled = new Set(CRM_MODE_PACK_DEFAULTS[mode] || CRM_MODE_PACK_DEFAULTS.trade);
+  const next: Record<string, boolean> = {};
+  for (const pack of CRM_FIELD_PACKS) {
+    next[pack.key] = enabled.has(pack.key);
   }
+  return next;
 }
 
-function parseJsonField(raw: string, label: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    throw new Error(`${label}: invalid JSON`);
+function packsFromSettings(fieldPacks: unknown, mode: string): Record<string, boolean> {
+  if (Array.isArray(fieldPacks)) {
+    const enabled = new Set(fieldPacks.map((p) => String(p || '').trim()).filter(Boolean));
+    if (enabled.size === 0) return packsFromMode(mode);
+    const next: Record<string, boolean> = {};
+    for (const pack of CRM_FIELD_PACKS) {
+      next[pack.key] = enabled.has(pack.key);
+    }
+    return next;
   }
+  if (!fieldPacks || typeof fieldPacks !== 'object') {
+    return packsFromMode(mode);
+  }
+  const obj = fieldPacks as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return packsFromMode(mode);
+  const next: Record<string, boolean> = {};
+  for (const pack of CRM_FIELD_PACKS) {
+    const val = obj[pack.key];
+    if (val === undefined) {
+      next[pack.key] = false;
+      continue;
+    }
+    if (val === false || val === 0 || val === 'false') {
+      next[pack.key] = false;
+      continue;
+    }
+    if (val && typeof val === 'object' && 'enabled' in (val as object)) {
+      next[pack.key] = (val as { enabled?: unknown }).enabled !== false;
+      continue;
+    }
+    next[pack.key] = true;
+  }
+  return next;
+}
+
+function normalizeCatalogItems(raw: unknown): CatalogItem[] {
+  if (!Array.isArray(raw)) return [];
+  const items: CatalogItem[] = [];
+  raw.forEach((item, index) => {
+    if (typeof item === 'string') {
+      const label = item.trim();
+      if (label) items.push({ label, active: true, sort_order: index });
+      return;
+    }
+    if (!item || typeof item !== 'object') return;
+    const row = item as Record<string, unknown>;
+    const label = String(row.label || row.name || '').trim();
+    if (!label) return;
+    items.push({
+      label,
+      active: row.active !== false,
+      sort_order: Number(row.sort_order ?? index),
+      outcome_required: Boolean(row.outcome_required),
+      automatic: Boolean(row.automatic),
+      key: row.key != null ? String(row.key) : undefined,
+    });
+  });
+  return items.sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0));
+}
+
+function catalogItemsForSave(items: CatalogItem[]): CatalogItem[] {
+  return items.map((item, index) => ({
+    ...item,
+    label: item.label.trim(),
+    active: item.active !== false,
+    sort_order: index,
+  }));
+}
+
+function normalizeCustomFieldDefs(raw: unknown): CustomFieldDefDraft[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item, index) => {
+    const row = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
+    const options = Array.isArray(row.options)
+      ? row.options.map((o) => String(o)).join(', ')
+      : String(row.options || '');
+    return {
+      key: String(row.key || row.id || `field_${index + 1}`),
+      label: String(row.label || ''),
+      type: String(row.type || 'text').toLowerCase(),
+      options,
+      required: Boolean(row.required),
+    };
+  });
+}
+
+function customFieldDefsForSave(defs: CustomFieldDefDraft[]): Record<string, unknown>[] {
+  return defs
+    .map((def) => {
+      const key = def.key.trim();
+      if (!key) return null;
+      const type = CUSTOM_FIELD_TYPES.includes(def.type as (typeof CUSTOM_FIELD_TYPES)[number])
+        ? def.type
+        : 'text';
+      const row: Record<string, unknown> = {
+        key,
+        label: def.label.trim() || key,
+        type,
+        required: Boolean(def.required),
+      };
+      if (type === 'select') {
+        row.options = def.options
+          .split(',')
+          .map((o) => o.trim())
+          .filter(Boolean);
+      }
+      return row;
+    })
+    .filter((row): row is Record<string, unknown> => Boolean(row));
+}
+
+function LabelListEditor({
+  label,
+  items,
+  onChange,
+  showOutcomeRequired = false,
+}: {
+  label: string;
+  items: CatalogItem[];
+  onChange: (next: CatalogItem[]) => void;
+  showOutcomeRequired?: boolean;
+}) {
+  const [draft, setDraft] = useState('');
+
+  function addItem() {
+    const value = draft.trim();
+    if (!value) return;
+    if (items.some((item) => item.label.toLowerCase() === value.toLowerCase())) {
+      setDraft('');
+      return;
+    }
+    onChange([...items, { label: value, active: true, sort_order: items.length }]);
+    setDraft('');
+  }
+
+  function move(index: number, delta: number) {
+    const nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= items.length) return;
+    const next = [...items];
+    const [row] = next.splice(index, 1);
+    next.splice(nextIndex, 0, row);
+    onChange(next);
+  }
+
+  return (
+    <FormRow label={label}>
+      <div style={{ display: 'grid', gap: 8 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {items.length === 0 ? <span style={{ color: '#667' }}>No items yet</span> : null}
+          {items.map((item, index) => (
+            <div
+              key={`${item.label}-${index}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 8px',
+                border: '1px solid #d5ddd9',
+                borderRadius: 999,
+                background: '#f7faf8',
+                fontSize: '0.9rem',
+              }}
+            >
+              <span>{item.label}</span>
+              {showOutcomeRequired ? (
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.8rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(item.outcome_required)}
+                    onChange={(e) => {
+                      const next = [...items];
+                      next[index] = { ...item, outcome_required: e.target.checked };
+                      onChange(next);
+                    }}
+                    title="Outcome required"
+                  />
+                  outcome
+                </label>
+              ) : null}
+              <button type="button" className="el-btn-ghost" onClick={() => move(index, -1)} disabled={index === 0}>
+                ↑
+              </button>
+              <button
+                type="button"
+                className="el-btn-ghost"
+                onClick={() => move(index, 1)}
+                disabled={index === items.length - 1}
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                className="el-btn-ghost"
+                onClick={() => onChange(items.filter((_, i) => i !== index))}
+                aria-label={`Remove ${item.label}`}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addItem();
+              }
+            }}
+            placeholder="Add label…"
+            style={{ minWidth: 180, flex: 1 }}
+          />
+          <Button type="button" variant="ghost" onClick={addItem}>
+            Add
+          </Button>
+        </div>
+      </div>
+    </FormRow>
+  );
+}
+
+function CustomFieldDefsEditor({
+  defs,
+  onChange,
+}: {
+  defs: CustomFieldDefDraft[];
+  onChange: (next: CustomFieldDefDraft[]) => void;
+}) {
+  function updateRow(index: number, patch: Partial<CustomFieldDefDraft>) {
+    const next = [...defs];
+    next[index] = { ...next[index], ...patch };
+    onChange(next);
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+        <h4 style={{ margin: 0 }}>Custom field definitions</h4>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() =>
+            onChange([
+              ...defs,
+              {
+                key: `field_${defs.length + 1}`,
+                label: '',
+                type: 'text',
+                options: '',
+                required: false,
+              },
+            ])
+          }
+        >
+          Add field
+        </Button>
+      </div>
+      {defs.length === 0 ? <p style={{ margin: 0, color: '#667' }}>No custom fields defined.</p> : null}
+      {defs.map((def, index) => (
+        <div
+          key={`cdef-${index}`}
+          style={{
+            display: 'grid',
+            gap: 8,
+            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+            padding: 12,
+            border: '1px solid #e2e8e4',
+            borderRadius: 8,
+          }}
+        >
+          <FormRow label="Key">
+            <input value={def.key} onChange={(e) => updateRow(index, { key: e.target.value })} />
+          </FormRow>
+          <FormRow label="Label">
+            <input value={def.label} onChange={(e) => updateRow(index, { label: e.target.value })} />
+          </FormRow>
+          <FormRow label="Type">
+            <Select value={def.type} onChange={(e) => updateRow(index, { type: e.target.value })}>
+              {CUSTOM_FIELD_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </Select>
+          </FormRow>
+          {def.type === 'select' ? (
+            <FormRow label="Options (comma-separated)">
+              <input
+                value={def.options}
+                onChange={(e) => updateRow(index, { options: e.target.value })}
+                placeholder="A, B, C"
+              />
+            </FormRow>
+          ) : null}
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, alignSelf: 'end' }}>
+            <input
+              type="checkbox"
+              checked={def.required}
+              onChange={(e) => updateRow(index, { required: e.target.checked })}
+            />
+            Required
+          </label>
+          <div style={{ alignSelf: 'end' }}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => onChange(defs.filter((_, i) => i !== index))}
+            >
+              Remove
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function CrmSettingsRedirectPage() {
@@ -1245,7 +1609,7 @@ export function CrmSettingsRedirectPage() {
   } = useGetCrmNotificationPreferencesQuery();
   const [updateNotif, notifUpdateState] = useUpdateCrmNotificationPreferencesMutation();
 
-  const [catalogJson, setCatalogJson] = useState<Record<string, string>>({});
+  const [catalogs, setCatalogs] = useState<Record<string, CatalogItem[]>>({});
   const [followUpDays, setFollowUpDays] = useState('');
   const [inactivityDays, setInactivityDays] = useState('');
   const [businessName, setBusinessName] = useState('');
@@ -1256,8 +1620,10 @@ export function CrmSettingsRedirectPage() {
   const [calendarDrag, setCalendarDrag] = useState(true);
   const [customFields, setCustomFields] = useState(true);
   const [crmMode, setCrmMode] = useState('trade');
-  const [fieldPacksJson, setFieldPacksJson] = useState('{}');
-  const [customFieldDefsJson, setCustomFieldDefsJson] = useState('[]');
+  const [fieldPacks, setFieldPacks] = useState<Record<string, boolean>>(() => packsFromMode('trade'));
+  const [customFieldDefs, setCustomFieldDefs] = useState<CustomFieldDefDraft[]>([]);
+  /** True after the user manually toggles packs; mode change then keeps their choices. */
+  const [packsCustomized, setPacksCustomized] = useState(false);
   const [notifDraft, setNotifDraft] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState('');
   const [notifMsg, setNotifMsg] = useState('');
@@ -1266,11 +1632,11 @@ export function CrmSettingsRedirectPage() {
 
   useEffect(() => {
     if (!data) return;
-    const nextCatalogs: Record<string, string> = {};
+    const nextCatalogs: Record<string, CatalogItem[]> = {};
     for (const field of CRM_CATALOG_FIELDS) {
-      nextCatalogs[field.key] = jsonText(data[field.key], '[]');
+      nextCatalogs[field.key] = normalizeCatalogItems(data[field.key]);
     }
-    setCatalogJson(nextCatalogs);
+    setCatalogs(nextCatalogs);
     setFollowUpDays(String(data.default_follow_up_days ?? 3));
     setInactivityDays(String(data.default_inactivity_days ?? 30));
     setBusinessName(String(data.business_display_name ?? ''));
@@ -1284,9 +1650,11 @@ export function CrmSettingsRedirectPage() {
     setPaymentTrigger(String(data.payment_trigger ?? 'receipt_create'));
     setCalendarDrag(data.calendar_drag_enabled !== false);
     setCustomFields(data.custom_fields_enabled !== false);
-    setCrmMode(String(data.crm_mode || 'trade'));
-    setFieldPacksJson(jsonText(data.field_packs, '{}'));
-    setCustomFieldDefsJson(jsonText(data.custom_field_defs, '[]'));
+    const mode = String(data.crm_mode || 'trade');
+    setCrmMode(mode);
+    setFieldPacks(packsFromSettings(data.field_packs, mode));
+    setCustomFieldDefs(normalizeCustomFieldDefs(data.custom_field_defs));
+    setPacksCustomized(false);
   }, [data, settingsEpoch]);
 
   useEffect(() => {
@@ -1298,9 +1666,22 @@ export function CrmSettingsRedirectPage() {
     setNotifDraft(next);
   }, [notifPrefs, notifEpoch]);
 
+  function onModeChange(mode: string) {
+    setCrmMode(mode);
+    if (!packsCustomized) {
+      setFieldPacks(packsFromMode(mode));
+    }
+  }
+
+  function onPackToggle(key: string, checked: boolean) {
+    setPacksCustomized(true);
+    setFieldPacks((prev) => ({ ...prev, [key]: checked }));
+  }
+
   async function onSaveSettings() {
     setMsg('');
     try {
+      // Checkboxes are the source of truth for field_packs on save.
       const body: Record<string, unknown> = {
         default_follow_up_days: Number(followUpDays || 3),
         default_inactivity_days: Number(inactivityDays || 30),
@@ -1315,18 +1696,18 @@ export function CrmSettingsRedirectPage() {
         calendar_drag_enabled: calendarDrag,
         custom_fields_enabled: customFields,
         crm_mode: crmMode,
-        field_packs: parseJsonField(fieldPacksJson, 'Field packs'),
-        custom_field_defs: parseJsonField(customFieldDefsJson, 'Custom field defs'),
+        field_packs: { ...fieldPacks },
+        custom_field_defs: customFieldDefsForSave(customFieldDefs),
       };
       for (const field of CRM_CATALOG_FIELDS) {
-        body[field.key] = parseJsonField(catalogJson[field.key] || '[]', field.label);
+        body[field.key] = catalogItemsForSave(catalogs[field.key] || []);
       }
       await update(body).unwrap();
       setMsg('CRM settings saved');
       setSettingsEpoch((n) => n + 1);
       refetch();
     } catch (e) {
-      setMsg(e instanceof Error && e.message.includes('JSON') ? e.message : extractError(e));
+      setMsg(extractError(e));
     }
   }
 
@@ -1357,20 +1738,16 @@ export function CrmSettingsRedirectPage() {
           <section style={{ display: 'grid', gap: 12 }}>
             <h3 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Catalogs</h3>
             <p style={{ margin: 0, color: '#667', fontSize: '0.9rem' }}>
-              Edit as JSON arrays of items with <code>label</code>, optional <code>active</code>,{' '}
-              <code>sort_order</code>, and activity-type flags.
+              Add, remove, or reorder labels. Activity types can mark outcome required.
             </p>
             {CRM_CATALOG_FIELDS.map((field) => (
-              <FormRow key={field.key} label={field.label}>
-                <textarea
-                  rows={6}
-                  value={catalogJson[field.key] || '[]'}
-                  onChange={(e) =>
-                    setCatalogJson((prev) => ({ ...prev, [field.key]: e.target.value }))
-                  }
-                  style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: '0.85rem' }}
-                />
-              </FormRow>
+              <LabelListEditor
+                key={field.key}
+                label={field.label}
+                items={catalogs[field.key] || []}
+                showOutcomeRequired={field.key === 'activity_types'}
+                onChange={(next) => setCatalogs((prev) => ({ ...prev, [field.key]: next }))}
+              />
             ))}
           </section>
 
@@ -1444,9 +1821,9 @@ export function CrmSettingsRedirectPage() {
           </section>
 
           <section style={{ display: 'grid', gap: 12 }}>
-            <h3 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Wave 4 — mode & field packs</h3>
+            <h3 style={{ margin: 0, color: 'var(--vb-color-primary, #185c4c)' }}>Mode & field packs</h3>
             <FormRow label="CRM mode">
-              <Select value={crmMode} onChange={(e) => setCrmMode(e.target.value)}>
+              <Select value={crmMode} onChange={(e) => onModeChange(e.target.value)}>
                 {CRM_MODES.map((mode) => (
                   <option key={mode} value={mode}>
                     {mode}
@@ -1454,22 +1831,24 @@ export function CrmSettingsRedirectPage() {
                 ))}
               </Select>
             </FormRow>
-            <FormRow label="Field packs (JSON object)">
-              <textarea
-                rows={6}
-                value={fieldPacksJson}
-                onChange={(e) => setFieldPacksJson(e.target.value)}
-                style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: '0.85rem' }}
-              />
-            </FormRow>
-            <FormRow label="Custom field defs (JSON array)">
-              <textarea
-                rows={6}
-                value={customFieldDefsJson}
-                onChange={(e) => setCustomFieldDefsJson(e.target.value)}
-                style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: '0.85rem' }}
-              />
-            </FormRow>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <span style={{ fontWeight: 600 }}>Field packs</span>
+              <p style={{ margin: 0, color: '#667', fontSize: '0.9rem' }}>
+                Changing mode applies pack presets unless you already customized packs in this
+                session. Checkboxes are saved as-is.
+              </p>
+              {CRM_FIELD_PACKS.map((pack) => (
+                <label key={pack.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(fieldPacks[pack.key])}
+                    onChange={(e) => onPackToggle(pack.key, e.target.checked)}
+                  />
+                  {pack.label}
+                </label>
+              ))}
+            </div>
+            <CustomFieldDefsEditor defs={customFieldDefs} onChange={setCustomFieldDefs} />
           </section>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

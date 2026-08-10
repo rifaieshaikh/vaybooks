@@ -113,6 +113,7 @@ export const baseApi = createApi({
     'CrmLead',
     'CrmEnquiry',
     'CrmActivity',
+    'CrmListView',
     'SchedulerJob',
     'Project',
     'ProjectEnquiry',
@@ -287,8 +288,11 @@ export const baseApi = createApi({
       query: () => '/home/dashboard',
       providesTags: ['Home'],
     }),
-    homeMtd: build.query<Record<string, unknown>, void>({
-      query: () => '/home/mtd',
+    homeMtd: build.query<Record<string, unknown>, { period?: string } | void>({
+      query: (args) => ({
+        url: '/home/mtd',
+        params: args?.period ? { period: args.period } : undefined,
+      }),
       providesTags: ['Home'],
     }),
     reportsCatalog: build.query<
@@ -431,7 +435,7 @@ export const baseApi = createApi({
     // Parties — typed resources
     listCustomers: build.query<
       Record<string, unknown>[],
-      { q?: string; location_id?: string } | void
+      { q?: string; location_id?: string; location_ids?: string } | void
     >({
       query: (args) => ({
         url: '/parties/customers',
@@ -439,6 +443,7 @@ export const baseApi = createApi({
           ? {
               ...(args.q ? { q: args.q } : {}),
               ...(args.location_id ? { location_id: args.location_id } : {}),
+              ...(args.location_ids ? { location_ids: args.location_ids } : {}),
             }
           : undefined,
       }),
@@ -517,10 +522,19 @@ export const baseApi = createApi({
       query: (id) => `/projects/customers/${id}/related-summary`,
     }),
 
-    listVendors: build.query<Record<string, unknown>[], { q?: string } | void>({
+    listVendors: build.query<
+      Record<string, unknown>[],
+      { q?: string; location_id?: string; location_ids?: string } | void
+    >({
       query: (args) => ({
         url: '/parties/vendors',
-        params: args && 'q' in args && args.q ? { q: args.q } : undefined,
+        params: args
+          ? {
+              ...(args.q ? { q: args.q } : {}),
+              ...(args.location_id ? { location_id: args.location_id } : {}),
+              ...(args.location_ids ? { location_ids: args.location_ids } : {}),
+            }
+          : undefined,
       }),
       providesTags: ['Vendor'],
     }),
@@ -543,10 +557,19 @@ export const baseApi = createApi({
       query: (id) => `/parties/vendors/${id}/summary`,
     }),
 
-    listDeliveryPartners: build.query<Record<string, unknown>[], { q?: string } | void>({
+    listDeliveryPartners: build.query<
+      Record<string, unknown>[],
+      { q?: string; location_id?: string; location_ids?: string } | void
+    >({
       query: (args) => ({
         url: '/parties/delivery-partners',
-        params: args && 'q' in args && args.q ? { q: args.q } : undefined,
+        params: args
+          ? {
+              ...(args.q ? { q: args.q } : {}),
+              ...(args.location_id ? { location_id: args.location_id } : {}),
+              ...(args.location_ids ? { location_ids: args.location_ids } : {}),
+            }
+          : undefined,
       }),
       providesTags: ['DeliveryPartner'],
     }),
@@ -573,10 +596,19 @@ export const baseApi = createApi({
       query: (id) => `/parties/delivery-partners/${id}/summary`,
     }),
 
-    listCommissionAgents: build.query<Record<string, unknown>[], { q?: string } | void>({
+    listCommissionAgents: build.query<
+      Record<string, unknown>[],
+      { q?: string; location_id?: string; location_ids?: string } | void
+    >({
       query: (args) => ({
         url: '/parties/commission-agents',
-        params: args && 'q' in args && args.q ? { q: args.q } : undefined,
+        params: args
+          ? {
+              ...(args.q ? { q: args.q } : {}),
+              ...(args.location_id ? { location_id: args.location_id } : {}),
+              ...(args.location_ids ? { location_ids: args.location_ids } : {}),
+            }
+          : undefined,
       }),
       providesTags: ['CommissionAgent'],
     }),
@@ -603,13 +635,19 @@ export const baseApi = createApi({
       query: (id) => `/parties/commission-agents/${id}/summary`,
     }),
 
-    listWorkers: build.query<Record<string, unknown>[], { active_only?: boolean } | void>({
+    listWorkers: build.query<
+      Record<string, unknown>[],
+      { active_only?: boolean; location_id?: string; location_ids?: string } | void
+    >({
       query: (args) => ({
         url: '/parties/workers',
-        params:
-          args && 'active_only' in args
-            ? { active_only: args.active_only ?? true }
-            : undefined,
+        params: args
+          ? {
+              ...('active_only' in args ? { active_only: args.active_only ?? true } : {}),
+              ...(args.location_id ? { location_id: args.location_id } : {}),
+              ...(args.location_ids ? { location_ids: args.location_ids } : {}),
+            }
+          : undefined,
       }),
       providesTags: ['Worker'],
     }),
@@ -976,6 +1014,10 @@ export const baseApi = createApi({
       query: ({ id, body }) => ({ url: `/purchases/bills/${id}`, method: 'PUT', body }),
       invalidatesTags: ['PurchaseBill', 'Purchases', 'Finance', 'Inventory'],
     }),
+    deletePurchaseBill: build.mutation<void, string>({
+      query: (id) => ({ url: `/purchases/bills/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['PurchaseBill', 'Purchases', 'Finance'],
+    }),
     getVendorPurchaseRate: build.query<
       { rate: number },
       { vendor_id: string; product_id: string; item_type?: string }
@@ -1198,6 +1240,10 @@ export const baseApi = createApi({
       { id: string; body: Record<string, unknown> }
     >({
       query: ({ id, body }) => ({ url: `/finance/accounts/${id}`, method: 'PUT', body }),
+      invalidatesTags: ['Finance'],
+    }),
+    deleteFinanceAccount: build.mutation<void, string>({
+      query: (id) => ({ url: `/finance/accounts/${id}`, method: 'DELETE' }),
       invalidatesTags: ['Finance'],
     }),
     listFinanceAccountLedger: build.query<Record<string, unknown>[], string>({
@@ -1462,6 +1508,27 @@ export const baseApi = createApi({
       }),
       invalidatesTags: ['BoutiqueOrder', 'Boutique', 'BoutiqueTime'],
     }),
+    addBoutiqueItemActivity: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; itemId: string; activityId: string }
+    >({
+      query: ({ orderId, itemId, activityId }) => ({
+        url: `/boutique/orders/${orderId}/items/${itemId}/activities`,
+        method: 'POST',
+        body: { activity_id: activityId },
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
+    removeBoutiqueItemActivity: build.mutation<
+      Record<string, unknown>,
+      { orderId: string; activityId: string }
+    >({
+      query: ({ orderId, activityId }) => ({
+        url: `/boutique/orders/${orderId}/activities/${activityId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['BoutiqueOrder', 'Boutique'],
+    }),
     recordBoutiqueAdvance: build.mutation<
       Record<string, unknown>,
       { orderId: string; body: Record<string, unknown> }
@@ -1608,6 +1675,7 @@ export const baseApi = createApi({
     listBoutiqueMeasurements: build.query<
       PagedResult,
       {
+        q?: string;
         customer_id?: string;
         measurement_number?: string;
         wearer_name?: string;
@@ -1659,6 +1727,7 @@ export const baseApi = createApi({
     listBoutiqueTimeEntries: build.query<
       PagedResult,
       {
+        q?: string;
         bill_number?: string;
         order_number?: string;
         worker_name?: string;
@@ -1676,6 +1745,10 @@ export const baseApi = createApi({
       query: (args) => ({ url: '/boutique/time-entries', params: args || undefined }),
       transformResponse: (response: unknown) => asPagedResult(response),
       providesTags: ['BoutiqueTime'],
+    }),
+    getBoutiqueTimeEntry: build.query<Record<string, unknown>, string>({
+      query: (id) => `/boutique/time-entries/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'BoutiqueTime', id }, 'BoutiqueTime'],
     }),
     createBoutiqueTimeEntry: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/boutique/time-entries', method: 'POST', body }),
@@ -1968,15 +2041,31 @@ export const baseApi = createApi({
         search?: string;
         assigned_user_id?: string;
         source?: string;
+        priority?: string;
+        date_from?: string;
+        date_to?: string;
+        sort_by?: string;
+        sort_desc?: boolean;
         page?: number;
         page_size?: number;
+        deleted?: 'exclude' | 'only' | 'include';
       } | void
     >({
       query: (args) => ({ url: '/crm/leads', params: args || undefined }),
       providesTags: ['CrmLead'],
     }),
-    getCrmLead: build.query<Record<string, unknown>, string>({
-      query: (id) => `/crm/leads/${id}`,
+    getCrmLead: build.query<
+      Record<string, unknown>,
+      string | { id: string; include_deleted?: boolean }
+    >({
+      query: (arg) => {
+        const id = typeof arg === 'string' ? arg : arg.id;
+        const include_deleted = typeof arg === 'string' ? undefined : arg.include_deleted;
+        return {
+          url: `/crm/leads/${id}`,
+          params: include_deleted ? { include_deleted: true } : undefined,
+        };
+      },
       providesTags: ['CrmLead'],
     }),
     createCrmLead: build.mutation<Record<string, unknown>, Record<string, unknown>>({
@@ -2106,15 +2195,30 @@ export const baseApi = createApi({
         status?: string;
         search?: string;
         assigned_user_id?: string;
+        date_from?: string;
+        date_to?: string;
+        sort_by?: string;
+        sort_desc?: boolean;
         page?: number;
         page_size?: number;
+        deleted?: 'exclude' | 'only' | 'include';
       } | void
     >({
       query: (args) => ({ url: '/crm/enquiries', params: args || undefined }),
       providesTags: ['CrmEnquiry'],
     }),
-    getCrmEnquiry: build.query<Record<string, unknown>, string>({
-      query: (id) => `/crm/enquiries/${id}`,
+    getCrmEnquiry: build.query<
+      Record<string, unknown>,
+      string | { id: string; include_deleted?: boolean }
+    >({
+      query: (arg) => {
+        const id = typeof arg === 'string' ? arg : arg.id;
+        const include_deleted = typeof arg === 'string' ? undefined : arg.include_deleted;
+        return {
+          url: `/crm/enquiries/${id}`,
+          params: include_deleted ? { include_deleted: true } : undefined,
+        };
+      },
       providesTags: ['CrmEnquiry'],
     }),
     createCrmEnquiry: build.mutation<Record<string, unknown>, Record<string, unknown>>({
@@ -2170,17 +2274,35 @@ export const baseApi = createApi({
         status?: string;
         activity_type?: string;
         assigned_user_id?: string;
+        search?: string;
         scheduled_from?: string;
         scheduled_to?: string;
+        date_from?: string;
+        date_to?: string;
+        sort_by?: string;
+        sort_desc?: boolean;
+        needs_correction?: boolean;
+        origin?: string;
         page?: number;
         page_size?: number;
+        deleted?: 'exclude' | 'only' | 'include';
       } | void
     >({
       query: (args) => ({ url: '/crm/activities', params: args || undefined }),
       providesTags: ['CrmActivity'],
     }),
-    getCrmActivity: build.query<Record<string, unknown>, string>({
-      query: (id) => `/crm/activities/${id}`,
+    getCrmActivity: build.query<
+      Record<string, unknown>,
+      string | { id: string; include_deleted?: boolean }
+    >({
+      query: (arg) => {
+        const id = typeof arg === 'string' ? arg : arg.id;
+        const include_deleted = typeof arg === 'string' ? undefined : arg.include_deleted;
+        return {
+          url: `/crm/activities/${id}`,
+          params: include_deleted ? { include_deleted: true } : undefined,
+        };
+      },
       providesTags: ['CrmActivity'],
     }),
     createCrmActivity: build.mutation<Record<string, unknown>, Record<string, unknown>>({
@@ -2292,6 +2414,12 @@ export const baseApi = createApi({
         leads: Record<string, unknown>[];
         enquiries: Record<string, unknown>[];
         activities: Record<string, unknown>[];
+        recent_activities?: Record<string, unknown>[];
+        timeline?: Record<string, unknown>[];
+        last_contact_at?: string | null;
+        next_follow_up_at?: string | null;
+        outstanding_balance?: number | null;
+        open_invoice_outstanding?: number | null;
       },
       string
     >({
@@ -2312,6 +2440,30 @@ export const baseApi = createApi({
     }),
     deleteCrmReportPreset: build.mutation<Record<string, unknown>, string>({
       query: (id) => ({ url: `/crm/report-presets/${id}`, method: 'DELETE' }),
+    }),
+    listCrmListViews: build.query<
+      { items: Record<string, unknown>[]; total: number },
+      { entity: 'lead' | 'enquiry' | 'activity' }
+    >({
+      query: (args) => ({ url: '/crm/list-views', params: args }),
+      providesTags: ['CrmListView'],
+    }),
+    createCrmListView: build.mutation<
+      Record<string, unknown>,
+      {
+        name: string;
+        entity: 'lead' | 'enquiry' | 'activity';
+        filters?: Record<string, unknown>;
+        sort?: { key: string; desc: boolean }[];
+        columns?: string[];
+      }
+    >({
+      query: (body) => ({ url: '/crm/list-views', method: 'POST', body }),
+      invalidatesTags: ['CrmListView'],
+    }),
+    deleteCrmListView: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/crm/list-views/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['CrmListView'],
     }),
     uploadCrmAttachment: build.mutation<
       Record<string, unknown>,
@@ -2335,6 +2487,19 @@ export const baseApi = createApi({
         url: `/crm/attachments/${attachmentId}`,
         responseHandler: (response) => response.blob(),
       }),
+    }),
+    getCrmAttachmentMeta: build.query<
+      {
+        id: string;
+        name: string;
+        content_type: string;
+        size_bytes: number;
+        entity_type: string;
+        entity_id: string;
+      },
+      string
+    >({
+      query: (attachmentId) => `/crm/attachments/${attachmentId}/meta`,
     }),
     deleteCrmAttachment: build.mutation<Record<string, unknown>, string>({
       query: (attachmentId) => ({
@@ -2915,6 +3080,10 @@ export const baseApi = createApi({
       query: () => ({ url: '/system/updates/check', method: 'POST' }),
       invalidatesTags: ['SystemSetting'],
     }),
+    installSystemUpdates: build.mutation<Record<string, unknown>, void>({
+      query: () => ({ url: '/system/updates/install', method: 'POST' }),
+      invalidatesTags: ['SystemSetting'],
+    }),
     listSystemLogs: build.query<Record<string, unknown>[], void>({
       query: () => '/system/logs',
       providesTags: ['SystemSetting'],
@@ -3160,6 +3329,7 @@ export const {
   useGetPurchaseBillQuery,
   useCreatePurchaseBillMutation,
   useUpdatePurchaseBillMutation,
+  useDeletePurchaseBillMutation,
   useGetVendorPurchaseRateQuery,
   useLazyGetVendorPurchaseRateQuery,
   useListPurchaseReturnsQuery,
@@ -3204,6 +3374,7 @@ export const {
   useCreateFinanceAccountMutation,
   useGetFinanceAccountQuery,
   useUpdateFinanceAccountMutation,
+  useDeleteFinanceAccountMutation,
   useListFinanceAccountLedgerQuery,
   useListFinanceVouchersQuery,
   useGetFinanceVoucherQuery,
@@ -3243,6 +3414,8 @@ export const {
   useLazyGetBoutiqueAdvanceReceiptPdfQuery,
   useCompleteBoutiqueActivityMutation,
   useSkipBoutiqueActivityMutation,
+  useAddBoutiqueItemActivityMutation,
+  useRemoveBoutiqueItemActivityMutation,
   useRecordBoutiqueAdvanceMutation,
   useListBoutiqueOrderInvoicesQuery,
   useCreateBoutiqueOrderInvoiceMutation,
@@ -3268,6 +3441,7 @@ export const {
   useUpdateBoutiqueMeasurementMutation,
   useDeleteBoutiqueMeasurementMutation,
   useListBoutiqueTimeEntriesQuery,
+  useGetBoutiqueTimeEntryQuery,
   useCreateBoutiqueTimeEntryMutation,
   useSyncBoutiqueActivityTasksMutation,
   useUpdateBoutiqueTimeEntryMutation,
@@ -3362,9 +3536,14 @@ export const {
   useListCrmReportPresetsQuery,
   useCreateCrmReportPresetMutation,
   useDeleteCrmReportPresetMutation,
+  useListCrmListViewsQuery,
+  useCreateCrmListViewMutation,
+  useDeleteCrmListViewMutation,
   useUploadCrmAttachmentMutation,
   useGetCrmAttachmentQuery,
   useLazyGetCrmAttachmentQuery,
+  useGetCrmAttachmentMetaQuery,
+  useLazyGetCrmAttachmentMetaQuery,
   useDeleteCrmAttachmentMutation,
   useListSchedulerJobsQuery,
   useCreateSchedulerJobMutation,
@@ -3453,6 +3632,7 @@ export const {
   useUpsertSystemSettingMutation,
   useSystemUpdatesQuery,
   useCheckSystemUpdatesMutation,
+  useInstallSystemUpdatesMutation,
   useListSystemLogsQuery,
   useAccessHealthQuery,
   useListAccessUsersQuery,

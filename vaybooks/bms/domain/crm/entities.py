@@ -217,6 +217,7 @@ class CrmActivity:
     scheduled_at: Optional[datetime] = None
     due_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
     outcome: str = ""
     notes: str = ""
     next_action: str = ""

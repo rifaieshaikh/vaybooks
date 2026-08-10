@@ -527,6 +527,25 @@ export function CalendarView({
                           setSelectedDay(day);
                           onSlotClick?.(day);
                         }}
+                        onDragOver={(e) => {
+                          if (!onEventMove) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                        }}
+                        onDrop={(e) => {
+                          if (!onEventMove) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const id = e.dataTransfer.getData('text/cal-event-id');
+                          const ev = filteredEvents.find((x) => x.id === id);
+                          if (!ev) return;
+                          const nextStart = `${toDateKey(day)}T${
+                            String(ev.start || '').includes('T')
+                              ? String(ev.start).slice(11, 19) || '09:00:00'
+                              : `${pad(workStart)}:00:00`
+                          }`;
+                          onEventMove(ev, nextStart, ev.end);
+                        }}
                       >
                         <span className="cal-day-num">{day.getDate()}</span>
                         <div className="cal-day-events">
@@ -538,6 +557,7 @@ export function CalendarView({
                               draggable={Boolean(onEventMove)}
                               onDragStart={(e) => {
                                 if (!onEventMove) return;
+                                e.stopPropagation();
                                 e.dataTransfer.setData('text/cal-event-id', ev.id);
                                 e.dataTransfer.effectAllowed = 'move';
                               }}

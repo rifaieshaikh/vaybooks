@@ -52,11 +52,14 @@ function WorkQueue({
           {empty}
         </p>
       ) : (
-        <div
+        <ul
           style={{
+            listStyle: 'none',
+            margin: 0,
+            padding: 0,
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-            gap: 12,
+            gap: 0,
+            borderTop: '1px solid var(--vb-color-border, #e5e7eb)',
           }}
         >
           {items.slice(0, 8).map((row, i) => {
@@ -64,36 +67,49 @@ function WorkQueue({
             const actionTo = actionHref?.(row) || null;
             const captions = captionsOf(row).filter(Boolean);
             return (
-              <div
+              <li
                 key={entityId(row) || `${title}-${i}`}
                 style={{
-                  border: '1px solid #d9e3de',
-                  borderRadius: 10,
-                  background: '#fff',
-                  padding: '0.9rem 1rem',
-                  display: 'grid',
-                  gap: 8,
-                  minHeight: 120,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  padding: '0.55rem 0.15rem',
+                  borderBottom: '1px solid var(--vb-color-border, #e5e7eb)',
+                  minHeight: 0,
                 }}
               >
-                <div style={{ fontWeight: 650, fontSize: 15, color: '#1a1a1a' }}>
-                  {href ? (
-                    <Link
-                      to={href}
-                      style={{ color: 'var(--vb-color-primary, #185c4c)', textDecoration: 'none' }}
-                    >
-                      {titleOf(row)}
-                    </Link>
-                  ) : (
-                    titleOf(row)
-                  )}
-                </div>
-                {captions.map((c) => (
-                  <div key={c} style={{ fontSize: 13, color: '#567' }}>
-                    {c}
+                <div style={{ minWidth: 0, display: 'grid', gap: 2 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: '#1a1a1a' }}>
+                    {href ? (
+                      <Link
+                        to={href}
+                        style={{
+                          color: 'var(--vb-color-primary, #185c4c)',
+                          textDecoration: 'none',
+                        }}
+                      >
+                        {titleOf(row)}
+                      </Link>
+                    ) : (
+                      titleOf(row)
+                    )}
                   </div>
-                ))}
-                <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                  {captions.length ? (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: '#567',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {captions.join(' · ')}
+                    </div>
+                  ) : null}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   {href ? (
                     <Button type="button" variant="ghost" onClick={() => navigate(href)}>
                       Open
@@ -105,10 +121,10 @@ function WorkQueue({
                     </Button>
                   ) : null}
                 </div>
-              </div>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
     </div>
   );

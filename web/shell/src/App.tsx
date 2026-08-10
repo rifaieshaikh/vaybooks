@@ -119,6 +119,7 @@ import {
   BoutiqueScheduledReportsPage,
   BoutiqueTimeLogPage,
   BoutiqueTimePage,
+  BoutiqueTaskDetailPage,
 } from '../../mfe-boutique/src';
 import {
   CommissionAgentDetailPage,
@@ -307,6 +308,7 @@ export default function App() {
           <Route path="boutique/measurements" element={<BoutiqueMeasurementsListPage />} />
           <Route path="boutique/measurements/:id" element={<BoutiqueMeasurementDetailPage />} />
           <Route path="boutique/time" element={<BoutiqueTimePage />} />
+          <Route path="boutique/time/:id" element={<BoutiqueTaskDetailPage />} />
           <Route path="boutique/time-log" element={<BoutiqueTimeLogPage />} />
           <Route path="boutique/calendar" element={<BoutiqueCalendarPage />} />
           <Route path="boutique/reports" element={<BoutiqueReportsPage />} />

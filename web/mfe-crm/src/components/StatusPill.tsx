@@ -18,36 +18,76 @@ const ENTITY_TO_CRM: Record<EntityStatusPillTone, CrmStatusPillTone> = {
   danger: 'danger',
 };
 
+/**
+ * Canonical CRM catalog statuses (defaults from domain enums / settings catalogs).
+ * Exact match first; substring heuristics only as fallback for custom labels.
+ */
+const KNOWN_STATUS_TONES: Record<string, CrmStatusPillTone> = {
+  // LeadStatus
+  new: 'new',
+  contacted: 'warn',
+  qualified: 'ok',
+  'follow-up required': 'warn',
+  'follow up required': 'warn',
+  interested: 'ok',
+  'not interested': 'danger',
+  converted: 'ok',
+  lost: 'danger',
+  'on hold': 'muted',
+  // EnquiryStatus
+  open: 'new',
+  assigned: 'warn',
+  'in progress': 'warn',
+  'quotation required': 'warn',
+  'quotation sent': 'warn',
+  negotiation: 'warn',
+  won: 'ok',
+  closed: 'muted',
+  // ActivityStatus
+  scheduled: 'new',
+  completed: 'ok',
+  cancelled: 'danger',
+  canceled: 'danger',
+  missed: 'danger',
+  reversed: 'muted',
+};
+
 export function crmStatusTone(status: unknown): CrmStatusPillTone {
-  const s = String(status || '').toLowerCase();
-  if (!s) return 'muted';
-  if (s === 'new' || s.includes('new')) return 'new';
-  if (
-    s.includes('cancel') ||
-    s.includes('lost') ||
-    s.includes('reject') ||
-    s.includes('void') ||
-    s.includes('fail')
-  ) {
+  const raw = String(status || '').trim();
+  if (!raw) return 'muted';
+
+  const key = raw.toLowerCase();
+  const known = KNOWN_STATUS_TONES[key];
+  if (known) return known;
+
+  // Catalog-aware substring fallbacks for custom / renamed statuses
+  if (key.includes('cancel') || key.includes('lost') || key.includes('reject') || key.includes('void') || key.includes('fail') || key.includes('missed')) {
     return 'danger';
   }
   if (
-    s.includes('convert') ||
-    s.includes('complete') ||
-    s.includes('won') ||
-    s.includes('qualified') ||
-    s.includes('done') ||
-    s.includes('paid')
+    key.includes('convert') ||
+    key.includes('complete') ||
+    key.includes('won') ||
+    key.includes('qualified') ||
+    key.includes('done') ||
+    key.includes('paid')
   ) {
     return 'ok';
   }
+  if (key === 'new' || key.startsWith('new ') || key.endsWith(' new') || key.includes('scheduled')) {
+    return 'new';
+  }
   if (
-    s.includes('pending') ||
-    s.includes('follow') ||
-    s.includes('hold') ||
-    s.includes('due') ||
-    s.includes('overdue') ||
-    s.includes('contact')
+    key.includes('pending') ||
+    key.includes('follow') ||
+    key.includes('hold') ||
+    key.includes('due') ||
+    key.includes('overdue') ||
+    key.includes('contact') ||
+    key.includes('progress') ||
+    key.includes('negotiat') ||
+    key.includes('quotat') ||
+    key.includes('assign')
   ) {
     return 'warn';
   }

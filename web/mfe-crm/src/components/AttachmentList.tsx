@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   useAppSelector,
   useDeleteCrmAttachmentMutation,
+  useGetCrmAttachmentMetaQuery,
   useUploadCrmAttachmentMutation,
 } from '@vaybooks/store';
 import { Button, ErrorText } from '@vaybooks/ui-kit';
@@ -21,6 +22,13 @@ type Props = {
 function shortId(id: string): string {
   if (id.length <= 12) return id;
   return `${id.slice(0, 6)}…${id.slice(-4)}`;
+}
+
+function formatSize(bytes: number | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 async function downloadWithAuth(attachmentId: string, token: string | null) {
@@ -43,6 +51,79 @@ async function downloadWithAuth(attachmentId: string, token: string | null) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function AttachmentRow({
+  id,
+  busyId,
+  readOnly,
+  removeLoading,
+  onDownload,
+  onDelete,
+}: {
+  id: string;
+  busyId: string;
+  readOnly?: boolean;
+  removeLoading: boolean;
+  onDownload: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const { data: meta, isLoading } = useGetCrmAttachmentMetaQuery(id);
+  const name = meta?.name || (isLoading ? 'Loading…' : shortId(id));
+  const typeLabel = meta?.content_type || '';
+  const sizeLabel = formatSize(meta?.size_bytes);
+
+  return (
+    <li
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        padding: '8px 10px',
+        border: '1px solid var(--vb-color-border, #e5e7eb)',
+        borderRadius: 6,
+      }}
+    >
+      <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+        <span
+          title={meta?.name || id}
+          style={{
+            fontWeight: 550,
+            fontSize: '0.9rem',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {name}
+        </span>
+        <span className="el-muted" style={{ fontSize: '0.8rem' }}>
+          {[typeLabel, sizeLabel].filter(Boolean).join(' · ') || shortId(id)}
+        </span>
+      </span>
+      <span style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={busyId === id}
+          onClick={() => void onDownload(id)}
+        >
+          Download
+        </Button>
+        {!readOnly ? (
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busyId === id || removeLoading}
+            onClick={() => void onDelete(id)}
+          >
+            Delete
+          </Button>
+        ) : null}
+      </span>
+    </li>
+  );
 }
 
 /** Lists CRM attachment ids with upload / download / delete. */
@@ -127,42 +208,15 @@ export function AttachmentList({
       ) : (
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>
           {ids.map((id) => (
-            <li
+            <AttachmentRow
               key={id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 8,
-                padding: '8px 10px',
-                border: '1px solid var(--vb-color-border, #e5e7eb)',
-                borderRadius: 6,
-              }}
-            >
-              <span title={id} style={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.85rem' }}>
-                {shortId(id)}
-              </span>
-              <span style={{ display: 'flex', gap: 6 }}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={busyId === id}
-                  onClick={() => void onDownload(id)}
-                >
-                  Download
-                </Button>
-                {!readOnly ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={busyId === id || removeState.isLoading}
-                    onClick={() => void onDelete(id)}
-                  >
-                    Delete
-                  </Button>
-                ) : null}
-              </span>
-            </li>
+              id={id}
+              busyId={busyId}
+              readOnly={readOnly}
+              removeLoading={removeState.isLoading}
+              onDownload={onDownload}
+              onDelete={onDelete}
+            />
           ))}
         </ul>
       )}

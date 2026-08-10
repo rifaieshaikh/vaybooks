@@ -219,7 +219,9 @@ def activity_to_doc(activity: CrmActivity) -> dict:
         "assigned_user_name": activity.assigned_user_name,
         "activity_at": activity.activity_at,
         "scheduled_at": activity.scheduled_at,
+        "due_at": activity.due_at,
         "completed_at": activity.completed_at,
+        "duration_minutes": activity.duration_minutes,
         "outcome": activity.outcome,
         "notes": activity.notes,
         "next_action": activity.next_action,
@@ -266,6 +268,11 @@ def activity_from_doc(doc: dict) -> CrmActivity:
         scheduled_at=doc.get("scheduled_at"),
         due_at=doc.get("due_at"),
         completed_at=doc.get("completed_at"),
+        duration_minutes=(
+            int(doc["duration_minutes"])
+            if doc.get("duration_minutes") not in (None, "")
+            else None
+        ),
         outcome=doc.get("outcome", "") or "",
         notes=doc.get("notes", "") or "",
         next_action=doc.get("next_action", "") or "",
@@ -504,3 +511,19 @@ def not_deleted_filter(include_deleted: bool = False) -> Dict[str, Any]:
     if include_deleted:
         return {}
     return {"is_deleted": {"$ne": True}}
+
+
+def deleted_mode_filter(deleted: str = "exclude") -> Dict[str, Any]:
+    """Mongo filter for soft-delete visibility.
+
+    deleted: exclude|only|include
+    - exclude -> not_deleted_filter(False)
+    - include -> {}
+    - only -> {"is_deleted": True}
+    """
+    mode = (deleted or "exclude").strip().lower()
+    if mode == "include":
+        return {}
+    if mode == "only":
+        return {"is_deleted": True}
+    return not_deleted_filter(False)

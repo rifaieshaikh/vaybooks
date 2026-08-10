@@ -1,1 +1,6 @@
-export { useCrmSettingsCatalogs, useCrmCan, crmPagedItems } from './useCrmSettings';
+export {
+  useCrmSettingsCatalogs,
+  useCrmFieldVisibility,
+  useCrmCan,
+  crmPagedItems,
+} from './useCrmSettings';

@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   useCreateCrmReportPresetMutation,
   useCrmReportsCatalogQuery,
   useDeleteCrmReportPresetMutation,
+  useListCrmOwnersQuery,
   useListCrmReportPresetsQuery,
   useRunCrmReportMutation,
 } from '@vaybooks/store';
@@ -13,9 +15,27 @@ import { ModuleScheduledReportsPanel } from './ScheduledReportsPanel';
 
 type CatalogReport = { id: string; title: string; category: string };
 
+function reportFilters(dateFrom: string, dateTo: string, assigneeId: string) {
+  const filters: Record<string, unknown> = {};
+  if (dateFrom) filters.date_from = dateFrom;
+  if (dateTo) filters.date_to = dateTo;
+  if (assigneeId) filters.assigned_user_id = assigneeId;
+  return filters;
+}
+
+function drillPath(row: Record<string, unknown>): string | null {
+  if (row.lead_id) return `/crm/leads/${String(row.lead_id)}`;
+  if (row.enquiry_id) return `/crm/enquiries/${String(row.enquiry_id)}`;
+  if (row.activity_id) return `/crm/activities/${String(row.activity_id)}`;
+  if (row.customer_id) return `/parties/customers/${String(row.customer_id)}`;
+  return null;
+}
+
 export function CrmReportsPage() {
+  const navigate = useNavigate();
   const can = useCrmCan();
   const { data: catalog, isLoading, error } = useCrmReportsCatalogQuery();
+  const { data: owners = [] } = useListCrmOwnersQuery(undefined, { skip: !can.viewReports });
   const { data: presetsPage, refetch: refetchPresets } = useListCrmReportPresetsQuery(undefined, {
     skip: !can.viewReports,
   });
@@ -24,6 +44,9 @@ export function CrmReportsPage() {
   const [deletePreset] = useDeleteCrmReportPresetMutation();
   const [reportId, setReportId] = useState('');
   const [presetName, setPresetName] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [runError, setRunError] = useState('');
   const [presetMsg, setPresetMsg] = useState('');
@@ -53,14 +76,21 @@ export function CrmReportsPage() {
   }, [rows]);
 
   const selectedReportId = reportId || reports[0]?.id || '';
+  const currentFilters = useMemo(
+    () => reportFilters(dateFrom, dateTo, assigneeId),
+    [dateFrom, dateTo, assigneeId],
+  );
 
-  async function onRun(idOverride?: string) {
+  async function onRun(idOverride?: string, filtersOverride?: Record<string, unknown>) {
     setRunError('');
     try {
       const id = idOverride || selectedReportId;
       if (!id) return;
       setReportId(id);
-      const result = await runReport({ report_id: id, filters: {} }).unwrap();
+      const result = await runReport({
+        report_id: id,
+        filters: filtersOverride ?? currentFilters,
+      }).unwrap();
       setRows(Array.isArray(result.rows) ? (result.rows as Record<string, unknown>[]) : []);
     } catch (e) {
       setRunError(extractError(e));
@@ -75,7 +105,7 @@ export function CrmReportsPage() {
       await createPreset({
         name: presetName.trim(),
         report_id: selectedReportId,
-        filters: {},
+        filters: currentFilters,
       }).unwrap();
       setPresetName('');
       setPresetMsg('Preset saved');
@@ -83,6 +113,21 @@ export function CrmReportsPage() {
     } catch (e) {
       setPresetMsg(extractError(e));
     }
+  }
+
+  function applyPreset(preset: Record<string, unknown>) {
+    const filters =
+      preset.filters && typeof preset.filters === 'object'
+        ? (preset.filters as Record<string, unknown>)
+        : {};
+    const from = String(filters.date_from || '').slice(0, 10);
+    const to = String(filters.date_to || '').slice(0, 10);
+    const assignee = String(filters.assigned_user_id || '');
+    setDateFrom(from);
+    setDateTo(to);
+    setAssigneeId(assignee);
+    const rid = String(preset.report_id || '');
+    void onRun(rid, reportFilters(from, to, assignee));
   }
 
   return (
@@ -105,6 +150,26 @@ export function CrmReportsPage() {
                   </option>
                 ))}
               </optgroup>
+            ))}
+          </select>
+        </FormRow>
+        <FormRow label="From">
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+        </FormRow>
+        <FormRow label="To">
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        </FormRow>
+        <FormRow label="Assignee">
+          <select
+            value={assigneeId}
+            onChange={(e) => setAssigneeId(e.target.value)}
+            style={{ minWidth: 160 }}
+          >
+            <option value="">All</option>
+            {owners.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
             ))}
           </select>
         </FormRow>
@@ -149,10 +214,9 @@ export function CrmReportsPage() {
               {presets.map((preset) => {
                 const id = String(preset.id || '');
                 const name = String(preset.name || 'Preset');
-                const rid = String(preset.report_id || '');
                 return (
                   <li key={id} style={{ marginBottom: 6 }}>
-                    <Button type="button" variant="ghost" onClick={() => void onRun(rid)}>
+                    <Button type="button" variant="ghost" onClick={() => applyPreset(preset)}>
                       {name}
                     </Button>
                     <Button
@@ -174,7 +238,21 @@ export function CrmReportsPage() {
       <DataTable
         columns={columns}
         data={rows}
-        rowKey={(row) => String(row.id || row.title || JSON.stringify(row))}
+        rowKey={(row) =>
+          String(
+            row.id ||
+              row.lead_id ||
+              row.enquiry_id ||
+              row.activity_id ||
+              row.customer_id ||
+              row.title ||
+              JSON.stringify(row),
+          )
+        }
+        onRowClick={(row) => {
+          const path = drillPath(row);
+          if (path) navigate(path);
+        }}
       />
     </div>
   );

@@ -3,7 +3,7 @@ import {
   useImportCrmLeadsCommitMutation,
   useImportCrmLeadsDryRunMutation,
 } from '@vaybooks/store';
-import { Button, ErrorText, FormRow, Modal } from '@vaybooks/ui-kit';
+import { Button, Drawer, ErrorText, FormRow } from '@vaybooks/ui-kit';
 import { extractError } from '../utils';
 import { LocationSelect } from './LocationSelect';
 
@@ -135,9 +135,10 @@ export function ImportLeadsModal({ open, onClose, onImported }: Props) {
   const outcomes = Array.isArray(preview?.outcomes) ? (preview.outcomes as Record<string, unknown>[]) : [];
 
   return (
-    <Modal
+    <Drawer
       open={open}
       title="Import leads"
+      size="lg"
       onClose={handleClose}
       footer={
         <>
@@ -219,6 +220,6 @@ export function ImportLeadsModal({ open, onClose, onImported }: Props) {
           </div>
         ) : null}
       </div>
-    </Modal>
+    </Drawer>
   );
 }

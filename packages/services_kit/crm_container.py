@@ -22,6 +22,8 @@ class CrmContainer:
     reports: Any
     notifications: Any
     payment_reminders: Any = None
+    accounting: Any = None
+    customers: Any = None
     db: Any = None
     import_batches: Any = None
     audit: Any = None
@@ -178,6 +180,8 @@ def _build_mongo(uri: str) -> CrmContainer:
         reports=reports,
         notifications=notifications,
         payment_reminders=payment_reminders,
+        accounting=finance.accounting,
+        customers=parties.customers,
         db=db,
         import_batches=import_batch_repo,
         audit=audit_repo,

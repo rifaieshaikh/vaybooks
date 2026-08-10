@@ -10,7 +10,7 @@ from vaybooks.bms.domain.shared.date_utils import utc_now
 from vaybooks.bms.infrastructure.repositories.crm._serialize import (
     activity_from_doc,
     activity_to_doc,
-    not_deleted_filter,
+    deleted_mode_filter,
 )
 
 
@@ -56,15 +56,19 @@ class MongoCrmActivityRepository:
         status: Optional[str] = None,
         activity_type: Optional[str] = None,
         branch: Optional[str] = None,
+        origin: Optional[str] = None,
+        needs_correction: Optional[bool] = None,
         scheduled_from: Optional[datetime] = None,
         scheduled_to: Optional[datetime] = None,
         include_deleted: bool = False,
+        deleted: str = "exclude",
         limit: int = 500,
         location_filter: dict | None = None,
     ) -> List[CrmActivity]:
         from vaybooks.bms.domain.identity.location_access import merge_mongo_filters
 
-        query: dict = dict(not_deleted_filter(include_deleted))
+        mode = "include" if include_deleted else deleted
+        query: dict = dict(deleted_mode_filter(mode))
         if lead_id:
             query["lead_id"] = lead_id
         if enquiry_id:
@@ -79,6 +83,10 @@ class MongoCrmActivityRepository:
             query["activity_type"] = activity_type
         if branch:
             query["branch"] = branch
+        if origin:
+            query["origin"] = origin
+        if needs_correction is not None:
+            query["needs_correction"] = bool(needs_correction)
         if scheduled_from or scheduled_to:
             sched: dict = {}
             if scheduled_from:

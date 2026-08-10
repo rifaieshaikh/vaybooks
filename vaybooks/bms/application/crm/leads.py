@@ -341,9 +341,11 @@ class CrmLeadAppService:
         )
         return saved
 
-    def get_lead(self, lead_id: str) -> CrmLead:
+    def get_lead(self, lead_id: str, *, include_deleted: bool = False) -> CrmLead:
         lead = self._leads.find_by_id(lead_id)
-        if not lead or lead.is_deleted:
+        if not lead:
+            raise ValidationError("Lead not found")
+        if lead.is_deleted and not include_deleted:
             raise ValidationError("Lead not found")
         return lead
 

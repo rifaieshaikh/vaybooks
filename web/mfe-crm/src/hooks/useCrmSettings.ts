@@ -54,6 +54,59 @@ export function useCrmSettingsCatalogs() {
   return { ...query, catalogs };
 }
 
+const MODE_PACK_DEFAULTS: Record<string, string[]> = {
+  trade: ['gstin_address', 'sku_interest', 'collections'],
+  retail: ['sku_interest'],
+  services: ['appointment_duration'],
+  boutique: ['appointment_duration'],
+  projects: ['project_site', 'gstin_address'],
+  light: [],
+};
+
+function resolvePackNames(crmMode: string, fieldPacks: unknown): string[] {
+  if (Array.isArray(fieldPacks)) {
+    return fieldPacks.map((p) => String(p || '').trim()).filter(Boolean);
+  }
+  if (!fieldPacks || typeof fieldPacks !== 'object') {
+    return MODE_PACK_DEFAULTS[crmMode] || MODE_PACK_DEFAULTS.trade;
+  }
+  const obj = fieldPacks as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  if (keys.length === 0) {
+    return MODE_PACK_DEFAULTS[crmMode] || MODE_PACK_DEFAULTS.trade;
+  }
+  // Support { pack: true } / { pack: false } / { pack: { enabled: true } }
+  return keys.filter((key) => {
+    const val = obj[key];
+    if (val === false || val === 0 || val === 'false') return false;
+    if (val && typeof val === 'object' && 'enabled' in (val as object)) {
+      return (val as { enabled?: unknown }).enabled !== false;
+    }
+    return val !== undefined;
+  });
+}
+
+/** Pack-aware commercial field visibility for CRM modes. */
+export function useCrmFieldVisibility() {
+  const { catalogs } = useCrmSettingsCatalogs();
+  const crmMode = catalogs.crmMode || 'trade';
+  const packs = useMemo(
+    () => resolvePackNames(crmMode, catalogs.fieldPacks),
+    [crmMode, catalogs.fieldPacks],
+  );
+  const has = (name: string) => packs.includes(name);
+
+  return {
+    gstinAddress: has('gstin_address'),
+    skuInterest: has('sku_interest'),
+    appointmentDuration: has('appointment_duration'),
+    projectSite: has('project_site'),
+    collections: has('collections'),
+    crmMode,
+    packs,
+  };
+}
+
 /** Permission helpers aligned to entitlements catalog. */
 export function useCrmCan() {
   const can = useCan();

@@ -1,0 +1,166 @@
+/* Right slide-over drawer — VayBooks primary green */
+
+@keyframes vb-drawer-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vb-drawer-backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes vb-drawer-panel-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes vb-drawer-panel-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.vb-drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  justify-content: flex-end;
+  font-family: var(--vb-font-sans, system-ui, sans-serif);
+  color: var(--vb-color-text, #1a1a1a);
+}
+
+.vb-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 40, 35, 0.45);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  animation: vb-drawer-backdrop-in 180ms ease-out both;
+}
+
+.vb-drawer-root.is-exiting .vb-drawer-backdrop {
+  animation: vb-drawer-backdrop-out 160ms ease-in both;
+  pointer-events: none;
+}
+
+.vb-drawer-panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 100%;
+  background: var(--vb-color-surface, #fff);
+  border-left: 1px solid var(--vb-color-line, #d5e3dc);
+  box-shadow: -12px 0 40px rgba(20, 53, 45, 0.14);
+  animation: vb-drawer-panel-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  outline: none;
+}
+
+.vb-drawer-root.is-exiting .vb-drawer-panel {
+  animation: vb-drawer-panel-out 180ms ease-in both;
+}
+
+.vb-drawer-panel--sm {
+  width: min(360px, 100%);
+}
+
+.vb-drawer-panel--md {
+  width: min(480px, 100%);
+}
+
+.vb-drawer-panel--lg {
+  width: min(720px, 100%);
+}
+
+.vb-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 1.05rem 1.15rem 0.85rem;
+  border-bottom: 1px solid var(--vb-color-line, #d5e3dc);
+  background: linear-gradient(180deg, #f4faf7 0%, #fff 100%);
+  flex-shrink: 0;
+}
+
+.vb-drawer-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--vb-color-primary, #185c4c);
+}
+
+.vb-drawer-close {
+  appearance: none;
+  border: 1px solid var(--vb-color-line, #d5e3dc);
+  background: #f7faf8;
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--vb-color-muted, #5c736a);
+  flex-shrink: 0;
+}
+
+.vb-drawer-close:hover {
+  background: #eef5f1;
+  color: var(--vb-color-primary, #185c4c);
+}
+
+.vb-drawer-close:focus-visible {
+  outline: none;
+  box-shadow: var(--vb-focus-ring, 0 0 0 3px rgba(24, 92, 76, 0.12));
+}
+
+.vb-drawer-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 1rem 1.15rem 1.25rem;
+}
+
+.vb-drawer-footer {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding: 0.85rem 1.15rem 1.05rem;
+  border-top: 1px solid var(--vb-color-line, #d5e3dc);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.85), #fff 40%);
+}
+
+.vb-drawer-form {
+  display: grid;
+  gap: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vb-drawer-backdrop,
+  .vb-drawer-panel,
+  .vb-drawer-root.is-exiting .vb-drawer-backdrop,
+  .vb-drawer-root.is-exiting .vb-drawer-panel {
+    animation-duration: 1ms;
+  }
+}
