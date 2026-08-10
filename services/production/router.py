@@ -587,3 +587,83 @@ def patch_settings(body: SettingsPatch) -> dict[str, Any]:
         return entity_dict(_c().production.save_settings(settings))
     except Exception as exc:
         raise _http_err(exc) from exc
+
+
+class ProductionActivityCreate(BaseModel):
+    activity_name: str = ""
+    activity_category: str = "In House Service"
+    default_hourly_expense: float = 0.0
+    custom_statuses: Optional[List[str]] = None
+
+
+class ProductionActivityUpdate(BaseModel):
+    activity_name: str = Field(min_length=1)
+    activity_category: str = "In House Service"
+    default_hourly_expense: float = 0.0
+    is_active: bool = True
+    custom_statuses: Optional[List[str]] = None
+
+
+def _activity_dict(activity: Any) -> dict[str, Any]:
+    data = entity_dict(activity)
+    cat = data.get("activity_category")
+    data["activity_category"] = (
+        cat.value if hasattr(cat, "value") else str(cat or "")
+    )
+    atype = data.get("activity_type")
+    data["activity_type"] = (
+        atype.value if hasattr(atype, "value") else (str(atype) if atype else None)
+    )
+    data["name"] = data.get("activity_name") or ""
+    return data
+
+
+@router.get("/activities")
+def list_production_activities(*, active_only: bool = True) -> list[dict[str, Any]]:
+    try:
+        return [_activity_dict(a) for a in _c().activities.list_activities(active_only=active_only)]
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/activities", status_code=201)
+def create_production_activity(body: ProductionActivityCreate) -> dict[str, Any]:
+    name = (body.activity_name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="activity_name is required")
+    try:
+        activity = _c().activities.create_activity(
+            activity_name=name,
+            activity_category=body.activity_category,
+            default_hourly_expense=float(body.default_hourly_expense or 0.0),
+            custom_statuses=body.custom_statuses,
+        )
+        return _activity_dict(activity)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.patch("/activities/{activity_id}")
+def update_production_activity(
+    activity_id: str, body: ProductionActivityUpdate
+) -> dict[str, Any]:
+    try:
+        activity = _c().activities.update_activity_details(
+            activity_id,
+            activity_name=body.activity_name,
+            activity_category=body.activity_category,
+            default_hourly_expense=body.default_hourly_expense,
+            is_active=body.is_active,
+            custom_statuses=body.custom_statuses,
+        )
+        return _activity_dict(activity)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/activities/{activity_id}/deactivate")
+def deactivate_production_activity(activity_id: str) -> dict[str, Any]:
+    try:
+        return _activity_dict(_c().activities.deactivate_activity(activity_id))
+    except Exception as exc:
+        raise _http_err(exc) from exc

@@ -96,6 +96,10 @@ class WorkerWrite(BaseModel):
     activity_refs: List[WorkerActivityRefIn] = Field(default_factory=list)
     is_active: bool = True
     default_hourly_rate: float = 0.0
+    base_salary: float = 0.0
+    allowances: List[dict[str, Any]] = Field(default_factory=list)
+    ot_threshold_hours: float = 0.0
+    ot_multiplier: float = 1.5
     location_ids: List[str] = Field(default_factory=list)
     commission_enabled: bool = False
     commission_profile: Optional[dict[str, Any]] = None
@@ -103,6 +107,22 @@ class WorkerWrite(BaseModel):
     username: str = ""
     password: str = ""
     role_ids: List[str] = Field(default_factory=list)
+
+
+class SalaryCalculateBody(BaseModel):
+    period_from: str
+    period_to: str
+
+
+class SalaryPayBody(BaseModel):
+    period_from: str
+    period_to: str
+    paying_account_id: str = Field(min_length=1)
+    voucher_date: Optional[str] = None
+    description: str = ""
+    include_commission: bool = False
+    commission_amount: float = 0.0
+    amount: Optional[float] = None  # override preview total when set
 
 
 class SegmentWrite(BaseModel):

@@ -358,6 +358,40 @@ class MemoryVoucherRepository:
     def list_all(self, location_filter: dict | None = None) -> List[Voucher]:
         return list(self._store.values())
 
+    def list_by_type(
+        self,
+        voucher_type,
+        *,
+        location_filter: dict | None = None,
+        extra_filter: dict | None = None,
+    ) -> List[Voucher]:
+        _ = location_filter, extra_filter
+        vt = voucher_type.value if hasattr(voucher_type, "value") else str(voucher_type)
+        return [
+            v
+            for v in self._store.values()
+            if (v.voucher_type.value if hasattr(v.voucher_type, "value") else str(v.voucher_type))
+            == vt
+        ]
+
+    def list_by_types(
+        self,
+        voucher_types,
+        *,
+        location_filter: dict | None = None,
+        extra_filter: dict | None = None,
+    ) -> List[Voucher]:
+        _ = location_filter, extra_filter
+        allowed = {
+            vt.value if hasattr(vt, "value") else str(vt) for vt in voucher_types
+        }
+        return [
+            v
+            for v in self._store.values()
+            if (v.voucher_type.value if hasattr(v.voucher_type, "value") else str(v.voucher_type))
+            in allowed
+        ]
+
     def delete(self, voucher_id: str) -> None:
         self._store.pop(voucher_id, None)
 

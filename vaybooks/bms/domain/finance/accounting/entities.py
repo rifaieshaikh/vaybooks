@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 from uuid import uuid4
 
@@ -58,6 +58,7 @@ class Voucher:
     reference_production_batch_id: Optional[str] = None
     location_id: str = ""
     location_name: str = ""
+    due_date: Optional[date] = None
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
 

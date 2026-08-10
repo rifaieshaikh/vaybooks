@@ -8,11 +8,17 @@ import uuid
 from datetime import date, timedelta
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from packages.services_kit.boutique_container import get_boutique_container
+from packages.services_kit.paging import (
+    DEFAULT_PAGE_SIZE,
+    filter_dicts,
+    paged_result,
+    sort_dicts,
+)
 from services.common.authz import require_permission
 from services.parties.serialize import entity_dict
 from vaybooks.bms.domain.shared.exceptions import DomainError, ValidationError
@@ -51,13 +57,19 @@ class OrderItemWrite(BaseModel):
     customer_specification: str = ""
     measurement_id: Optional[str] = None
     required_activities: dict[str, bool] = Field(default_factory=dict)
+    activity_estimated_hours: dict[str, float] = Field(default_factory=dict)
+    sell_amount: float = 0
 
 
 class OrderItemUpdate(BaseModel):
-    bill_number: str = Field(min_length=1)
+    bill_number: str = ""
     description: str = Field(min_length=1)
     expected_delivery_date: Optional[str] = None
     customer_specification: Optional[str] = None
+    measurement_id: Optional[str] = None
+    required_activities: Optional[dict[str, bool]] = None
+    activity_estimated_hours: Optional[dict[str, float]] = None
+    sell_amount: Optional[float] = None
 
 
 class ActivityAction(BaseModel):
@@ -74,6 +86,10 @@ class AdvanceWrite(BaseModel):
     receiving_account_id: str = Field(min_length=1)
 
 
+class CreditAdvanceBody(BaseModel):
+    amount: Optional[float] = None
+
+
 class InvoiceWrite(BaseModel):
     bill_ids: List[str] = Field(min_length=1)
     invoice_amount: float = Field(gt=0)
@@ -88,6 +104,44 @@ class DeliveryWrite(BaseModel):
     delivery_date: Optional[str] = None
     delivery_notes: str = ""
     allow_already_delivered: bool = True
+
+
+class ExpenseWrite(BaseModel):
+    expense_name: str = Field(min_length=1)
+    expense_source: str = "Other"
+    purchase_price: float = Field(gt=0)
+    selling_price: float = Field(gt=0)
+    quantity: float = 1.0
+    expense_date: Optional[str] = None
+    bill_id: Optional[str] = None
+    activity_id: Optional[str] = None
+    vendor_or_worker_name: str = ""
+    notes: str = ""
+
+
+class OrderReceiptWrite(BaseModel):
+    amount: float = Field(gt=0)
+    receiving_account_id: str = Field(min_length=1)
+    description: str = ""
+    voucher_date: Optional[str] = None
+
+
+class OrderVendorPaymentWrite(BaseModel):
+    amount: float = Field(gt=0)
+    vendor_account_id: str = Field(min_length=1)
+    expense_account_id: str = Field(min_length=1)
+    paying_account_id: str = Field(min_length=1)
+    description: str = ""
+    voucher_date: Optional[str] = None
+    service_id: Optional[str] = None
+
+
+class OrderRefundWrite(BaseModel):
+    kind: str = Field(min_length=1)  # advance | payment
+    amount: float = Field(gt=0)
+    store_account_id: str = Field(min_length=1)
+    description: str = ""
+    voucher_date: Optional[str] = None
 
 
 class MeasurementWrite(BaseModel):
@@ -133,6 +187,8 @@ class TimeEntryWrite(BaseModel):
     worker_name: str = ""
     notes: str = ""
     ends_next_day: bool = False
+    assignee_worker_id: str = ""
+    assignee_name: str = ""
 
 
 class TimeEntryUpdate(BaseModel):
@@ -144,6 +200,13 @@ class TimeEntryUpdate(BaseModel):
     activity_id: Optional[str] = None
     activity_name: Optional[str] = None
     ends_next_day: bool = False
+    assignee_worker_id: Optional[str] = None
+    assignee_name: Optional[str] = None
+
+
+class TimeEntryAssign(BaseModel):
+    assignee_worker_id: str = ""
+    assignee_name: str = ""
 
 
 class ReportRunBody(BaseModel):
@@ -205,7 +268,62 @@ def _order_dict(order: Any) -> dict[str, Any]:
         ]
         if b
     )
+    data["advance_voucher"] = None
+    try:
+        find_advance = getattr(_c().orders, "find_advance_voucher", None)
+        order_id = getattr(order, "id", None)
+        if find_advance and order_id:
+            voucher = find_advance(order_id)
+            if voucher:
+                amount = 0.0
+                if hasattr(voucher, "cash_movement_amount"):
+                    try:
+                        amount = float(voucher.cash_movement_amount or 0)
+                    except Exception:
+                        amount = 0.0
+                if amount <= 0 and hasattr(voucher, "total_debit"):
+                    try:
+                        amount = float(voucher.total_debit or 0)
+                    except Exception:
+                        amount = 0.0
+                if amount <= 0:
+                    amount = float(getattr(order, "advance_amount", 0) or 0)
+                data["advance_voucher"] = {
+                    "id": getattr(voucher, "id", None),
+                    "voucher_number": getattr(voucher, "voucher_number", None),
+                    "amount": amount,
+                }
+    except Exception:
+        data["advance_voucher"] = None
     return data
+
+
+def _attachment_meta(attachment: Any) -> dict[str, Any]:
+    cat = getattr(attachment, "category", None)
+    return {
+        "id": getattr(attachment, "id", None),
+        "order_id": getattr(attachment, "order_id", None),
+        "item_id": getattr(attachment, "item_id", None),
+        "category": cat.value if hasattr(cat, "value") else str(cat or ""),
+        "name": getattr(attachment, "name", "") or "",
+        "content_type": getattr(attachment, "content_type", "") or "",
+        "size_bytes": int(getattr(attachment, "size_bytes", 0) or 0),
+        "uploaded_by": getattr(attachment, "uploaded_by", "") or "",
+        "uploaded_at": getattr(attachment, "uploaded_at", None),
+    }
+
+
+def _business_profile():
+    from packages.services_kit.mongo_env import mongo_db_name, mongo_uri
+    from pymongo import MongoClient
+    from vaybooks.bms.application.settings.business.service import BusinessAppService
+    from vaybooks.bms.infrastructure.repositories.shared.mongo_business_profile_repository import (
+        MongoBusinessProfileRepository,
+    )
+
+    client = MongoClient(mongo_uri(), serverSelectionTimeoutMS=5000)
+    db = client[mongo_db_name()]
+    return BusinessAppService(MongoBusinessProfileRepository(db)).get_profile()
 
 
 def _item_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -330,8 +448,39 @@ def _exp_dict(expense: Any) -> dict[str, Any]:
     data["caption"] = " · ".join(
         b
         for b in [
-            str(data.get("activity_name") or data.get("description") or ""),
-            f"₹{float(data.get('amount') or 0):,.2f}",
+            str(data.get("activity_name") or data.get("description") or data.get("expense_name") or ""),
+            f"₹{float(data.get('amount') or data.get('selling_price') or 0):,.2f}",
+        ]
+        if b
+    )
+    return data
+
+
+def _accounting():
+    acct = getattr(_c().orders, "_accounting_service", None)
+    if acct:
+        return acct
+    from packages.services_kit.finance_container import get_finance_container
+
+    return get_finance_container().accounting
+
+
+def _voucher_dict(voucher: Any) -> dict[str, Any]:
+    data = entity_dict(voucher)
+    vtype = data.get("voucher_type")
+    data["voucher_type"] = vtype.value if hasattr(vtype, "value") else str(vtype or "")
+    data["id"] = data.get("id") or getattr(voucher, "id", None)
+    data["is_advance_refund"] = bool(getattr(voucher, "is_advance_refund", False))
+    try:
+        data["cash_amount"] = float(getattr(voucher, "cash_movement_amount", 0) or 0)
+    except Exception:
+        data["cash_amount"] = 0.0
+    data["caption"] = " · ".join(
+        b
+        for b in [
+            str(data.get("voucher_number") or ""),
+            str(data.get("voucher_type") or ""),
+            f"₹{float(data.get('cash_amount') or 0):,.2f}",
         ]
         if b
     )
@@ -349,26 +498,61 @@ def health() -> dict[str, object]:
 
 
 @router.get("/overview")
-def overview() -> dict[str, Any]:
+def overview(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> dict[str, Any]:
     try:
         today = date.today()
-        start = today.replace(day=1)
-        summary = _c().reports.dashboard_summary(start, today)
-        overdue = _c().reports.overdue_queue(limit=8)
-        pending = _c().reports.bills_pending_invoice_queue(limit=8)
+        end = _parse_date(end_date) or today
+        start = _parse_date(start_date) or end.replace(day=1)
+        if start > end:
+            start, end = end, start
+        reports = _c().reports
+        summary = reports.dashboard_summary(start, end)
+        overdue = reports.overdue_queue(limit=8)
+        pending = reports.bills_pending_invoice_queue(limit=8)
         for row in overdue + pending:
             for key, val in list(row.items()):
                 if hasattr(val, "isoformat"):
                     row[key] = val.isoformat()
+
+        span_days = (end - start).days + 1
+        grain = "day" if span_days <= 45 else "week"
+        on_time_rows = reports.delivery_on_time_breakdown(start, end)
+        on_time = sum(int(r.get("count") or 0) for r in on_time_rows if r.get("outcome") == "On time")
+        late = sum(int(r.get("count") or 0) for r in on_time_rows if r.get("outcome") == "Late")
+        delivered = on_time + late
+        on_time_pct = round((on_time / delivered) * 100, 1) if delivered else None
+
         return {
-            "kpis": summary,
+            "period": {
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "grain": grain,
+            },
+            "kpis": {
+                **summary,
+                "on_time_delivery_pct": on_time_pct,
+                "deliveries_in_period": delivered,
+            },
+            "charts": {
+                "invoiced_revenue": reports.invoiced_revenue_series(start, end, grain=grain),
+                "hours_logged": reports.hours_logged_series(start, end, grain=grain),
+                "status_breakdown": reports.status_breakdown(),
+                "delivery_on_time": on_time_rows,
+                "top_customers": reports.top_customers_by_revenue(start, end, limit=10),
+                "hours_by_worker": reports.hours_by_worker(start, end, limit=10),
+            },
             "overdue_orders": overdue,
             "bills_pending_invoice": pending,
             "quick_actions": [
                 {"to": "/boutique/orders", "label": "Orders"},
                 {"to": "/boutique/items", "label": "Items"},
                 {"to": "/boutique/measurements", "label": "Measurements"},
-                {"to": "/boutique/time", "label": "Time / tasks"},
+                {"to": "/boutique/time", "label": "Tasks"},
+                {"to": "/boutique/time-log", "label": "Time log"},
                 {"to": "/boutique/calendar", "label": "Calendar"},
                 {"to": "/boutique/reports", "label": "Reports"},
             ],
@@ -465,10 +649,36 @@ def create_activity(body: ActivityCreate) -> dict[str, Any]:
 
 
 @router.get("/orders")
-def list_orders(*, q: str = "") -> list[dict[str, Any]]:
+def list_orders(
+    *,
+    q: str = "",
+    order_number: str = "",
+    customer_name: str = "",
+    status: str = "",
+    sort_by: str = "order_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
         orders = _c().orders.search_customization_orders(q or "")
-        return [_order_dict(o) for o in orders]
+        rows = [_order_dict(o) for o in orders]
+        filtered = filter_dicts(
+            rows,
+            contains={
+                "order_number": order_number,
+                "customer_name": customer_name,
+            },
+        )
+        if status.strip():
+            want = status.strip()
+            filtered = [
+                r
+                for r in filtered
+                if str(r.get("order_status") or r.get("status") or "") == want
+            ]
+        sorted_rows = sort_dicts(filtered, sort_by, sort_desc=sort_desc)
+        return paged_result(sorted_rows, page=page, page_size=page_size)
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -603,6 +813,8 @@ def add_order_item(order_id: str, body: OrderItemWrite) -> dict[str, Any]:
             expected_delivery_date=_parse_date(body.expected_delivery_date),
             customer_specification=body.customer_specification,
             measurement_id=body.measurement_id,
+            sell_amount=float(body.sell_amount or 0),
+            activity_estimated_hours=body.activity_estimated_hours or {},
         )
         order = _c().orders.get_order_detail(order_id)
         return {
@@ -616,6 +828,17 @@ def add_order_item(order_id: str, body: OrderItemWrite) -> dict[str, Any]:
 @router.patch("/orders/{order_id}/items/{item_id}")
 def update_order_item(order_id: str, item_id: str, body: OrderItemUpdate) -> dict[str, Any]:
     try:
+        fields_set = body.model_fields_set
+        kwargs: dict[str, Any] = {}
+        if "measurement_id" in fields_set:
+            kwargs["measurement_id"] = body.measurement_id if body.measurement_id is not None else ""
+        if "required_activities" in fields_set:
+            kwargs["required_activities"] = body.required_activities or {}
+        if "activity_estimated_hours" in fields_set:
+            kwargs["activity_estimated_hours"] = body.activity_estimated_hours or {}
+        # Always persist estimate when the client sends it (including 0).
+        if "sell_amount" in fields_set:
+            kwargs["sell_amount"] = float(body.sell_amount or 0)
         order = _c().orders.update_customization_item(
             order_id,
             item_id,
@@ -623,6 +846,7 @@ def update_order_item(order_id: str, item_id: str, body: OrderItemUpdate) -> dic
             body.description,
             expected_delivery_date=_parse_date(body.expected_delivery_date),
             customer_specification=body.customer_specification,
+            **kwargs,
         )
         return _order_dict(order)
     except Exception as exc:
@@ -633,6 +857,169 @@ def update_order_item(order_id: str, item_id: str, body: OrderItemUpdate) -> dic
 def remove_order_item(order_id: str, item_id: str) -> dict[str, Any]:
     try:
         return _order_dict(_c().orders.remove_customization_item(order_id, item_id))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/orders/{order_id}/items/{item_id}/attachments")
+def list_item_attachments(
+    order_id: str,
+    item_id: str,
+    category: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    try:
+        order = _c().orders.get_order_detail(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if not order.get_item_by_id(item_id):
+            raise HTTPException(status_code=404, detail="Item not found")
+        attachments = _c().attachments
+        if not attachments:
+            return []
+        rows = attachments.list_by_item(item_id, category=category or None)
+        return [_attachment_meta(a) for a in rows]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/orders/{order_id}/items/{item_id}/attachments", status_code=201)
+async def upload_item_attachment(
+    order_id: str,
+    item_id: str,
+    category: str = Form(...),
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    try:
+        order = _c().orders.get_order_detail(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if not order.get_item_by_id(item_id):
+            raise HTTPException(status_code=404, detail="Item not found")
+        attachments = _c().attachments
+        if not attachments:
+            raise ValidationError("Attachment service is unavailable")
+        data = await file.read()
+        saved = attachments.upload(
+            order_id=order_id,
+            item_id=item_id,
+            category=category,
+            name=file.filename or "upload",
+            content_type=file.content_type or "application/octet-stream",
+            data=data,
+        )
+        return _attachment_meta(saved)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/attachments/{attachment_id}")
+def download_attachment(attachment_id: str):
+    try:
+        attachments = _c().attachments
+        if not attachments:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        attachment = attachments.get(attachment_id)
+        if not attachment:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        payload = attachment.data or b""
+        filename = attachment.name or attachment_id
+        return StreamingResponse(
+            io.BytesIO(payload),
+            media_type=attachment.content_type or "application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(payload)),
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.delete("/attachments/{attachment_id}")
+def delete_attachment(attachment_id: str) -> dict[str, str]:
+    try:
+        attachments = _c().attachments
+        if not attachments:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        attachments.delete(attachment_id)
+        return {"status": "deleted", "id": attachment_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/orders/{order_id}/items/{item_id}/pdf")
+def item_pdf(order_id: str, item_id: str):
+    try:
+        from packages.services_kit.parties_container import get_parties_container
+        from vaybooks.bms.infrastructure.pdf.boutique_pdf import (
+            generate_customization_item_pdf,
+        )
+
+        order = _c().orders.get_order_detail(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        item = order.get_item_by_id(item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        customer = get_parties_container().customers.get_customer_detail(
+            getattr(order, "customer_id", "") or ""
+        )
+        business = _business_profile()
+        measurement = None
+        mid = getattr(item, "measurement_id", None)
+        if mid:
+            measurement = _c().measurements.get_record(mid)
+        media = []
+        if _c().attachments:
+            media = _c().attachments.list_by_item(item_id)
+        pdf_bytes = generate_customization_item_pdf(
+            order, item, customer, business, measurement, media
+        )
+        filename = f"{getattr(item, 'bill_number', item_id)}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/orders/{order_id}/advance-receipt.pdf")
+def advance_receipt_pdf(order_id: str):
+    try:
+        from packages.services_kit.parties_container import get_parties_container
+        from vaybooks.bms.infrastructure.pdf.boutique_pdf import generate_advance_receipt_pdf
+
+        order = _c().orders.get_order_detail(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        voucher = _c().orders.find_advance_voucher(order_id)
+        if not voucher:
+            raise HTTPException(status_code=404, detail="Advance voucher not found")
+        customer = get_parties_container().customers.get_customer_detail(
+            getattr(order, "customer_id", "") or ""
+        )
+        business = _business_profile()
+        pdf_bytes = generate_advance_receipt_pdf(voucher, order, customer, business)
+        filename = f"{getattr(voucher, 'voucher_number', order_id)}-advance.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -669,6 +1056,42 @@ def record_advance(order_id: str, body: AdvanceWrite) -> dict[str, Any]:
     try:
         order, voucher = _c().orders.record_cash_order_advance(
             order_id, body.amount, body.receiving_account_id
+        )
+        return {
+            "order": _order_dict(order),
+            "voucher": entity_dict(voucher) if voucher else None,
+        }
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/orders/{order_id}/credit-balance")
+def order_credit_balance(order_id: str) -> dict[str, Any]:
+    try:
+        order = _c().orders.get_order_detail(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        accounting = getattr(_c().orders, "_accounting_service", None)
+        if not accounting:
+            return {"order_id": order_id, "credit_balance": 0.0}
+        customer_account = accounting.get_customer_account(order.customer_id)
+        if not customer_account:
+            return {"order_id": order_id, "credit_balance": 0.0}
+        balance = float(accounting.customer_credit_balance(customer_account.id) or 0)
+        return {"order_id": order_id, "credit_balance": balance}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/orders/{order_id}/advances/credit", status_code=201)
+def apply_credit_advance(
+    order_id: str, body: CreditAdvanceBody = CreditAdvanceBody()
+) -> dict[str, Any]:
+    try:
+        order, voucher = _c().orders.apply_customer_credit_as_order_advance(
+            order_id, body.amount
         )
         return {
             "order": _order_dict(order),
@@ -775,11 +1198,245 @@ def list_order_expenses(order_id: str) -> list[dict[str, Any]]:
         raise _http_err(exc) from exc
 
 
-@router.get("/items")
-def list_items(*, q: str = "") -> list[dict[str, Any]]:
+@router.post("/orders/{order_id}/expenses", status_code=201)
+def create_order_expense(order_id: str, body: ExpenseWrite) -> dict[str, Any]:
     try:
-        rows = _c().orders.search_customization_items(q or "")
-        return [_item_row(r) for r in rows]
+        expense = _c().expenses.add_expense(
+            order_id=order_id,
+            expense_date=_parse_date(body.expense_date) or date.today(),
+            expense_name=body.expense_name.strip(),
+            expense_source=body.expense_source,
+            purchase_price=body.purchase_price,
+            selling_price=body.selling_price,
+            quantity=body.quantity,
+            bill_id=body.bill_id,
+            activity_id=body.activity_id,
+            vendor_or_worker_name=body.vendor_or_worker_name,
+            notes=body.notes,
+        )
+        return _exp_dict(expense)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/orders/{order_id}/financials")
+def order_financials(order_id: str) -> dict[str, Any]:
+    try:
+        order = _c().orders.get_order_detail(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        accounting = _accounting()
+        expenses = _c().expenses.get_expenses_by_order(order_id)
+        expense_purchase = round(
+            sum(
+                float(getattr(e, "purchase_price", 0) or 0)
+                * float(getattr(e, "quantity", 1) or 1)
+                for e in expenses
+            ),
+            2,
+        )
+        expense_selling = round(
+            sum(
+                float(getattr(e, "selling_price", 0) or 0)
+                * float(getattr(e, "quantity", 1) or 1)
+                for e in expenses
+            ),
+            2,
+        )
+        items = getattr(order, "customization_items", None) or []
+        estimate = round(sum(float(getattr(i, "sell_amount", 0) or 0) for i in items), 2)
+        vouchers = accounting.list_vouchers_by_order(order_id) if accounting else []
+        from vaybooks.bms.domain.shared.enums import VoucherType
+
+        def _count(vt: Any) -> int:
+            return sum(1 for v in vouchers if getattr(v, "voucher_type", None) == vt)
+
+        unapplied = (
+            float(accounting.get_order_unapplied_advance(order_id) or 0) if accounting else 0.0
+        )
+        refundable_payments = (
+            float(accounting.get_order_refundable_customer_payments(order_id) or 0)
+            if accounting
+            else 0.0
+        )
+        credit_balance = 0.0
+        if accounting:
+            customer_account = accounting.get_customer_account(order.customer_id)
+            if customer_account:
+                credit_balance = float(
+                    accounting.customer_credit_balance(customer_account.id) or 0
+                )
+        return {
+            "order_id": order_id,
+            "estimate_total": estimate,
+            "advance_amount": float(getattr(order, "advance_amount", 0) or 0),
+            "unapplied_advance": unapplied,
+            "refundable_payments": refundable_payments,
+            "credit_balance": credit_balance,
+            "expense_count": len(expenses),
+            "expense_purchase_total": expense_purchase,
+            "expense_selling_total": expense_selling,
+            "receipt_count": _count(VoucherType.RECEIPT),
+            "vendor_payment_count": _count(VoucherType.VENDOR_PAYMENT),
+            "refund_count": _count(VoucherType.REFUND),
+            "advance_voucher_count": _count(VoucherType.ADVANCE),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/orders/{order_id}/vouchers")
+def list_order_vouchers(order_id: str, *, kind: Optional[str] = None) -> list[dict[str, Any]]:
+    try:
+        order = _c().orders.get_order_detail(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        accounting = _accounting()
+        vouchers = accounting.list_vouchers_by_order(order_id) if accounting else []
+        from vaybooks.bms.domain.shared.enums import VoucherType
+
+        kind_key = (kind or "").strip().lower()
+        kind_map = {
+            "receipt": VoucherType.RECEIPT,
+            "receipts": VoucherType.RECEIPT,
+            "payment": VoucherType.VENDOR_PAYMENT,
+            "payments": VoucherType.VENDOR_PAYMENT,
+            "vendor_payment": VoucherType.VENDOR_PAYMENT,
+            "vendor_payments": VoucherType.VENDOR_PAYMENT,
+            "refund": VoucherType.REFUND,
+            "refunds": VoucherType.REFUND,
+            "advance": VoucherType.ADVANCE,
+            "advances": VoucherType.ADVANCE,
+        }
+        if kind_key:
+            wanted = kind_map.get(kind_key)
+            if wanted:
+                vouchers = [
+                    v for v in vouchers if getattr(v, "voucher_type", None) == wanted
+                ]
+        return [_voucher_dict(v) for v in vouchers]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/orders/{order_id}/receipts", status_code=201)
+def create_order_receipt(order_id: str, body: OrderReceiptWrite) -> dict[str, Any]:
+    try:
+        order = _c().orders.get_order_detail(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        accounting = _accounting()
+        customer_account = accounting.get_customer_account(order.customer_id)
+        if not customer_account:
+            raise ValidationError("Customer account not found")
+        description = (body.description or "").strip() or f"Receipt for {order.order_number}"
+        voucher = accounting.create_customer_payment(
+            receiving_account_id=body.receiving_account_id,
+            customer_account_id=customer_account.id,
+            amount=body.amount,
+            description=description,
+            voucher_date=_parse_date(body.voucher_date),
+            reference_order_id=order.id,
+            location_id=getattr(order, "location_id", "") or "",
+            location_name=getattr(order, "location_name", "") or "",
+        )
+        return {"voucher": _voucher_dict(voucher)}
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/orders/{order_id}/vendor-payments", status_code=201)
+def create_order_vendor_payment(order_id: str, body: OrderVendorPaymentWrite) -> dict[str, Any]:
+    try:
+        order = _c().orders.get_order_detail(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        accounting = _accounting()
+        description = (body.description or "").strip() or f"Vendor payment for {order.order_number}"
+        voucher = accounting.create_vendor_payment(
+            vendor_account_id=body.vendor_account_id,
+            expense_account_id=body.expense_account_id,
+            paying_account_id=body.paying_account_id,
+            amount=body.amount,
+            description=description,
+            voucher_date=_parse_date(body.voucher_date),
+            service_id=body.service_id,
+            reference_order_id=order.id,
+            location_id=getattr(order, "location_id", "") or "",
+            location_name=getattr(order, "location_name", "") or "",
+        )
+        return {"voucher": _voucher_dict(voucher)}
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/orders/{order_id}/refunds", status_code=201)
+def create_order_refund(order_id: str, body: OrderRefundWrite) -> dict[str, Any]:
+    try:
+        order = _c().orders.get_order_detail(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        accounting = _accounting()
+        customer_account = accounting.get_customer_account(order.customer_id)
+        if not customer_account:
+            raise ValidationError("Customer account not found")
+        kind = (body.kind or "").strip().lower()
+        description = (body.description or "").strip() or f"Refund for {order.order_number}"
+        if kind == "advance":
+            voucher = accounting.create_advance_refund(
+                customer_account_id=customer_account.id,
+                store_account_id=body.store_account_id,
+                amount=body.amount,
+                description=description,
+                voucher_date=_parse_date(body.voucher_date),
+                reference_order_id=order.id,
+            )
+        elif kind in ("payment", "receipt"):
+            voucher = accounting.create_customer_payment_refund(
+                customer_account_id=customer_account.id,
+                store_account_id=body.store_account_id,
+                amount=body.amount,
+                description=description,
+                voucher_date=_parse_date(body.voucher_date),
+                reference_order_id=order.id,
+            )
+        else:
+            raise ValidationError("Refund kind must be 'advance' or 'payment'")
+        return {"voucher": _voucher_dict(voucher)}
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/items")
+def list_items(
+    *,
+    q: str = "",
+    bill_number: str = "",
+    description: str = "",
+    customer_name: str = "",
+    status: str = "",
+    sort_by: str = "bill_number",
+    sort_desc: bool = False,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
+    try:
+        rows = [_item_row(r) for r in _c().orders.search_customization_items(q or "")]
+        filtered = filter_dicts(
+            rows,
+            equals={"item_status": status} if status.strip() else None,
+            contains={
+                "bill_number": bill_number,
+                "description": description,
+                "customer_name": customer_name,
+            },
+        )
+        sorted_rows = sort_dicts(filtered, sort_by, sort_desc=sort_desc)
+        return paged_result(sorted_rows, page=page, page_size=page_size)
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -871,13 +1528,33 @@ def list_measurement_sections(*, active_only: bool = True) -> list[dict[str, Any
 
 
 @router.get("/measurements")
-def list_measurements(*, customer_id: Optional[str] = None) -> list[dict[str, Any]]:
+def list_measurements(
+    *,
+    customer_id: Optional[str] = None,
+    measurement_number: str = "",
+    wearer_name: str = "",
+    person_type: str = "",
+    sort_by: str = "measurement_number",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
         if customer_id:
-            rows = _c().measurements.list_by_customer(customer_id)
+            records = _c().measurements.list_by_customer(customer_id)
         else:
-            rows = _c().measurements.list_all()
-        return [_meas_dict(r) for r in rows]
+            records = _c().measurements.list_all()
+        rows = [_meas_dict(r) for r in records]
+        filtered = filter_dicts(
+            rows,
+            equals={"person_type": person_type} if person_type.strip() else None,
+            contains={
+                "measurement_number": measurement_number,
+                "wearer_name": wearer_name,
+            },
+        )
+        sorted_rows = sort_dicts(filtered, sort_by, sort_desc=sort_desc)
+        return paged_result(sorted_rows, page=page, page_size=page_size)
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -974,28 +1651,21 @@ def update_measurement(record_id: str, body: MeasurementUpdate) -> dict[str, Any
         raise _http_err(exc) from exc
 
 
-def _linked_order_labels(record_id: str) -> list[str]:
-    labels: list[str] = []
-    for order in _c().orders.search_customization_orders(""):
-        for item in getattr(order, "customization_items", None) or []:
-            mid = getattr(item, "measurement_id", "") or ""
-            if mid == record_id:
-                bill = getattr(item, "bill_number", "") or getattr(item, "item_id", "")
-                labels.append(f"{getattr(order, 'order_number', order.id)} / {bill}")
-    return labels
-
-
 @router.delete("/measurements/{record_id}")
 def delete_measurement(record_id: str) -> dict[str, str]:
     try:
-        linked = _linked_order_labels(record_id)
-        if linked:
-            raise ValidationError(
-                "This measurement is linked to customization items and cannot be removed: "
-                + "; ".join(linked[:5])
-            )
         _c().measurements.delete_record(record_id)
         return {"status": "deleted", "id": record_id}
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/tasks/sync")
+def sync_activity_tasks(*, order_id: Optional[str] = None) -> dict[str, Any]:
+    """Backfill Created activity tasks for open orders (or one order)."""
+    try:
+        result = _c().orders.sync_activity_tasks(order_id=order_id)
+        return {"status": "ok", **result}
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -1009,9 +1679,15 @@ def list_time_entries(
     activity_name: str = "",
     work_date_from: Optional[str] = None,
     work_date_to: Optional[str] = None,
-) -> list[dict[str, Any]]:
+    task_type: str = "",
+    status: str = "",
+    sort_by: str = "work_date",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
     try:
-        rows = _c().time_tracking.search_entries(
+        entries = _c().time_tracking.search_entries(
             bill_number=bill_number,
             order_number=order_number,
             worker_name=worker_name,
@@ -1019,7 +1695,33 @@ def list_time_entries(
             work_date_from=_parse_date(work_date_from),
             work_date_to=_parse_date(work_date_to),
         )
-        return [_time_dict(e) for e in rows]
+        rows = [_time_dict(e) for e in entries]
+        if task_type.strip():
+            want = task_type.strip().lower()
+            rows = [
+                r
+                for r in rows
+                if str(r.get("task_type") or "activity").lower() == want
+            ]
+        if status.strip():
+            want_status = status.strip()
+            rows = [
+                r
+                for r in rows
+                if str(r.get("status") or "") == want_status
+                or (
+                    want_status == "Completed"
+                    and bool(str(r.get("start_time") or "").strip())
+                    and not str(r.get("status") or "").strip()
+                )
+                or (
+                    want_status == "Created"
+                    and not str(r.get("start_time") or "").strip()
+                    and not str(r.get("status") or "").strip()
+                )
+            ]
+        sorted_rows = sort_dicts(rows, sort_by, sort_desc=sort_desc)
+        return paged_result(sorted_rows, page=page, page_size=page_size)
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -1048,6 +1750,8 @@ def create_time_entry(body: TimeEntryWrite) -> dict[str, Any]:
             worker_name=body.worker_name,
             notes=body.notes,
             ends_next_day=body.ends_next_day,
+            assignee_worker_id=body.assignee_worker_id,
+            assignee_name=body.assignee_name or body.worker_name,
         )
         return _time_dict(entry)
     except HTTPException:
@@ -1073,9 +1777,30 @@ def update_time_entry(entry_id: str, body: TimeEntryUpdate) -> dict[str, Any]:
             activity_name=body.activity_name,
             ends_next_day=body.ends_next_day,
         )
+        if body.assignee_worker_id is not None or body.assignee_name is not None:
+            entry = _c().time_tracking.assign_time_entry(
+                entry_id,
+                assignee_worker_id=body.assignee_worker_id or "",
+                assignee_name=body.assignee_name
+                if body.assignee_name is not None
+                else entry.assignee_name,
+            )
         return _time_dict(entry)
     except HTTPException:
         raise
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/time-entries/{entry_id}/assign")
+def assign_time_entry(entry_id: str, body: TimeEntryAssign) -> dict[str, Any]:
+    try:
+        entry = _c().time_tracking.assign_time_entry(
+            entry_id,
+            assignee_worker_id=body.assignee_worker_id,
+            assignee_name=body.assignee_name,
+        )
+        return _time_dict(entry)
     except Exception as exc:
         raise _http_err(exc) from exc
 

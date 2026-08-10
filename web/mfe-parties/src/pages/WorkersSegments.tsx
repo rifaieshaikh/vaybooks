@@ -28,6 +28,9 @@ import {
   useDeactivateWorkerMutation,
   useListWorkersQuery,
   useUpdateWorkerMutation,
+  useCalculateWorkerSalaryMutation,
+  usePayWorkerSalaryMutation,
+  useListFinanceAccountsQuery,
   useCreatePartySegmentMutation,
   useDeletePartySegmentMutation,
   useListPartySegmentsQuery,
@@ -57,16 +60,27 @@ export function WorkersListPage() {
   const [create] = useCreateWorkerMutation();
   const [update] = useUpdateWorkerMutation();
   const [deactivate] = useDeactivateWorkerMutation();
+  const [calculateSalary, calcState] = useCalculateWorkerSalaryMutation();
+  const [paySalary, payState] = usePayWorkerSalaryMutation();
+  const { data: accounts = [] } = useListFinanceAccountsQuery();
 
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_WORKER_SORT);
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({ ...DEFAULT_WORKER_FILTERS });
   const [dialog, setDialog] = useState<'add' | 'edit' | null>(null);
+  const [payDialog, setPayDialog] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [rate, setRate] = useState('0');
+  const [baseSalary, setBaseSalary] = useState('0');
+  const [otThreshold, setOtThreshold] = useState('0');
+  const [otMult, setOtMult] = useState('1.5');
   const [locationIds, setLocationIds] = useState('default');
   const [formError, setFormError] = useState('');
+  const [periodFrom, setPeriodFrom] = useState('');
+  const [periodTo, setPeriodTo] = useState('');
+  const [payingAccountId, setPayingAccountId] = useState('');
+  const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
 
   const filtered = useMemo(() => {
     let rows = data.filter((row) => {
@@ -87,6 +101,9 @@ export function WorkersListPage() {
     const body = {
       worker_name: name,
       default_hourly_rate: Number(rate) || 0,
+      base_salary: Number(baseSalary) || 0,
+      ot_threshold_hours: Number(otThreshold) || 0,
+      ot_multiplier: Number(otMult) || 1.5,
       activity_refs: [] as string[],
       location_ids: parseLocationIds(locationIds),
       is_active: true,
@@ -97,6 +114,9 @@ export function WorkersListPage() {
       setDialog(null);
       setName('');
       setRate('0');
+      setBaseSalary('0');
+      setOtThreshold('0');
+      setOtMult('1.5');
       refetch();
     } catch {
       setFormError('Save failed');
@@ -109,11 +129,64 @@ export function WorkersListPage() {
     setEditId(String(row.id));
     setName(String(row.worker_name || ''));
     setRate(String(row.default_hourly_rate ?? 0));
+    setBaseSalary(String(row.base_salary ?? 0));
+    setOtThreshold(String(row.ot_threshold_hours ?? 0));
+    setOtMult(String(row.ot_multiplier ?? 1.5));
     setLocationIds(
       Array.isArray(row.location_ids) ? (row.location_ids as string[]).join(', ') : 'default',
     );
     setFormError('');
     setDialog('edit');
+  }
+
+  function openPay(row: WorkerRow) {
+    setEditId(String(row.id));
+    setName(String(row.worker_name || ''));
+    setPeriodFrom('');
+    setPeriodTo('');
+    setPayingAccountId('');
+    setPreview(null);
+    setFormError('');
+    setPayDialog(true);
+  }
+
+  async function onPreviewSalary() {
+    if (!editId || !periodFrom || !periodTo) {
+      setFormError('Select a date range');
+      return;
+    }
+    setFormError('');
+    try {
+      const result = await calculateSalary({
+        id: editId,
+        body: { period_from: periodFrom, period_to: periodTo },
+      }).unwrap();
+      setPreview(result);
+    } catch {
+      setFormError('Salary calculation failed');
+    }
+  }
+
+  async function onPaySalary() {
+    if (!editId || !periodFrom || !periodTo || !payingAccountId) {
+      setFormError('Date range and paying account are required');
+      return;
+    }
+    setFormError('');
+    try {
+      await paySalary({
+        id: editId,
+        body: {
+          period_from: periodFrom,
+          period_to: periodTo,
+          paying_account_id: payingAccountId,
+        },
+      }).unwrap();
+      setPayDialog(false);
+      refetch();
+    } catch {
+      setFormError('Salary payment failed');
+    }
   }
 
   async function onDeactivate(id: string) {
@@ -227,6 +300,7 @@ export function WorkersListPage() {
               onEdit={() => openEdit(row)}
               onDelete={row.is_active ? () => void onDeactivate(String(row.id)) : undefined}
               deleteLabel="Deactivate"
+              primary={{ label: 'Pay', onClick: () => openPay(row) }}
             />
           )}
         />
@@ -263,7 +337,85 @@ export function WorkersListPage() {
           <FormRow label="Default hourly rate">
             <TextInput type="number" value={rate} onChange={(e) => setRate(e.target.value)} />
           </FormRow>
+          <FormRow label="Base salary (monthly)">
+            <TextInput
+              type="number"
+              value={baseSalary}
+              onChange={(e) => setBaseSalary(e.target.value)}
+            />
+          </FormRow>
+          <FormRow label="OT threshold (hours)">
+            <TextInput
+              type="number"
+              value={otThreshold}
+              onChange={(e) => setOtThreshold(e.target.value)}
+            />
+          </FormRow>
+          <FormRow label="OT multiplier">
+            <TextInput type="number" value={otMult} onChange={(e) => setOtMult(e.target.value)} />
+          </FormRow>
           <LocationIdsField value={locationIds} onChange={setLocationIds} />
+        </div>
+      </Modal>
+
+      <Modal
+        title={`Salary — ${name || 'Employee'}`}
+        open={payDialog}
+        onClose={() => setPayDialog(false)}
+        footer={
+          <>
+            <Button type="button" variant="ghost" onClick={() => void onPreviewSalary()} disabled={calcState.isLoading}>
+              {calcState.isLoading ? 'Calculating…' : 'Preview'}
+            </Button>
+            <Button type="button" onClick={() => void onPaySalary()} disabled={payState.isLoading}>
+              {payState.isLoading ? 'Paying…' : 'Record payment'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setPayDialog(false)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        {formError ? <ErrorText>{formError}</ErrorText> : null}
+        <div style={{ display: 'grid', gap: 10 }}>
+          <FormRow label="From">
+            <TextInput type="date" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)} />
+          </FormRow>
+          <FormRow label="To">
+            <TextInput type="date" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} />
+          </FormRow>
+          <FormRow label="Paying account">
+            <select
+              value={payingAccountId}
+              onChange={(e) => setPayingAccountId(e.target.value)}
+              style={{ padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
+            >
+              <option value="">Select…</option>
+              {accounts.map((a) => (
+                <option key={String(a.id)} value={String(a.id)}>
+                  {String(a.account_name || a.name || a.id)}
+                </option>
+              ))}
+            </select>
+          </FormRow>
+          {preview ? (
+            <div style={{ borderTop: '1px solid #eee', paddingTop: 8 }}>
+              <div>
+                Hours: {String(preview.attributed_hours ?? 0)} · Total: ₹
+                {Number(preview.total ?? 0).toFixed(2)}
+              </div>
+              <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                {(Array.isArray(preview.lines) ? preview.lines : []).map((line, idx) => {
+                  const item = line as { label?: string; amount?: number };
+                  return (
+                    <li key={idx}>
+                      {item.label}: ₹{Number(item.amount ?? 0).toFixed(2)}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
         </div>
       </Modal>
     </EntityListPage>

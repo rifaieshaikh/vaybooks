@@ -27,6 +27,8 @@ export type MeasurementFormValue = {
 type Props = {
   initial?: Partial<MeasurementFormValue> & { values?: Record<string, unknown>[] };
   personTypeLocked?: boolean;
+  /** Detail page uses sectioned panels; modal keeps a compact stack. */
+  layout?: 'compact' | 'detail';
   onChange?: (payload: MeasurementFormValue) => void;
 };
 
@@ -47,7 +49,12 @@ function initialValuesMap(
   return map;
 }
 
-export function MeasurementForm({ initial, personTypeLocked, onChange }: Props) {
+export function MeasurementForm({
+  initial,
+  personTypeLocked,
+  layout = 'compact',
+  onChange,
+}: Props) {
   const { data: specs = [] } = useListBoutiqueMeasurementSpecsQuery();
   const { data: sections = [] } = useListBoutiqueMeasurementSectionsQuery();
   const [personType, setPersonType] = useState(initial?.person_type || 'Women');
@@ -68,10 +75,7 @@ export function MeasurementForm({ initial, personTypeLocked, onChange }: Props) 
   );
 
   const applicableSpecs = useMemo(
-    () =>
-      specs.filter(
-        (s) => Boolean(s.is_active !== false) && specApplies(s, personType),
-      ),
+    () => specs.filter((s) => Boolean(s.is_active !== false) && specApplies(s, personType)),
     [specs, personType],
   );
 
@@ -131,120 +135,178 @@ export function MeasurementForm({ initial, personTypeLocked, onChange }: Props) 
   const missingRequired = applicableSpecs.filter(
     (s) => Boolean(s.required) && !(fieldValues[String(s.key)] || '').trim(),
   );
+  const filledCount = applicableSpecs.filter((s) =>
+    Boolean((fieldValues[String(s.key)] || '').trim()),
+  ).length;
+  const coreCount = applicableSpecs.filter((s) => s.is_core).length;
+  const extraCount = applicableSpecs.length - coreCount;
 
-  return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <FormRow label="Person type">
-          <select
-            value={personType}
-            disabled={personTypeLocked}
-            onChange={(e) => setPersonType(e.target.value)}
-            style={{ width: '100%', padding: 8 }}
-          >
-            {PERSON_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Wearer name">
-          <input value={wearerName} onChange={(e) => setWearerName(e.target.value)} style={{ width: '100%', padding: 8 }} />
-        </FormRow>
-        <FormRow label="Age">
-          <input value={wearerAge} onChange={(e) => setWearerAge(e.target.value)} style={{ width: '100%', padding: 8 }} />
-        </FormRow>
-        <FormRow label="Height">
-          <input value={wearerHeight} onChange={(e) => setWearerHeight(e.target.value)} style={{ width: '100%', padding: 8 }} />
-        </FormRow>
-        <FormRow label="Weight">
-          <input value={wearerWeight} onChange={(e) => setWearerWeight(e.target.value)} style={{ width: '100%', padding: 8 }} />
-        </FormRow>
-        <FormRow label="Fit">
-          <select value={fit} onChange={(e) => setFit(e.target.value)} style={{ width: '100%', padding: 8 }}>
-            {FIT_OPTIONS.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Unit">
-          <select value={unit} onChange={(e) => setUnit(e.target.value)} style={{ width: '100%', padding: 8 }}>
-            <option value="inch">inch</option>
-            <option value="cm">cm</option>
-          </select>
-        </FormRow>
-        <FormRow label="Measured by">
-          <input value={measuredBy} onChange={(e) => setMeasuredBy(e.target.value)} style={{ width: '100%', padding: 8 }} />
-        </FormRow>
-        <FormRow label="Measured on">
-          <input type="date" value={measuredAt} onChange={(e) => setMeasuredAt(e.target.value)} style={{ width: '100%', padding: 8 }} />
-        </FormRow>
-      </div>
+  const metaFields = (
+    <div className={layout === 'detail' ? 'md-grid' : undefined} style={layout === 'compact' ? { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 } : undefined}>
+      <FormRow label="Person type">
+        <select
+          value={personType}
+          disabled={personTypeLocked}
+          onChange={(e) => setPersonType(e.target.value)}
+        >
+          {PERSON_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </FormRow>
+      <FormRow label="Wearer name">
+        <input value={wearerName} onChange={(e) => setWearerName(e.target.value)} />
+      </FormRow>
+      <FormRow label="Age">
+        <input value={wearerAge} onChange={(e) => setWearerAge(e.target.value)} />
+      </FormRow>
+      <FormRow label="Height">
+        <input value={wearerHeight} onChange={(e) => setWearerHeight(e.target.value)} />
+      </FormRow>
+      <FormRow label="Weight">
+        <input value={wearerWeight} onChange={(e) => setWearerWeight(e.target.value)} />
+      </FormRow>
+      <FormRow label="Fit">
+        <select value={fit} onChange={(e) => setFit(e.target.value)}>
+          {FIT_OPTIONS.map((f) => (
+            <option key={f} value={f}>
+              {f}
+            </option>
+          ))}
+        </select>
+      </FormRow>
+      <FormRow label="Unit">
+        <select value={unit} onChange={(e) => setUnit(e.target.value)}>
+          <option value="inch">inch</option>
+          <option value="cm">cm</option>
+        </select>
+      </FormRow>
+      <FormRow label="Measured by">
+        <input value={measuredBy} onChange={(e) => setMeasuredBy(e.target.value)} />
+      </FormRow>
+      <FormRow label="Measured on">
+        <input type="date" value={measuredAt} onChange={(e) => setMeasuredAt(e.target.value)} />
+      </FormRow>
+    </div>
+  );
+
+  const notesFields = (
+    <div className={layout === 'detail' ? 'md-grid md-grid-2' : undefined} style={layout === 'compact' ? { display: 'grid', gap: 10 } : undefined}>
       <FormRow label="Notes">
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} style={{ width: '100%' }} />
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
       </FormRow>
       <FormRow label="Print notes">
-        <textarea value={printNotes} onChange={(e) => setPrintNotes(e.target.value)} rows={2} style={{ width: '100%' }} />
+        <textarea value={printNotes} onChange={(e) => setPrintNotes(e.target.value)} rows={3} />
       </FormRow>
+    </div>
+  );
 
-      <p style={{ margin: 0, color: '#667', fontSize: 13 }}>
-        {applicableSpecs.length} fields ({applicableSpecs.filter((s) => s.is_core).length} core ·{' '}
-        {applicableSpecs.filter((s) => !s.is_core).length} additional)
-        {missingRequired.length
-          ? ` · missing required: ${missingRequired.map((s) => asCaption(s.label || s.key)).join(', ')}`
-          : ''}
-      </p>
+  const status = (
+    <div className="md-status">
+      <span className="md-pill">
+        {filledCount}/{applicableSpecs.length} filled
+      </span>
+      <span className="md-pill">
+        {coreCount} core · {extraCount} extra
+      </span>
+      {missingRequired.length ? (
+        <span className="md-pill is-warn">
+          Missing: {missingRequired.map((s) => asCaption(s.label || s.key)).join(', ')}
+        </span>
+      ) : (
+        <span className="md-pill">Required complete</span>
+      )}
+    </div>
+  );
 
-      {sectionRows.map((section) => {
-        const fields = applicableSpecs.filter((s) =>
-          section.key === '__other__'
-            ? !sections.some((sec) => String(sec.key) === String(s.section || ''))
-            : String(s.section || '') === section.key,
-        );
-        if (!fields.length) return null;
-        return (
-          <div key={section.key} style={{ display: 'grid', gap: 8 }}>
-            <h4 style={{ margin: '8px 0 0', color: 'var(--vb-color-primary, #185c4c)' }}>{section.label}</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {fields.map((field) => {
-                const key = String(field.key);
-                const label = `${asCaption(field.label || key)}${field.required ? ' *' : ''}${
-                  field.is_core === false ? ' (extra)' : ''
-                }`;
-                const options = Array.isArray(field.options) ? (field.options as string[]) : [];
-                return (
-                  <FormRow key={key} label={label}>
-                    {options.length ? (
-                      <select
-                        value={fieldValues[key] || ''}
-                        onChange={(e) => setFieldValues((prev) => ({ ...prev, [key]: e.target.value }))}
-                        style={{ width: '100%', padding: 8 }}
-                      >
-                        <option value="">—</option>
-                        {options.map((o) => (
-                          <option key={o} value={o}>
-                            {o}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        value={fieldValues[key] || ''}
-                        onChange={(e) => setFieldValues((prev) => ({ ...prev, [key]: e.target.value }))}
-                        placeholder={field.unit ? `Unit: ${String(field.unit)}` : undefined}
-                        style={{ width: '100%', padding: 8 }}
-                      />
-                    )}
-                  </FormRow>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
+  const measureSections = sectionRows.map((section) => {
+    const fields = applicableSpecs.filter((s) =>
+      section.key === '__other__'
+        ? !sections.some((sec) => String(sec.key) === String(s.section || ''))
+        : String(s.section || '') === section.key,
+    );
+    if (!fields.length) return null;
+    return (
+      <div key={section.key} className={layout === 'detail' ? 'md-section' : undefined} style={layout === 'compact' ? { display: 'grid', gap: 8 } : undefined}>
+        <div className={layout === 'detail' ? 'md-section-head' : undefined}>
+          <h3 style={layout === 'compact' ? { margin: '8px 0 0', color: 'var(--vb-color-primary, #185c4c)' } : undefined}>
+            {section.label}
+          </h3>
+          {layout === 'detail' ? <span>{fields.length} fields</span> : null}
+        </div>
+        <div className={layout === 'detail' ? 'md-grid' : undefined} style={layout === 'compact' ? { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 } : undefined}>
+          {fields.map((field) => {
+            const key = String(field.key);
+            const label = `${asCaption(field.label || key)}${field.required ? ' *' : ''}${
+              field.is_core === false ? ' (extra)' : ''
+            }`;
+            const options = Array.isArray(field.options) ? (field.options as string[]) : [];
+            return (
+              <FormRow key={key} label={label}>
+                {options.length ? (
+                  <select
+                    value={fieldValues[key] || ''}
+                    onChange={(e) =>
+                      setFieldValues((prev) => ({ ...prev, [key]: e.target.value }))
+                    }
+                  >
+                    <option value="">—</option>
+                    {options.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={fieldValues[key] || ''}
+                    onChange={(e) =>
+                      setFieldValues((prev) => ({ ...prev, [key]: e.target.value }))
+                    }
+                    placeholder={field.unit ? String(field.unit) : unit}
+                  />
+                )}
+              </FormRow>
+            );
+          })}
+        </div>
+      </div>
+    );
+  });
+
+  if (layout === 'detail') {
+    return (
+      <div className="md-form">
+        <section className="md-panel">
+          <h2>Wearer & session</h2>
+          <p className="md-panel-note">Who was measured and how the sheet should be interpreted.</p>
+          {metaFields}
+        </section>
+
+        <section className="md-panel">
+          <h2>Body measurements</h2>
+          <p className="md-panel-note">Values for {personType}. Unit defaults to {unit}.</p>
+          {status}
+          {measureSections}
+        </section>
+
+        <section className="md-panel">
+          <h2>Notes</h2>
+          <p className="md-panel-note">Internal notes stay on the record; print notes appear on the PDF.</p>
+          {notesFields}
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="md-form" style={{ display: 'grid', gap: 10 }}>
+      {metaFields}
+      {notesFields}
+      {status}
+      {measureSections}
     </div>
   );
 }
@@ -256,7 +318,9 @@ export function measurementFormMissingRequired(
 ): string[] {
   const map = new Map(values.map((v) => [v.key, v.value]));
   return specs
-    .filter((s) => Boolean(s.required) && Boolean(s.is_active !== false) && specApplies(s, personType))
+    .filter(
+      (s) => Boolean(s.required) && Boolean(s.is_active !== false) && specApplies(s, personType),
+    )
     .filter((s) => !(map.get(String(s.key)) || '').trim())
     .map((s) => asCaption(s.label || s.key));
 }

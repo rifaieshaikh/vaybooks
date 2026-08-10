@@ -202,6 +202,7 @@ class PurchaseAppService:
         apply_stock: bool = False,
         location_id: str = "",
         location_name: str = "",
+        due_date: Optional[date] = None,
     ) -> Voucher:
         resolved = self.resolve_purchase_lines(raw_lines, vendor_id)
         vendor_account = self._accounting.get_vendor_account(vendor_id)
@@ -224,11 +225,15 @@ class PurchaseAppService:
             resolved_lines=resolved,
             location_id=location_id,
             location_name=location_name,
+            due_date=due_date,
         )
         return voucher
 
     def list_purchase_orders(self, *, location_filter: dict | None = None) -> List[PurchaseOrder]:
         return self._po_repo.list_all(location_filter=location_filter)
+
+    def query_purchase_orders(self, query: dict | None = None, **page_kw):
+        return self._po_repo.query_page(query, **page_kw)
 
     def get_purchase_order(self, order_id: str) -> Optional[PurchaseOrder]:
         return self._po_repo.find_by_id(order_id)
@@ -409,6 +414,9 @@ class PurchaseAppService:
     def list_goods_receipts(self, *, location_filter: dict | None = None) -> List[GoodsReceipt]:
         return self._grn_repo.list_all(location_filter=location_filter)
 
+    def query_goods_receipts(self, query: dict | None = None, **page_kw):
+        return self._grn_repo.query_page(query, **page_kw)
+
     def get_goods_receipt(self, grn_id: str) -> Optional[GoodsReceipt]:
         return self._grn_repo.find_by_id(grn_id)
 
@@ -490,6 +498,9 @@ class PurchaseAppService:
     def list_purchase_returns(self, *, location_filter: dict | None = None) -> List[PurchaseReturn]:
         return self._return_repo.list_all(location_filter=location_filter)
 
+    def query_purchase_returns(self, query: dict | None = None, **page_kw):
+        return self._return_repo.query_page(query, **page_kw)
+
     def get_purchase_return(self, return_id: str) -> Optional[PurchaseReturn]:
         return self._return_repo.find_by_id(return_id)
 
@@ -529,6 +540,7 @@ class PurchaseAppService:
         resolved_lines=None,
         location_id: str = "",
         location_name: str = "",
+        due_date: Optional[date] = None,
     ) -> Voucher:
         financial_year = self.resolve_voucher_financial_year(voucher_date)
         voucher = self._accounting.create_purchase_bill(
@@ -545,6 +557,7 @@ class PurchaseAppService:
             financial_year=financial_year,
             location_id=location_id,
             location_name=location_name,
+            due_date=due_date,
         )
         if vendor_id and resolved_lines:
             self._record_price_history(
@@ -607,6 +620,7 @@ class PurchaseAppService:
         voucher_date: Optional[date] = None,
         reference_service_id: Optional[str] = None,
         apply_stock: bool = False,
+        due_date: Optional[date] = None,
     ) -> Voucher:
         # apply_stock is accepted for API compatibility with create, but bill edit
         # is metadata + GST only — no stock / landed re-application on update.
@@ -622,6 +636,7 @@ class PurchaseAppService:
             voucher_date,
             reference_service_id,
             financial_year=financial_year,
+            due_date=due_date,
         )
         return voucher
 
@@ -636,6 +651,7 @@ class PurchaseAppService:
         voucher_date: Optional[date] = None,
         reference_service_id: Optional[str] = None,
         prior_landed_by_key: Optional[dict[tuple[str, str], float]] = None,
+        due_date: Optional[date] = None,
     ) -> Voucher:
         """Re-resolve lines and update bill metadata/GST; preserve landed_cost_alloc."""
         resolved = self.resolve_purchase_lines(raw_lines, vendor_id)
@@ -677,6 +693,7 @@ class PurchaseAppService:
             voucher_date=voucher_date,
             reference_service_id=reference_service_id,
             apply_stock=False,
+            due_date=due_date,
         )
         self._record_price_history(
             resolved,
@@ -763,7 +780,9 @@ class PurchaseAppService:
         )
         return purchase_return
 
-    def list_purchase_bills(self) -> list[dict]:
+    def list_purchase_bills(
+        self, *, mongo_filter: dict | None = None
+    ) -> list[dict]:
         account_vendor: dict[str, str] = {}
 
         def _vendor_id_for(account_id: str | None) -> str:
@@ -782,11 +801,15 @@ class PurchaseAppService:
             return vendor_id
 
         rows = []
-        for voucher in self._accounting.list_vouchers_by_type(VoucherType.PURCHASE_BILL):
+        for voucher in self._accounting.list_vouchers_by_type(
+            VoucherType.PURCHASE_BILL, extra_filter=mongo_filter
+        ):
             row = purchase_row_from_voucher(voucher)
             row["vendor_id"] = _vendor_id_for(row.get("vendor_account_id"))
             rows.append(row)
-        for voucher in self._accounting.list_vouchers_by_type(VoucherType.VENDOR_PAYMENT):
+        for voucher in self._accounting.list_vouchers_by_type(
+            VoucherType.VENDOR_PAYMENT, extra_filter=mongo_filter
+        ):
             row = vendor_payment_row_from_voucher(voucher)
             row["vendor_id"] = _vendor_id_for(row.get("vendor_account_id"))
             rows.append(row)

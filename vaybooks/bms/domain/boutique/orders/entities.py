@@ -22,11 +22,6 @@ class CustomizationItem:
     # Per-item profitability snapshot, frozen once the item is both invoiced
     # and delivered. `mph_snapshot_at` being set marks the numbers as final.
     sell_amount: float = 0.0
-
-    @property
-    def sale_price(self) -> float:
-        """Per-item sale price used when computing invoice totals."""
-        return self.sell_amount
     expense_selling_total: float = 0.0
     expense_purchase_total: float = 0.0
     in_house_hours: float = 0.0
@@ -36,6 +31,11 @@ class CustomizationItem:
     is_cancellation_charge: bool = False
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
+
+    @property
+    def sale_price(self) -> float:
+        """Per-item sale price used when computing invoice totals."""
+        return self.sell_amount
 
 
 @dataclass
@@ -75,6 +75,8 @@ class OrderActivity:
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     completed_by: Optional[str] = None
+    # Planned effort for in-house / time-tracked work (hours).
+    estimated_hours: float = 0.0
 
 
 @dataclass

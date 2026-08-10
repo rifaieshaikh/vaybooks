@@ -22,6 +22,7 @@ class BoutiqueContainer:
     expenses: Any
     deliveries: Any
     reports: Any
+    attachments: Any = None
 
 
 def _mongo_uri() -> str:
@@ -50,6 +51,7 @@ def _build_mongo(uri: str) -> BoutiqueContainer:
     from pymongo import MongoClient
 
     from packages.services_kit.finance_container import get_finance_container
+    from vaybooks.bms.application.attachment_app_service import AttachmentAppService
     from vaybooks.bms.application.boutique.activities.service import ActivityAppService
     from vaybooks.bms.application.boutique.deliveries.service import DeliveryAppService
     from vaybooks.bms.application.boutique.expenses.service import ExpenseAppService
@@ -63,6 +65,9 @@ def _build_mongo(uri: str) -> BoutiqueContainer:
     )
     from vaybooks.bms.application.finance.reports.services.operations_report_service import (
         OperationsReportService,
+    )
+    from vaybooks.bms.infrastructure.repositories.mongo_attachment_repository import (
+        MongoAttachmentRepository,
     )
     from vaybooks.bms.infrastructure.repositories.boutique.mongo_activity_repository import (
         MongoActivityRepository,
@@ -117,6 +122,8 @@ def _build_mongo(uri: str) -> BoutiqueContainer:
     measurement_section_repo = MongoMeasurementSectionRepository(db)
     measurement_record_repo = MongoMeasurementRecordRepository(db)
     report_repo = MongoReportRepository(db)
+    attachment_repo = MongoAttachmentRepository(db)
+    attachments = AttachmentAppService(attachment_repo)
 
     invoices = InvoiceAppService(
         invoice_repo,
@@ -133,6 +140,7 @@ def _build_mongo(uri: str) -> BoutiqueContainer:
         invoice_repo=invoice_repo,
         delivery_repo=delivery_repo,
         time_repo=time_repo,
+        activity_repo=activity_repo,
     )
     deliveries = DeliveryAppService(
         delivery_repo, order_repo, invoice_repo, expense_repo, time_repo
@@ -151,12 +159,14 @@ def _build_mongo(uri: str) -> BoutiqueContainer:
         delivery_repo=delivery_repo,
         accounting_service=finance.accounting,
         measurement_repo=measurement_record_repo,
+        attachment_service=attachments,
     )
     measurements = MeasurementAppService(
         measurement_spec_repo,
         measurement_record_repo,
         counter_repo,
         measurement_section_repo,
+        order_repo=order_repo,
     )
     time_tracking = TimeTrackingAppService(time_repo, order_repo)
     activities = ActivityAppService(activity_repo, order_repo)
@@ -177,6 +187,7 @@ def _build_mongo(uri: str) -> BoutiqueContainer:
         expenses=expenses,
         deliveries=deliveries,
         reports=reports,
+        attachments=attachments,
     )
 
 

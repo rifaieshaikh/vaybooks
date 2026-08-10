@@ -16,6 +16,7 @@ class ProductionContainer:
     backend: str  # always "mongo"
     production: Any
     reports: Any
+    activities: Any
 
 
 def _mongo_uri() -> str:
@@ -49,10 +50,16 @@ def _build_mongo(uri: str) -> ProductionContainer:
         ProductionReportService,
     )
     from vaybooks.bms.application.production.service import ProductionAppService
+    from vaybooks.bms.application.production.activities.service import (
+        ProductionActivityAppService,
+    )
     from vaybooks.bms.infrastructure.repositories.production.mongo_production_repository import (
         MongoProductionBatchRepository,
         MongoProductionSettingsRepository,
         MongoRecipeRepository,
+    )
+    from vaybooks.bms.infrastructure.repositories.production.mongo_production_activity_repository import (
+        MongoProductionActivityRepository,
     )
 
     client = MongoClient(uri, serverSelectionTimeoutMS=5000, maxPoolSize=50, retryWrites=True)
@@ -70,10 +77,12 @@ def _build_mongo(uri: str) -> ProductionContainer:
         finance.accounting,
     )
     reports = ProductionReportService(production)
+    activities = ProductionActivityAppService(MongoProductionActivityRepository(db))
     return ProductionContainer(
         backend="mongo",
         production=production,
         reports=reports,
+        activities=activities,
     )
 
 

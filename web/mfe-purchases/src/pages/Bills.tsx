@@ -124,6 +124,7 @@ export function PurchaseBillsListPage() {
     }
   }, [list.params, navigate]);
 
+  const showDue = useMemo(() => listHasField(pageRows, 'due_date'), [pageRows]);
   const showBalance = useMemo(
     () => listHasField(pageRows, 'outstanding', 'balance_due'),
     [pageRows],
@@ -198,14 +199,26 @@ export function PurchaseBillsListPage() {
         render: (row) =>
           dateKey(row.bill_date || row.voucher_date) || <span className="el-muted">—</span>,
       },
-      {
-        id: 'amount',
-        header: 'Amount',
-        className: 'el-num',
-        headerClassName: 'el-col-num',
-        render: (row) => formatMoney(amountOf(row)),
-      },
     ];
+    if (showDue) {
+      cols.push({
+        id: 'due',
+        header: 'Due',
+        render: (row) => {
+          const due = dateKey(row.due_date);
+          if (!due) return <span className="el-muted">—</span>;
+          const overdue = due < new Date().toISOString().slice(0, 10) && amountOf(row) > 0;
+          return <span className={overdue ? 'el-due' : undefined}>{due}</span>;
+        },
+      });
+    }
+    cols.push({
+      id: 'amount',
+      header: 'Amount',
+      className: 'el-num',
+      headerClassName: 'el-col-num',
+      render: (row) => formatMoney(amountOf(row)),
+    });
     if (showBalance) {
       cols.push({
         id: 'balance',
@@ -220,7 +233,7 @@ export function PurchaseBillsListPage() {
       });
     }
     return cols;
-  }, [navigate, showBalance]);
+  }, [navigate, showDue, showBalance]);
 
   const goNew = () => {
     const vid = list.params.get('vendor_id');

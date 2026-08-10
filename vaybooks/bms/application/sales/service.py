@@ -355,6 +355,11 @@ class SalesAppService:
             return []
         return self._estimate_repo.list_all(location_filter=location_filter)
 
+    def query_estimates(self, query: dict | None = None, **page_kw):
+        if not self._estimate_repo:
+            return {"items": [], "total": 0, "page": 1, "page_size": page_kw.get("page_size", 12)}
+        return self._estimate_repo.query_page(query, **page_kw)
+
     def get_estimate(self, estimate_id: str) -> Optional[Estimate]:
         return self._estimate_repo.find_by_id(estimate_id) if self._estimate_repo else None
 
@@ -431,6 +436,11 @@ class SalesAppService:
         if not self._quotation_repo:
             return []
         return self._quotation_repo.list_all(location_filter=location_filter)
+
+    def query_quotations(self, query: dict | None = None, **page_kw):
+        if not self._quotation_repo:
+            return {"items": [], "total": 0, "page": 1, "page_size": page_kw.get("page_size", 12)}
+        return self._quotation_repo.query_page(query, **page_kw)
 
     def get_quotation(self, quotation_id: str) -> Optional[Quotation]:
         return (
@@ -735,6 +745,9 @@ class SalesAppService:
     def list_sales_orders(self, *, location_filter: dict | None = None) -> List[SalesOrder]:
         return self._so_repo.list_all(location_filter=location_filter)
 
+    def query_sales_orders(self, query: dict | None = None, **page_kw):
+        return self._so_repo.query_page(query, **page_kw)
+
     def get_sales_order(self, order_id: str) -> Optional[SalesOrder]:
         return self._so_repo.find_by_id(order_id)
 
@@ -864,6 +877,9 @@ class SalesAppService:
 
     def list_delivery_notes(self, *, location_filter: dict | None = None) -> List[DeliveryNote]:
         return self._dn_repo.list_all(location_filter=location_filter)
+
+    def query_delivery_notes(self, query: dict | None = None, **page_kw):
+        return self._dn_repo.query_page(query, **page_kw)
 
     def get_delivery_note(self, dn_id: str) -> Optional[DeliveryNote]:
         return self._dn_repo.find_by_id(dn_id)
@@ -1479,6 +1495,7 @@ class SalesAppService:
         commission: Optional[dict] = None,
         commission_tags: Optional[dict] = None,
         location_id: str = "",
+        due_date: Optional[date] = None,
     ) -> Voucher:
         sales_lines = None
         note = line_items_note
@@ -1538,6 +1555,7 @@ class SalesAppService:
             advance_applied=advance_applied,
             location_id=location_id,
             location_name=self._location_name(location_id),
+            due_date=due_date,
         )
         if self._commission_service and tags:
             try:
@@ -1602,6 +1620,7 @@ class SalesAppService:
         advance_applied: float = 0.0,
         commission: Optional[dict] = None,
         commission_tags: Optional[dict] = None,
+        due_date: Optional[date] = None,
     ) -> Voucher:
         line_discount_total = round(discount_amount - invoice_discount, 2)
         if line_discount_total < 0:
@@ -1621,6 +1640,7 @@ class SalesAppService:
             advance_applied=advance_applied,
             commission=commission,
             commission_tags=commission_tags,
+            due_date=due_date,
         )
 
     def convert_sales_order_to_invoice(
@@ -1809,6 +1829,9 @@ class SalesAppService:
 
     def list_sales_returns(self, *, location_filter: dict | None = None) -> List[SalesReturn]:
         return self._return_repo.list_all(location_filter=location_filter)
+
+    def query_sales_returns(self, query: dict | None = None, **page_kw):
+        return self._return_repo.query_page(query, **page_kw)
 
     def get_sales_return(self, return_id: str) -> Optional[SalesReturn]:
         return self._return_repo.find_by_id(return_id)
@@ -2331,13 +2354,20 @@ class SalesAppService:
         )
         return self._return_repo.save(sales_return)
 
-    def list_sales_invoices(self, *, location_filter: dict | None = None) -> list[dict]:
+    def list_sales_invoices(
+        self,
+        *,
+        location_filter: dict | None = None,
+        mongo_filter: dict | None = None,
+    ) -> list[dict]:
         discount = self._accounting.get_discount_account()
         discount_id = discount.id if discount else None
         settlement_map = self._accounting.invoice_settlement_map()
         rows = []
         for voucher in self._accounting.list_vouchers_by_type(
-            VoucherType.SALES_INVOICE, location_filter=location_filter
+            VoucherType.SALES_INVOICE,
+            location_filter=location_filter,
+            extra_filter=mongo_filter,
         ):
             row = self._accounting.enrich_sales_invoice_row(
                 voucher,
@@ -2347,6 +2377,8 @@ class SalesAppService:
             row["reference_so_id"] = getattr(voucher, "reference_so_id", None)
             row["reference_dn_id"] = getattr(voucher, "reference_dn_id", None)
             row["reference_project_id"] = getattr(voucher, "reference_project_id", None)
+            row["voucher_number"] = getattr(voucher, "voucher_number", None)
+            row["voucher_date"] = getattr(voucher, "voucher_date", None)
             rows.append(row)
         rows.sort(
             key=lambda r: (r.get("sale_date") or date.min, r.get("voucher_number") or ""),
@@ -2590,6 +2622,7 @@ class SalesAppService:
         advance_applied: float = 0.0,
         commission: Optional[dict] = None,
         commission_tags: Optional[dict] = None,
+        due_date: Optional[date] = None,
     ) -> Voucher:
         from vaybooks.bms.application.sales.commission_service import parse_commission_tags
 
@@ -2704,6 +2737,7 @@ class SalesAppService:
             financial_year=financial_year,
             credit_applied=round(max(float(credit_applied or 0), 0.0), 2),
             advance_applied=round(max(float(advance_applied or 0), 0.0), 2),
+            due_date=due_date,
         )
         if self._commission_service:
             # Reverse prior accruals for this invoice, then re-accrue from tags.

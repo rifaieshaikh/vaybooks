@@ -66,6 +66,10 @@ from vaybooks.bms.application.store.activities.service import StoreActivityAppSe
 from vaybooks.bms.application.store.time_tracking.service import (
     StoreTimeTrackingAppService,
 )
+from vaybooks.bms.application.business.activities.service import BusinessActivityAppService
+from vaybooks.bms.application.production.activities.service import (
+    ProductionActivityAppService,
+)
 from vaybooks.bms.application.boutique.measurements.service import MeasurementAppService
 from vaybooks.bms.application.attachment_app_service import AttachmentAppService
 from vaybooks.bms.application.projects.activity_config.service import ProjectActivityConfigAppService
@@ -250,6 +254,12 @@ from vaybooks.bms.infrastructure.repositories.store.mongo_store_activity_reposit
 )
 from vaybooks.bms.infrastructure.repositories.store.mongo_store_time_tracking_repository import (
     MongoStoreTimeTrackingRepository,
+)
+from vaybooks.bms.infrastructure.repositories.business.mongo_business_activity_repository import (
+    MongoBusinessActivityRepository,
+)
+from vaybooks.bms.infrastructure.repositories.production.mongo_production_activity_repository import (
+    MongoProductionActivityRepository,
 )
 from vaybooks.bms.infrastructure.repositories.projects.mongo_project_enquiry_repository import (
     MongoProjectEnquiryRepository,
@@ -456,6 +466,8 @@ def get_services():
     project_activity_config_repo = MongoProjectActivityConfigRepository(db)
     store_activity_repo = MongoStoreActivityRepository(db)
     store_time_repo = MongoStoreTimeTrackingRepository(db)
+    business_activity_repo = MongoBusinessActivityRepository(db)
+    production_activity_repo = MongoProductionActivityRepository(db)
     project_enquiry_repo = MongoProjectEnquiryRepository(db)
     project_dpr_repo = MongoProjectDprRepository(db)
     project_procurement_repo = MongoProjectProcurementRepository(db)
@@ -746,6 +758,7 @@ def get_services():
         invoice_repo=invoice_repo,
         delivery_repo=delivery_repo,
         time_repo=time_repo,
+        activity_repo=activity_repo,
     )
 
     measurement_service = MeasurementAppService(
@@ -901,6 +914,8 @@ def get_services():
 
     boutique_activity_service = ActivityAppService(activity_repo, order_repo)
     store_activity_service = StoreActivityAppService(store_activity_repo)
+    business_activity_service = BusinessActivityAppService(business_activity_repo)
+    production_activity_service = ProductionActivityAppService(production_activity_repo)
     project_activity_config_service = ProjectActivityConfigAppService(
         project_activity_config_repo
     )
@@ -909,6 +924,8 @@ def get_services():
         store_activity_service,
         boutique_activity_service,
         project_activity_config_service,
+        business_activity_service=business_activity_service,
+        production_activity_service=production_activity_service,
     )
 
     services = {
@@ -937,6 +954,8 @@ def get_services():
         ),
         "activities": boutique_activity_service,
         "store_activities": store_activity_service,
+        "business_activities": business_activity_service,
+        "production_activities": production_activity_service,
         "employee_activity_options": employee_activity_options,
         "workers": worker_service,
         "commission": commission_service,

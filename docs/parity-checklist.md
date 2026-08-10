@@ -10,7 +10,7 @@ Route column ✅ = nav/API surface. Depth notes below mark workflow parity shipp
 
 | Module | Route | Depth | Notes |
 |---|---|---|---|
-| Boutique | ✅ | ✅ | Order workspace stepper, MeasurementForm, measurement PDF, item `measurement_id` linking |
+| Boutique | ✅ | ✅ | Redesigned order workspace (Customer→Garments→Schedule→Review→Ops): media, credit, PDFs, RHF/zod, sell_amount, shared ActivityCompleteControls |
 | Projects | ✅ | ✅ | Tabbed workspace, budget/measurement certify/RA actions, enquiry workspace, portal & site-mobile pages |
 | CRM | ✅ | ✅ | Lead assign/lost/convert/reopen + timeline; calendar reschedule |
 | Migration | ✅ | ✅ | Upload → Map → Dry-run → Import wizard |

@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useRunSalesReportMutation, useSalesReportsCatalogQuery } from '@vaybooks/store';
 import {
   Button,
@@ -13,6 +12,7 @@ import {
   type DataTableColumn,
 } from '@vaybooks/ui-kit';
 import { downloadCsv, extractError } from '../utils';
+import { ModuleScheduledReportsPanel } from './ScheduledReportsPanel';
 
 export function SalesReportsPage() {
   const { data: catalog, isLoading: catalogLoading, error: catalogError } =
@@ -107,13 +107,7 @@ export function SalesScheduledReportsPage() {
   return (
     <EntityListPage className="el-page--sales">
       <EntityListHero kicker="Sales" title="Scheduled reports" />
-      <p className="el-muted" style={{ maxWidth: 620, marginTop: 0 }}>
-        Recurring sales reports are configured from the shared scheduler module. Create or manage a
-        scheduled job there and pick a sales report type.
-      </p>
-      <p style={{ marginTop: 12 }}>
-        <Link to="/schedulers/sales?panel=reports">Open Schedulers → Sales</Link>
-      </p>
+      <ModuleScheduledReportsPanel module="sales" showSchedulersLink />
     </EntityListPage>
   );
 }

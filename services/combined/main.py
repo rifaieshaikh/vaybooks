@@ -22,6 +22,7 @@ from services.sales.router import router as sales_router
 from services.schedulers.router import router as schedulers_router
 from services.settings.router import router as settings_router
 from services.store.router import router as store_router
+from services.business.router import router as business_router
 from services.system.router import router as system_router
 
 MODULE_ROUTERS = [
@@ -34,6 +35,7 @@ MODULE_ROUTERS = [
     finance_router,
     boutique_router,
     store_router,
+    business_router,
     crm_router,
     projects_router,
     production_router,

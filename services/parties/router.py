@@ -16,6 +16,8 @@ from services.parties.schemas import (
     CommissionAgentWrite,
     CustomerWrite,
     DeliveryPartnerWrite,
+    SalaryCalculateBody,
+    SalaryPayBody,
     SegmentWrite,
     SettleBody,
     VendorWrite,
@@ -131,9 +133,14 @@ def health() -> dict[str, str]:
 @router.get("/customers")
 def list_customers(
     q: str = Query(default=""),
+    location_id: Optional[str] = Query(default=None),
     _: str = Depends(require_permission("parties.customers.view")),
 ) -> list[dict[str, Any]]:
-    rows = _svc().customers.search_customers(q)
+    location_filter = None
+    lid = (location_id or "").strip()
+    if lid:
+        location_filter = {"location_ids": lid}
+    rows = _svc().customers.search_customers(q, location_filter=location_filter)
     balances: dict[str, float] = {}
     try:
         balances = dict(_svc().account_repo.customer_balances_by_customer() or {})
@@ -147,6 +154,25 @@ def list_customers(
         data["current_balance"] = float(balances.get(cid, getattr(r, "current_balance", 0.0) or 0.0))
         out.append(data)
     return out
+
+
+@router.get("/customers/lookup")
+def lookup_customer_by_phone(
+    phone: str = Query(default=""),
+    _: str = Depends(require_permission("parties.customers.view")),
+) -> dict[str, Any]:
+    customer = _svc().customers.lookup_customer_by_phone(phone)
+    if not customer:
+        raise HTTPException(status_code=404, detail="customer not found")
+    return entity_dict(customer)
+
+
+@router.get("/customers/identity-policy")
+def customer_identity_policy(
+    _: str = Depends(require_permission("parties.customers.view")),
+) -> dict[str, bool]:
+    require_name, require_phone = _svc().customers.identity_policy()
+    return {"require_name": bool(require_name), "require_phone": bool(require_phone)}
 
 
 @router.post("/customers", status_code=201)
@@ -619,6 +645,10 @@ def create_worker(body: WorkerWrite) -> dict[str, Any]:
             location_ids=_locs(body.location_ids),
             commission_enabled=body.commission_enabled,
             commission_profile=None,
+            base_salary=body.base_salary,
+            allowances=list(body.allowances or []),
+            ot_threshold_hours=body.ot_threshold_hours,
+            ot_multiplier=body.ot_multiplier,
         )
     except Exception as exc:
         raise _http_err(exc) from exc
@@ -654,10 +684,151 @@ def update_worker(worker_id: str, body: WorkerWrite) -> dict[str, Any]:
             location_ids=_locs(body.location_ids),
             commission_enabled=body.commission_enabled,
             commission_profile=None,
+            base_salary=body.base_salary,
+            allowances=list(body.allowances or []),
+            ot_threshold_hours=body.ot_threshold_hours,
+            ot_multiplier=body.ot_multiplier,
         )
     except Exception as exc:
         raise _http_err(exc) from exc
     return entity_dict(worker)
+
+
+def _parse_iso_date(value: str):
+    from datetime import date
+
+    text = str(value or "").strip()[:10]
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {value}") from exc
+
+
+def _attributed_hours(worker_id: str, period_from, period_to) -> float:
+    """Sum completed labour minutes attributed to worker across modules."""
+    minutes = 0
+
+    def _in_range(work_date) -> bool:
+        if work_date is None:
+            return False
+        d = work_date.date() if hasattr(work_date, "date") else work_date
+        return period_from <= d <= period_to
+
+    def _add_entry(entry, id_attrs: tuple[str, ...]) -> None:
+        nonlocal minutes
+        if not _in_range(getattr(entry, "work_date", None)):
+            return
+        start = (getattr(entry, "start_time", "") or "").strip()
+        end = (getattr(entry, "end_time", "") or "").strip()
+        if not start or not end:
+            return
+        matched = False
+        for attr in id_attrs:
+            if str(getattr(entry, attr, "") or "") == worker_id:
+                matched = True
+                break
+        if not matched:
+            return
+        minutes += int(getattr(entry, "duration_minutes", 0) or 0)
+
+    try:
+        from packages.services_kit.boutique_container import get_boutique_container
+
+        for entry in get_boutique_container().time_tracking.list_all():
+            _add_entry(entry, ("assignee_worker_id", "worker_id"))
+    except Exception:
+        pass
+
+    try:
+        from packages.services_kit.store_container import get_store_container
+
+        for entry in get_store_container().time_tracking.list_all():
+            _add_entry(entry, ("worker_id",))
+    except Exception:
+        pass
+
+    try:
+        from packages.services_kit.business_container import get_business_container
+
+        for entry in get_business_container().time_tracking.list_all():
+            _add_entry(entry, ("worker_id",))
+    except Exception:
+        pass
+
+    return round(minutes / 60.0, 2)
+
+
+@router.post("/workers/{worker_id}/salary/calculate")
+def calculate_worker_salary(worker_id: str, body: SalaryCalculateBody) -> dict[str, Any]:
+    from vaybooks.bms.application.parties.workers.payroll import (
+        calculate_salary,
+        preview_to_dict,
+    )
+
+    worker = _svc().workers.get_worker(worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail="worker not found")
+    period_from = _parse_iso_date(body.period_from)
+    period_to = _parse_iso_date(body.period_to)
+    hours = _attributed_hours(worker_id, period_from, period_to)
+    try:
+        preview = calculate_salary(worker, period_from, period_to, hours)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return preview_to_dict(preview)
+
+
+@router.post("/workers/{worker_id}/salary/pay")
+def pay_worker_salary(worker_id: str, body: SalaryPayBody) -> dict[str, Any]:
+    from vaybooks.bms.application.parties.workers.payroll import calculate_salary
+
+    worker = _svc().workers.get_worker(worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail="worker not found")
+    period_from = _parse_iso_date(body.period_from)
+    period_to = _parse_iso_date(body.period_to)
+    hours = _attributed_hours(worker_id, period_from, period_to)
+    try:
+        preview = calculate_salary(worker, period_from, period_to, hours)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+    amount = float(body.amount) if body.amount is not None else float(preview.total)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Salary amount must be positive")
+
+    salary_acct = _svc().account_repo.find_worker_account(worker_id)
+    if not salary_acct:
+        raise HTTPException(status_code=400, detail="Worker salary account not found")
+
+    voucher_date = _parse_iso_date(body.voucher_date) if body.voucher_date else None
+    description = (
+        body.description
+        or f"Salary {worker.worker_name} {period_from.isoformat()}–{period_to.isoformat()}"
+    )
+    try:
+        voucher = _svc().accounting.create_salary_payment(
+            salary_account_id=salary_acct.id,
+            paying_account_id=body.paying_account_id,
+            amount=amount,
+            description=description,
+            voucher_date=voucher_date,
+            include_commission=body.include_commission,
+            commission_amount=body.commission_amount,
+        )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return {
+        "voucher": entity_dict(voucher),
+        "preview": {
+            "total": preview.total,
+            "attributed_hours": preview.attributed_hours,
+            "lines": [
+                {"code": l.code, "label": l.label, "amount": l.amount}
+                for l in preview.lines
+            ],
+        },
+    }
 
 
 @router.post("/workers/{worker_id}/deactivate")

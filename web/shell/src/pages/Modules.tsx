@@ -233,10 +233,12 @@ export function FinancePage() {
 }
 
 export function BoutiquePage() {
-  const orders = useListBoutiqueOrdersQuery();
-  const items = useListBoutiqueItemsQuery();
+  const orders = useListBoutiqueOrdersQuery({ page: 1, page_size: 50 });
+  const items = useListBoutiqueItemsQuery({ page: 1, page_size: 50 });
   const [createOrder] = useCreateBoutiqueOrderMutation();
   const [createItem] = useCreateBoutiqueItemMutation();
+  const orderRows = Array.isArray(orders.data?.items) ? orders.data.items : [];
+  const itemRows = Array.isArray(items.data?.items) ? items.data.items : [];
   return (
     <div>
       <ResourcePage
@@ -246,7 +248,7 @@ export function BoutiquePage() {
           { key: 'customer_id', header: 'Customer' },
           { key: 'status', header: 'Status' },
         ]}
-        rows={orders.data || []}
+        rows={orderRows}
         isLoading={orders.isLoading}
         error={orders.error}
         onRefresh={orders.refetch}
@@ -267,7 +269,7 @@ export function BoutiquePage() {
           { key: 'name', header: 'Name' },
           { key: 'quantity', header: 'Qty' },
         ]}
-        rows={items.data || []}
+        rows={itemRows}
         isLoading={items.isLoading}
         error={items.error}
         onRefresh={items.refetch}
@@ -543,7 +545,7 @@ export function ProductionPage() {
               fields={[{ name: 'batch_id', label: 'Complete batch id' }]}
               submitLabel="Complete batch"
               onSubmit={async (v) => {
-                await completeBatch(v.batch_id);
+                await completeBatch({ id: v.batch_id });
                 batches.refetch();
               }}
             />

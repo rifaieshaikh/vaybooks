@@ -78,6 +78,7 @@ export function InvoiceEditorPage() {
   const [walkInMobile, setWalkInMobile] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [voucherDate, setVoucherDate] = useState(todayISO());
+  const [dueDate, setDueDate] = useState(todayISO());
   const [existingLocationId, setExistingLocationId] = useState('');
   const [storeAccountId, setStoreAccountId] = useState('');
   const locationId = resolveDocLocationId(isEdit, workingLocationId, existingLocationId);
@@ -167,6 +168,7 @@ export function InvoiceEditorPage() {
     setInvoiceNumber(String(existing.store_invoice_number || ''));
     const d = String(existing.sale_date || existing.voucher_date || todayISO()).slice(0, 10);
     setVoucherDate(d);
+    setDueDate(String(existing.due_date || d).slice(0, 10));
     setExistingLocationId(String(existing.location_id || ''));
     setStoreAccountId(String(existing.store_account_id || storeAccountId || ''));
     setInvoiceDiscountInput(Number(existing.invoice_discount ?? existing.discount ?? 0) || 0);
@@ -260,6 +262,7 @@ export function InvoiceEditorPage() {
         store_account_id: storeAccountId,
         store_invoice_number: invoiceNumber.trim(),
         voucher_date: voucherDate,
+        due_date: dueDate || voucherDate || undefined,
         location_id: locationId,
         amount_received: Number(amountReceived) || 0,
         credit_applied: Number(creditApplied) || 0,
@@ -405,7 +408,21 @@ export function InvoiceEditorPage() {
           <TextInput
             type="date"
             value={voucherDate}
-            onChange={(e) => setVoucherDate(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              setVoucherDate(next);
+              if (!isEdit && (!dueDate || dueDate === voucherDate)) {
+                setDueDate(next);
+              }
+            }}
+            disabled={isEdit && !monthEditable}
+          />
+        </FormRow>
+        <FormRow label="Due date">
+          <TextInput
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
             disabled={isEdit && !monthEditable}
           />
         </FormRow>

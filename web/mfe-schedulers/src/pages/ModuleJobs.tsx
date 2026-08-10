@@ -1,17 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
-  useListScheduledReportRunsQuery,
-  useListScheduledReportsQuery,
   useListSchedulerJobRunsQuery,
   useListSchedulerJobsQuery,
   useRunSchedulerJobMutation,
-  useRunScheduledReportMutation,
-  useUpdateScheduledReportMutation,
   useUpdateSchedulerJobMutation,
 } from '@vaybooks/store';
 import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
 import { asCaption, extractError } from '../utils';
+import { ModuleScheduledReportsPanel } from './ScheduledReportsPanel';
 
 const MODULES = [
   'crm',
@@ -65,29 +62,17 @@ export function SchedulersModulePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const module = (moduleParam || 'crm').toLowerCase();
   const { data = [], isLoading, error, refetch } = useListSchedulerJobsQuery({ module });
-  const { data: reports = [], isLoading: reportsLoading, error: reportsError, refetch: refetchReports } =
-    useListScheduledReportsQuery({ module });
   const [runJob, runState] = useRunSchedulerJobMutation();
   const [updateJob, updateJobState] = useUpdateSchedulerJobMutation();
-  const [runReport, runReportState] = useRunScheduledReportMutation();
-  const [updateReport, updateReportState] = useUpdateScheduledReportMutation();
   const [jobId, setJobId] = useState('');
-  const [reportId, setReportId] = useState('');
   const [actionError, setActionError] = useState('');
   const [jobForm, setJobForm] = useState<Record<string, string | boolean>>({});
-  const [reportForm, setReportForm] = useState<Record<string, string | boolean>>({});
   const panel = searchParams.get('panel') === 'reports' ? 'reports' : 'jobs';
   const selectedJob = data.find((job) => value(job, 'id', value(job, 'job_id')) === jobId) || data[0];
-  const selectedReport = reports.find((report) => value(report, 'id', value(report, 'report_id')) === reportId) || reports[0];
   const selectedJobId = value(selectedJob, 'id', value(selectedJob, 'job_id'));
-  const selectedReportId = value(selectedReport, 'id', value(selectedReport, 'report_id'));
   const { data: jobRuns = [], isLoading: jobRunsLoading } = useListSchedulerJobRunsQuery(
     { id: selectedJobId },
     { skip: !selectedJobId },
-  );
-  const { data: reportRuns = [], isLoading: reportRunsLoading } = useListScheduledReportRunsQuery(
-    { module, id: selectedReportId },
-    { skip: !selectedReportId },
   );
 
   useEffect(() => {
@@ -104,21 +89,6 @@ export function SchedulersModulePage() {
       interval_days: value(selectedJob, 'interval_days', '1'),
     });
   }, [selectedJobId]);
-
-  useEffect(() => {
-    if (selectedReportId && selectedReportId !== reportId) setReportId(selectedReportId);
-  }, [reportId, selectedReportId]);
-
-  useEffect(() => {
-    if (!selectedReport) return;
-    setReportForm({
-      enabled: Boolean(selectedReport.enabled),
-      frequency: value(selectedReport, 'frequency', 'daily'),
-      time_of_day: value(selectedReport, 'time_of_day', '06:00'),
-      weekday: value(selectedReport, 'weekday', '0'),
-      interval_days: value(selectedReport, 'interval_days', '1'),
-    });
-  }, [selectedReportId]);
 
   const jobColumns: DataTableColumn<Record<string, unknown>>[] = useMemo(
     () => [
@@ -175,38 +145,6 @@ export function SchedulersModulePage() {
     }
   }
 
-  async function onSaveReport() {
-    if (!selectedReportId) return;
-    setActionError('');
-    try {
-      await updateReport({
-        module,
-        id: selectedReportId,
-        body: {
-          enabled: Boolean(reportForm.enabled),
-          frequency: String(reportForm.frequency),
-          time_of_day: String(reportForm.time_of_day),
-          weekday: Number(reportForm.weekday),
-          interval_days: Number(reportForm.interval_days),
-        },
-      }).unwrap();
-      refetchReports();
-    } catch (e) {
-      setActionError(extractError(e));
-    }
-  }
-
-  async function onRunReport() {
-    if (!selectedReportId) return;
-    setActionError('');
-    try {
-      await runReport({ module, id: selectedReportId }).unwrap();
-      refetchReports();
-    } catch (e) {
-      setActionError(extractError(e));
-    }
-  }
-
   const runColumns: DataTableColumn<Record<string, unknown>>[] = useMemo(
     () => [
       { key: 'status', header: 'Status' },
@@ -214,16 +152,6 @@ export function SchedulersModulePage() {
       { key: 'started_at', header: 'Started' },
       { key: 'finished_at', header: 'Finished' },
       { key: 'error_summary', header: 'Details' },
-    ],
-    [],
-  );
-  const reportColumns: DataTableColumn<Record<string, unknown>>[] = useMemo(
-    () => [
-      { key: 'title', header: 'Report' },
-      { key: 'status', header: 'Status' },
-      { key: 'frequency', header: 'Frequency' },
-      { key: 'cron', header: 'Cron' },
-      { key: 'last_run_at', header: 'Last run' },
     ],
     [],
   );
@@ -249,9 +177,11 @@ export function SchedulersModulePage() {
         </h2>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <Link to="/schedulers">All modules</Link>
-          <Button type="button" variant="ghost" onClick={() => (panel === 'jobs' ? refetch() : refetchReports())}>
-            Refresh
-          </Button>
+          {panel === 'jobs' ? (
+            <Button type="button" variant="ghost" onClick={() => refetch()}>
+              Refresh
+            </Button>
+          ) : null}
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
@@ -307,49 +237,7 @@ export function SchedulersModulePage() {
           {jobRunsLoading ? <p>Loading run history…</p> : <DataTable columns={runColumns} data={jobRuns} rowKey={(row) => value(row, 'id')} />}
         </>
       ) : (
-        <>
-          {reportsLoading && <p>Loading scheduled reports…</p>}
-          {reportsError ? <ErrorText>{extractError(reportsError)}</ErrorText> : null}
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end', marginBottom: 16 }}>
-            <FormRow label="Report">
-              <select value={selectedReportId} onChange={(e) => setReportId(e.target.value)} style={{ minWidth: 280, padding: 8 }}>
-                {reports.map((report) => <option key={value(report, 'id')} value={value(report, 'id')}>{value(report, 'title')}</option>)}
-              </select>
-            </FormRow>
-            <FormRow label="Frequency">
-              <select value={String(reportForm.frequency || 'daily')} onChange={(e) => setReportForm({ ...reportForm, frequency: e.target.value })}>
-                {FREQUENCIES.map((frequency) => <option key={frequency.value} value={frequency.value}>{frequency.label}</option>)}
-              </select>
-            </FormRow>
-            <FormRow label="Time">
-              <input type="time" value={String(reportForm.time_of_day || '06:00')} onChange={(e) => setReportForm({ ...reportForm, time_of_day: e.target.value })} />
-            </FormRow>
-            {reportForm.frequency === 'weekly' ? (
-              <FormRow label="Weekday">
-                <input type="number" min="0" max="6" value={String(reportForm.weekday || '0')} onChange={(e) => setReportForm({ ...reportForm, weekday: e.target.value })} />
-              </FormRow>
-            ) : null}
-            {reportForm.frequency === 'every_n_days' ? (
-              <FormRow label="Every (days)">
-                <input type="number" min="1" value={String(reportForm.interval_days || '1')} onChange={(e) => setReportForm({ ...reportForm, interval_days: e.target.value })} />
-              </FormRow>
-            ) : null}
-            <FormRow label="Cron (derived)">
-              <input value={value(selectedReport, 'cron')} readOnly />
-            </FormRow>
-            <label><input type="checkbox" checked={Boolean(reportForm.enabled)} onChange={(e) => setReportForm({ ...reportForm, enabled: e.target.checked })} /> Enabled</label>
-            <Button type="button" onClick={() => void onSaveReport()} disabled={updateReportState.isLoading || !selectedReportId}>
-              {updateReportState.isLoading ? 'Saving…' : 'Save report'}
-            </Button>
-            <Button type="button" onClick={() => void onRunReport()} disabled={runReportState.isLoading || !selectedReportId}>
-              {runReportState.isLoading ? 'Running…' : 'Run now'}
-            </Button>
-          </div>
-          {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-          <DataTable columns={reportColumns} data={reports} rowKey={(row) => value(row, 'id')} />
-          <h3>Run history</h3>
-          {reportRunsLoading ? <p>Loading run history…</p> : <DataTable columns={runColumns} data={reportRuns} rowKey={(row) => value(row, 'id')} />}
-        </>
+        <ModuleScheduledReportsPanel module={module} />
       )}
     </div>
   );

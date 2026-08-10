@@ -13,6 +13,7 @@ MODULE_PARTIES = "parties"
 MODULE_CRM = "crm"
 MODULE_BOUTIQUE = "boutique"
 MODULE_STORE = "store"
+MODULE_BUSINESS_OPS = "business_ops"
 MODULE_PROJECTS = "projects"
 MODULE_SALES = "sales"
 MODULE_PURCHASES = "purchases"
@@ -30,6 +31,7 @@ ALL_MODULES: Tuple[str, ...] = (
     MODULE_CRM,
     MODULE_BOUTIQUE,
     MODULE_STORE,
+    MODULE_BUSINESS_OPS,
     MODULE_PROJECTS,
     MODULE_SALES,
     MODULE_PURCHASES,
@@ -50,6 +52,7 @@ MODULE_LABELS: Dict[str, str] = {
     MODULE_CRM: "CRM",
     MODULE_BOUTIQUE: "Boutique",
     MODULE_STORE: "Store",
+    MODULE_BUSINESS_OPS: "Business",
     MODULE_PROJECTS: "Projects",
     MODULE_SALES: "Sales",
     MODULE_PURCHASES: "Purchases",
@@ -143,6 +146,11 @@ PERMISSIONS: Tuple[str, ...] = tuple(
         *_expand("boutique.tasks", ("view", "edit")),
         "boutique.calendar.view",
         "boutique.reports.view",
+        # Business ops
+        "business_ops.overview.view",
+        *_expand("business_ops.activities", ("view", "create", "edit")),
+        *_expand("business_ops.tasks", ("view", "create", "edit", "assign", "complete")),
+        *_expand("business_ops.time", ("view", "create", "edit")),
         # Projects
         "projects.overview.view",
         *_expand("projects.enquiries", ("view", "create", "edit")),
@@ -232,6 +240,8 @@ PERMISSIONS: Tuple[str, ...] = tuple(
         *_expand("settings.customization_activities", ("view", "edit")),
         *_expand("settings.project_activities", ("view", "edit")),
         *_expand("settings.store_activities", ("view", "edit")),
+        *_expand("settings.business_activities", ("view", "edit")),
+        *_expand("settings.production_activities", ("view", "edit")),
         *_expand("settings.measurement_specs", ("view", "edit")),
         *_expand("settings.services", ("view", "edit")),
         *_expand("settings.discounts", ("view", "edit")),
@@ -327,6 +337,10 @@ PAGE_PERMISSIONS: Dict[str, str] = {
     "calendar": "boutique.calendar.view",
     "boutique-reports": "boutique.reports.view",
     "boutique-scheduled-reports": "schedulers.view",
+    "business-overview": "business_ops.overview.view",
+    "business-tasks": "business_ops.tasks.view",
+    "business-time": "business_ops.time.view",
+    "business-activities": "business_ops.activities.view",
     "projects-dashboard": "projects.overview.view",
     "project-enquiries": "projects.enquiries.view",
     "project-enquiry-workspace": "projects.enquiries.view",
@@ -422,6 +436,8 @@ PAGE_PERMISSIONS: Dict[str, str] = {
     "customization-activities": "settings.customization_activities.view",
     "project-activities": "settings.project_activities.view",
     "store-activities": "settings.store_activities.view",
+    "business-activities-settings": "settings.business_activities.view",
+    "production-activities": "settings.production_activities.view",
     "measurement-specs": "settings.measurement_specs.view",
     "services": "settings.services.view",
     "users-settings": "settings.users.view",

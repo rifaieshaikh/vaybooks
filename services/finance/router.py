@@ -301,6 +301,9 @@ def _account_dict(a: Any) -> dict[str, Any]:
         a.account_type.value if hasattr(a.account_type, "value") else str(a.account_type)
     )
     data["balance"] = float(getattr(a, "current_balance", 0) or 0)
+    data["is_store_account"] = bool(getattr(a, "is_store_account", False))
+    data["is_salary_account"] = bool(getattr(a, "is_salary_account", False))
+    data["is_active"] = bool(getattr(a, "is_active", True))
     return data
 
 
@@ -425,8 +428,21 @@ def overview() -> dict[str, Any]:
 def list_accounts(
     active_only: bool = Query(False),
     q: Optional[str] = None,
+    store_only: bool = Query(False),
 ) -> list[dict[str, Any]]:
     rows = [_account_dict(a) for a in _svc().list_accounts(active_only=active_only)]
+    if store_only:
+        rows = [
+            r
+            for r in rows
+            if bool(r.get("is_store_account"))
+            and not r.get("linked_customer_id")
+            and not r.get("linked_vendor_id")
+            and not r.get("linked_worker_id")
+            and not r.get("linked_agent_id")
+            and not r.get("linked_delivery_partner_id")
+            and r.get("is_active", True) is not False
+        ]
     if q:
         needle = q.strip().lower()
         rows = [

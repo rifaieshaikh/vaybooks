@@ -49,10 +49,35 @@ export function mapProductsToLineOptions(
   });
 }
 
+export function mapServicesToLineOptions(
+  services: Record<string, unknown>[],
+): LineProductOption[] {
+  return services.map((s) => {
+    const id = String(s.id ?? '');
+    const label = String(s.name ?? s.service_name ?? id);
+    const hsn = String(s.hsn_sac ?? s.hsn ?? '') || undefined;
+    const gstRate = Number(s.gst_rate ?? 0) || 0;
+    const rate = Number(s.rate ?? s.default_rate ?? s.price ?? 0) || 0;
+    return {
+      id,
+      label,
+      hsn,
+      gstRate,
+      rate,
+    };
+  });
+}
+
+function lineHasItem(line: EditorLineItem): boolean {
+  return Boolean(line.productId || line.serviceId);
+}
+
 export function newEditorLine(): EditorLineItem {
   return {
     id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     productId: '',
+    itemType: 'product',
+    serviceId: '',
     qty: 1,
     rate: 0,
     discountInput: 0,
@@ -70,9 +95,16 @@ export function mapApiLinesToEditor(raw: unknown): EditorLineItem[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   return raw.map((row, index) => {
     const r = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>;
+    const productId = String(r.product_id ?? '');
+    const serviceId = String(r.service_id ?? '');
+    const rawType = String(r.item_type ?? r.line_type ?? '').toLowerCase();
+    const itemType: 'product' | 'service' =
+      rawType === 'service' || (Boolean(serviceId) && !productId) ? 'service' : 'product';
     return {
-      id: String(r.id ?? `line-${index}-${String(r.product_id ?? index)}`),
-      productId: String(r.product_id ?? ''),
+      id: String(r.id ?? `line-${index}-${productId || serviceId || index}`),
+      productId: itemType === 'product' ? productId : '',
+      serviceId: itemType === 'service' ? serviceId : '',
+      itemType,
       qty: Number(r.qty ?? r.qty_ordered ?? r.qty_received ?? 0) || 0,
       rate: Number(r.rate ?? 0) || 0,
       discountInput: 0,
@@ -98,7 +130,7 @@ export function recomputePurchaseLines(
   ctx: PurchaseGstCtx,
 ): { lines: EditorLineItem[]; summary: TaxSummary } {
   const taxed = lines
-    .filter((l) => l.productId)
+    .filter((l) => lineHasItem(l))
     .map((line) => {
       const preview = previewPurchaseLine({
         qty: line.qty,
@@ -111,6 +143,7 @@ export function recomputePurchaseLines(
       return {
         id: line.id,
         product_id: line.productId,
+        service_id: line.serviceId,
         qty: line.qty,
         rate: line.rate,
         taxable_amount: preview.taxable_amount,
@@ -125,7 +158,7 @@ export function recomputePurchaseLines(
 
   const byId = new Map(taxed.map((t) => [String(t.id), t]));
   const next = lines.map((line) => {
-    if (!line.productId) return line;
+    if (!lineHasItem(line)) return line;
     const t = byId.get(line.id);
     if (!t) return line;
     const tax =
@@ -147,14 +180,25 @@ export function recomputePurchaseLines(
 
 export function editorLinesToBillPayload(lines: EditorLineItem[]): Record<string, unknown>[] {
   return lines
-    .filter((l) => l.productId && Number(l.qty) > 0)
-    .map((l) => ({
-      product_id: l.productId,
-      qty: Number(l.qty) || 0,
-      rate: Number(l.rate) || 0,
-      taxable_amount: Number(l.taxable ?? 0) || undefined,
-      amount: Number(l.total ?? 0) || undefined,
-    }));
+    .filter((l) => lineHasItem(l) && Number(l.qty) > 0)
+    .map((l) => {
+      const base = {
+        qty: Number(l.qty) || 0,
+        rate: Number(l.rate) || 0,
+        taxable_amount: Number(l.taxable ?? 0) || undefined,
+        amount: Number(l.total ?? 0) || undefined,
+      };
+      if (l.itemType === 'service' || (l.serviceId && !l.productId)) {
+        return {
+          service_id: l.serviceId,
+          ...base,
+        };
+      }
+      return {
+        product_id: l.productId,
+        ...base,
+      };
+    });
 }
 
 export function editorLinesToPoPayload(lines: EditorLineItem[]): Record<string, unknown>[] {

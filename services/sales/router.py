@@ -13,13 +13,22 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from packages.services_kit.sales_container import get_sales_container
-from packages.services_kit.paging import DEFAULT_PAGE_SIZE, apply_list_query
+from packages.services_kit.paging import (
+    DEFAULT_PAGE_SIZE,
+    apply_list_query,
+    build_mongo_list_filter,
+)
 from services.common.authz import require_permission
 from services.finance.router import is_consumer_healthy as finance_healthy
 from services.inventory.router import is_consumer_healthy as inventory_healthy
 from services.parties.serialize import entity_dict
 from services.sales.degraded import is_degraded_pending
-from vaybooks.bms.domain.shared.enums import EstimateStatus, QuotationStatus
+from vaybooks.bms.domain.shared.enums import (
+    DeliveryNoteStatus,
+    EstimateStatus,
+    QuotationStatus,
+    SalesOrderStatus,
+)
 from vaybooks.bms.domain.shared.exceptions import ValidationError
 
 RECENT_DOC_LIMIT = 5
@@ -87,6 +96,7 @@ class InvoiceWrite(BaseModel):
     store_account_id: str = Field(min_length=1)
     store_invoice_number: str = ""
     voucher_date: Optional[str] = None
+    due_date: Optional[str] = None
     amount_received: float = 0.0
     discount_amount: float = 0.0
     invoice_discount: float = 0.0
@@ -199,6 +209,15 @@ def _doc_dict(entity: Any, *, include_lines: bool = True) -> dict[str, Any]:
         data.pop("lines", None)
     data.pop("document_content", None)
     return data
+
+
+def _map_entity_page(page: dict[str, Any], *, include_lines: bool = False) -> dict[str, Any]:
+    return {
+        "items": [_doc_dict(item, include_lines=include_lines) for item in page.get("items") or []],
+        "total": int(page.get("total") or 0),
+        "page": int(page.get("page") or 1),
+        "page_size": int(page.get("page_size") or DEFAULT_PAGE_SIZE),
+    }
 
 
 def _invoice_dict(row: dict[str, Any], *, include_lines: bool = False) -> dict[str, Any]:
@@ -409,12 +428,10 @@ def list_estimates(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     try:
-        rows = [_doc_dict(e, include_lines=False) for e in _svc().list_estimates()]
         equals: dict[str, str] = {}
         if status.strip():
             equals["status"] = status.strip()
-        return apply_list_query(
-            rows,
+        query = build_mongo_list_filter(
             q=q,
             q_fields=("estimate_number", "customer_name", "status"),
             equals=equals,
@@ -423,10 +440,15 @@ def list_estimates(
             alt_date_fields=("voucher_date", "created_at"),
             date_from=date_from,
             date_to=date_to,
-            sort_by=sort_by or "estimate_date",
-            sort_desc=sort_desc,
-            page=page,
-            page_size=page_size,
+        )
+        return _map_entity_page(
+            _svc().query_estimates(
+                query,
+                sort_by=sort_by or "estimate_date",
+                sort_desc=sort_desc,
+                page=page,
+                page_size=page_size,
+            )
         )
     except Exception as exc:
         raise _http_err(exc) from exc
@@ -529,12 +551,10 @@ def list_quotations(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     try:
-        rows = [_doc_dict(row, include_lines=False) for row in _svc().list_quotations()]
         equals: dict[str, str] = {}
         if status.strip():
             equals["status"] = status.strip()
-        return apply_list_query(
-            rows,
+        query = build_mongo_list_filter(
             q=q,
             q_fields=("quotation_number", "customer_name", "status"),
             equals=equals,
@@ -543,10 +563,15 @@ def list_quotations(
             alt_date_fields=("voucher_date", "created_at"),
             date_from=date_from,
             date_to=date_to,
-            sort_by=sort_by or "quotation_date",
-            sort_desc=sort_desc,
-            page=page,
-            page_size=page_size,
+        )
+        return _map_entity_page(
+            _svc().query_quotations(
+                query,
+                sort_by=sort_by or "quotation_date",
+                sort_desc=sort_desc,
+                page=page,
+                page_size=page_size,
+            )
         )
     except Exception as exc:
         raise _http_err(exc) from exc
@@ -633,23 +658,17 @@ def list_orders(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     try:
-        rows = [_doc_dict(o, include_lines=False) for o in _svc().list_sales_orders()]
         status_key = status.strip()
-        if status_key.lower() == "open":
-            rows = [
-                r
-                for r in rows
-                if (s := str(r.get("status") or "").lower())
-                and "closed" not in s
-                and "cancelled" not in s
-                and "canceled" not in s
-            ]
-            status_key = ""
         equals: dict[str, str] = {}
-        if status_key:
+        status_nin = None
+        if status_key.lower() == "open":
+            status_nin = [
+                SalesOrderStatus.CLOSED.value,
+                SalesOrderStatus.CANCELLED.value,
+            ]
+        elif status_key:
             equals["status"] = status_key
-        return apply_list_query(
-            rows,
+        query = build_mongo_list_filter(
             q=q,
             q_fields=("so_number", "customer_name", "status"),
             equals=equals,
@@ -657,10 +676,16 @@ def list_orders(
             date_field="order_date",
             date_from=date_from,
             date_to=date_to,
-            sort_by=sort_by or "order_date",
-            sort_desc=sort_desc,
-            page=page,
-            page_size=page_size,
+            status_nin=status_nin,
+        )
+        return _map_entity_page(
+            _svc().query_sales_orders(
+                query,
+                sort_by=sort_by or "order_date",
+                sort_desc=sort_desc,
+                page=page,
+                page_size=page_size,
+            )
         )
     except Exception as exc:
         raise _http_err(exc) from exc
@@ -759,30 +784,19 @@ def list_delivery_notes(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     try:
-        rows = [_doc_dict(d, include_lines=False) for d in _svc().list_delivery_notes()]
         status_key = status.strip()
-        if status_key.lower() == "pending":
-
-            def _pending(row: dict[str, Any]) -> bool:
-                s = str(row.get("status") or "").lower()
-                if not s or "cancel" in s:
-                    return False
-                if "delivered" in s and "partial" not in s:
-                    return False
-                return (
-                    "draft" in s
-                    or "confirm" in s
-                    or "dispatch" in s
-                    or "partial" in s
-                )
-
-            rows = [r for r in rows if _pending(r)]
-            status_key = ""
         equals: dict[str, str] = {}
-        if status_key:
+        status_in = None
+        if status_key.lower() == "pending":
+            status_in = [
+                DeliveryNoteStatus.DRAFT.value,
+                DeliveryNoteStatus.CONFIRMED.value,
+                DeliveryNoteStatus.DISPATCHED.value,
+                DeliveryNoteStatus.PARTIALLY_DELIVERED.value,
+            ]
+        elif status_key:
             equals["status"] = status_key
-        return apply_list_query(
-            rows,
+        query = build_mongo_list_filter(
             q=q,
             q_fields=("dn_number", "customer_name", "status", "so_number"),
             equals=equals,
@@ -790,10 +804,16 @@ def list_delivery_notes(
             date_field="delivery_date",
             date_from=date_from,
             date_to=date_to,
-            sort_by=sort_by or "delivery_date",
-            sort_desc=sort_desc,
-            page=page,
-            page_size=page_size,
+            status_in=status_in,
+        )
+        return _map_entity_page(
+            _svc().query_delivery_notes(
+                query,
+                sort_by=sort_by or "delivery_date",
+                sort_desc=sort_desc,
+                page=page,
+                page_size=page_size,
+            )
         )
     except Exception as exc:
         raise _http_err(exc) from exc
@@ -893,7 +913,22 @@ def list_invoices(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     try:
-        rows = [_invoice_dict(row) for row in _svc().list_sales_invoices()]
+        # Push voucher_date (+ voucher text fields) into Mongo; enrich then page in Python.
+        mongo_filter = build_mongo_list_filter(
+            contains={
+                "description": store_invoice_number,
+                "voucher_number": voucher_number,
+            },
+            date_field="voucher_date",
+            date_from=date_from,
+            date_to=date_to,
+        )
+        rows = [
+            _invoice_dict(row)
+            for row in _svc().list_sales_invoices(
+                mongo_filter=mongo_filter or None
+            )
+        ]
         hv = has_voucher.strip().lower()
         if hv in {"yes", "no"}:
             rows = [
@@ -921,10 +956,6 @@ def list_invoices(
                 "customer_name": customer_name,
                 "voucher_number": voucher_number,
             },
-            date_field="sale_date",
-            alt_date_fields=("voucher_date",),
-            date_from=date_from,
-            date_to=date_to,
             sort_by=sort_by or "sale_date",
             sort_desc=sort_desc,
             page=page,
@@ -957,6 +988,7 @@ def create_invoice(body: InvoiceWrite) -> dict[str, Any]:
             amount_received=body.amount_received,
             store_invoice_number=body.store_invoice_number or f"INV-{date.today().isoformat()}",
             voucher_date=_parse_date(body.voucher_date),
+            due_date=_parse_date(body.due_date),
             reference_so_id=body.reference_so_id,
             reference_dn_id=body.reference_dn_id,
             line_items=lines,
@@ -1014,6 +1046,9 @@ def get_invoice(invoice_id: str) -> dict[str, Any]:
         if tax_summary:
             data["tax_summary"] = tax_summary
         data["voucher_date"] = str(getattr(voucher, "voucher_date", "") or "")[:10]
+        due = getattr(voucher, "due_date", None)
+        if due is not None:
+            data["due_date"] = str(due)[:10]
         data["store_account_id"] = str(
             getattr(voucher, "store_account_id", "") or data.get("store_account_id") or ""
         )
@@ -1064,6 +1099,7 @@ def update_invoice(invoice_id: str, body: InvoiceWrite) -> dict[str, Any]:
             line_items=lines,
             amount_received=body.amount_received,
             voucher_date=_parse_date(body.voucher_date) or date.today(),
+            due_date=_parse_date(body.due_date),
             invoice_discount=body.invoice_discount,
             credit_applied=body.credit_applied,
             advance_applied=body.advance_applied,
@@ -1131,12 +1167,10 @@ def list_returns(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     try:
-        rows = [_doc_dict(r, include_lines=False) for r in _svc().list_sales_returns()]
         equals: dict[str, str] = {}
         if status.strip():
             equals["status"] = status.strip()
-        return apply_list_query(
-            rows,
+        query = build_mongo_list_filter(
             q=q,
             q_fields=("return_number", "customer_name", "status"),
             equals=equals,
@@ -1144,10 +1178,15 @@ def list_returns(
             date_field="return_date",
             date_from=date_from,
             date_to=date_to,
-            sort_by=sort_by or "return_date",
-            sort_desc=sort_desc,
-            page=page,
-            page_size=page_size,
+        )
+        return _map_entity_page(
+            _svc().query_sales_returns(
+                query,
+                sort_by=sort_by or "return_date",
+                sort_desc=sort_desc,
+                page=page,
+                page_size=page_size,
+            )
         )
     except Exception as exc:
         raise _http_err(exc) from exc

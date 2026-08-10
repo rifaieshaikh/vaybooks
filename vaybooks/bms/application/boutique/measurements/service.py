@@ -15,6 +15,7 @@ from vaybooks.bms.domain.boutique.measurements.repository import (
     MeasurementSpecRepository,
 )
 from vaybooks.bms.domain.boutique.measurements.services import MeasurementDomainService
+from vaybooks.bms.domain.boutique.orders.repository import OrderRepository
 from vaybooks.bms.domain.shared.date_utils import utc_now
 from vaybooks.bms.domain.shared.enums import (
     FitPreference,
@@ -32,11 +33,13 @@ class MeasurementAppService:
         record_repo: MeasurementRecordRepository,
         counter_repo: CounterRepository,
         section_repo: Optional[MeasurementSectionRepository] = None,
+        order_repo: Optional[OrderRepository] = None,
     ):
         self._spec_repo = spec_repo
         self._record_repo = record_repo
         self._counter_repo = counter_repo
         self._section_repo = section_repo
+        self._order_repo = order_repo
         self._domain = MeasurementDomainService()
 
     # --- Specs ---
@@ -288,4 +291,21 @@ class MeasurementAppService:
         record = self._record_repo.find_by_id(record_id)
         if not record:
             raise ValidationError("Measurement record not found")
+        if self._order_repo:
+            labels: list[str] = []
+            for order in self._order_repo.list_by_customer(record.customer_id):
+                for item in getattr(order, "customization_items", None) or []:
+                    mid = getattr(item, "measurement_id", None) or ""
+                    if mid == record_id:
+                        bill = getattr(item, "bill_number", "") or getattr(
+                            item, "item_id", ""
+                        )
+                        labels.append(
+                            f"{getattr(order, 'order_number', order.id)} / {bill}"
+                        )
+            if labels:
+                raise ValidationError(
+                    "This measurement is linked to customization items and cannot be "
+                    "removed: " + "; ".join(labels[:5])
+                )
         self._record_repo.delete(record_id)

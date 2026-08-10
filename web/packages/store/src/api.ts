@@ -87,6 +87,9 @@ export const baseApi = createApi({
     'Boutique',
     'StoreActivity',
     'StoreTime',
+    'BusinessActivity',
+    'BusinessTask',
+    'BusinessTime',
     'CrmLead',
     'CrmEnquiry',
     'CrmActivity',
@@ -1659,6 +1662,17 @@ export const baseApi = createApi({
       query: ({ id, body }) => ({ url: `/boutique/time-entries/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['BoutiqueTime', 'Boutique'],
     }),
+    assignBoutiqueTimeEntry: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: { assignee_worker_id?: string; assignee_name?: string } }
+    >({
+      query: ({ id, body }) => ({
+        url: `/boutique/time-entries/${id}/assign`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['BoutiqueTime', 'Boutique'],
+    }),
     deleteBoutiqueTimeEntry: build.mutation<Record<string, unknown>, string>({
       query: (id) => ({ url: `/boutique/time-entries/${id}`, method: 'DELETE' }),
       invalidatesTags: ['BoutiqueTime', 'Boutique'],
@@ -1756,6 +1770,137 @@ export const baseApi = createApi({
     deleteStoreTimeEntry: build.mutation<Record<string, unknown>, string>({
       query: (id) => ({ url: `/store/time-entries/${id}`, method: 'DELETE' }),
       invalidatesTags: ['StoreTime'],
+    }),
+
+    // Business ops
+    businessHealth: build.query<Record<string, unknown>, void>({
+      query: () => '/business/health',
+      providesTags: ['BusinessActivity', 'BusinessTask', 'BusinessTime'],
+    }),
+    businessOverview: build.query<Record<string, unknown>, void>({
+      query: () => '/business/overview',
+      providesTags: ['BusinessActivity', 'BusinessTask', 'BusinessTime'],
+    }),
+    listBusinessActivities: build.query<
+      { items: Record<string, unknown>[]; total: number; page: number; page_size: number },
+      { active_only?: boolean; page?: number; page_size?: number } | void
+    >({
+      query: (args) => ({ url: '/business/activities', params: args || undefined }),
+      providesTags: ['BusinessActivity'],
+    }),
+    createBusinessActivity: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/business/activities', method: 'POST', body }),
+      invalidatesTags: ['BusinessActivity'],
+    }),
+    updateBusinessActivity: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/business/activities/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['BusinessActivity'],
+    }),
+    deactivateBusinessActivity: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/business/activities/${id}/deactivate`, method: 'POST' }),
+      invalidatesTags: ['BusinessActivity'],
+    }),
+    listBusinessTasks: build.query<
+      { items: Record<string, unknown>[]; total: number; page: number; page_size: number },
+      { page?: number; page_size?: number } | void
+    >({
+      query: (args) => ({ url: '/business/tasks', params: args || undefined }),
+      providesTags: ['BusinessTask'],
+    }),
+    createBusinessTask: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/business/tasks', method: 'POST', body }),
+      invalidatesTags: ['BusinessTask'],
+    }),
+    assignBusinessTask: build.mutation<
+      Record<string, unknown>,
+      { id: string; worker_id: string }
+    >({
+      query: ({ id, worker_id }) => ({
+        url: `/business/tasks/${id}/assign`,
+        method: 'POST',
+        body: { worker_id },
+      }),
+      invalidatesTags: ['BusinessTask'],
+    }),
+    setBusinessTaskStatus: build.mutation<
+      Record<string, unknown>,
+      { id: string; status: string }
+    >({
+      query: ({ id, status }) => ({
+        url: `/business/tasks/${id}/status`,
+        method: 'POST',
+        body: { status },
+      }),
+      invalidatesTags: ['BusinessTask'],
+    }),
+    completeBusinessTask: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/business/tasks/${id}/complete`, method: 'POST' }),
+      invalidatesTags: ['BusinessTask'],
+    }),
+    deleteBusinessTask: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/business/tasks/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['BusinessTask'],
+    }),
+    listBusinessTimeEntries: build.query<
+      { items: Record<string, unknown>[]; total: number; page: number; page_size: number },
+      { task_id?: string; page?: number; page_size?: number } | void
+    >({
+      query: (args) => ({ url: '/business/time-entries', params: args || undefined }),
+      providesTags: ['BusinessTime'],
+    }),
+    createBusinessTimeEntry: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/business/time-entries', method: 'POST', body }),
+      invalidatesTags: ['BusinessTime', 'BusinessTask'],
+    }),
+    deleteBusinessTimeEntry: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/business/time-entries/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['BusinessTime'],
+    }),
+    calculateWorkerSalary: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: { period_from: string; period_to: string } }
+    >({
+      query: ({ id, body }) => ({
+        url: `/parties/workers/${id}/salary/calculate`,
+        method: 'POST',
+        body,
+      }),
+    }),
+    payWorkerSalary: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({
+        url: `/parties/workers/${id}/salary/pay`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Worker', 'Finance'],
+    }),
+    listProductionActivities: build.query<
+      Record<string, unknown>[],
+      { active_only?: boolean } | void
+    >({
+      query: (args) => ({ url: '/production/activities', params: args || undefined }),
+      providesTags: ['Production'],
+    }),
+    createProductionActivity: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/production/activities', method: 'POST', body }),
+      invalidatesTags: ['Production'],
+    }),
+    updateProductionActivity: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({ url: `/production/activities/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Production'],
+    }),
+    deactivateProductionActivity: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/production/activities/${id}/deactivate`, method: 'POST' }),
+      invalidatesTags: ['Production'],
     }),
 
     // CRM
@@ -2838,6 +2983,7 @@ export const {
   useCreateBoutiqueTimeEntryMutation,
   useSyncBoutiqueActivityTasksMutation,
   useUpdateBoutiqueTimeEntryMutation,
+  useAssignBoutiqueTimeEntryMutation,
   useDeleteBoutiqueTimeEntryMutation,
   useBoutiqueCalendarQuery,
   useBoutiqueReportsCatalogQuery,
@@ -2856,6 +3002,27 @@ export const {
   useSetStoreTimeEntryStatusMutation,
   useCompleteStoreTimeEntryMutation,
   useDeleteStoreTimeEntryMutation,
+  useBusinessHealthQuery,
+  useBusinessOverviewQuery,
+  useListBusinessActivitiesQuery,
+  useCreateBusinessActivityMutation,
+  useUpdateBusinessActivityMutation,
+  useDeactivateBusinessActivityMutation,
+  useListBusinessTasksQuery,
+  useCreateBusinessTaskMutation,
+  useAssignBusinessTaskMutation,
+  useSetBusinessTaskStatusMutation,
+  useCompleteBusinessTaskMutation,
+  useDeleteBusinessTaskMutation,
+  useListBusinessTimeEntriesQuery,
+  useCreateBusinessTimeEntryMutation,
+  useDeleteBusinessTimeEntryMutation,
+  useCalculateWorkerSalaryMutation,
+  usePayWorkerSalaryMutation,
+  useListProductionActivitiesQuery,
+  useCreateProductionActivityMutation,
+  useUpdateProductionActivityMutation,
+  useDeactivateProductionActivityMutation,
   useCrmHealthQuery,
   useCrmOverviewQuery,
   useListCrmLeadsQuery,

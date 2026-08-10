@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   useCreateBoutiqueMeasurementMutation,
   useDeleteBoutiqueMeasurementMutation,
   useGetBoutiqueMeasurementQuery,
+  useGetCustomerQuery,
   useLazyGetBoutiqueMeasurementPdfQuery,
   useListBoutiqueMeasurementSpecsQuery,
   useListBoutiqueMeasurementsQuery,
@@ -24,23 +25,26 @@ import {
   ErrorText,
   FormRow,
   Modal,
-  PAGE_SIZE,
   PaginationBar,
   displayName,
-  matchesRegex,
-  pageCount,
-  paginate,
-  sortRows,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
+import {
+  LIST_PAGE_SIZE,
+  pagedItems,
+  pagedPageCount,
+  pagedTotal,
+  sortQueryParams,
+} from '../pagedList';
 import {
   MeasurementForm,
   type MeasurementFormValue,
   measurementFormMissingRequired,
 } from '../MeasurementForm';
 import { asCaption, extractError } from '../utils';
+import '../MeasurementDetail.css';
 
 const PERSON_TYPES = ['Men', 'Women', 'Boy Child', 'Girl Child', 'Infant'] as const;
 
@@ -49,10 +53,6 @@ const DEFAULT_SORT: SortCriterion[] = [{ key: 'measurement_number', desc: true }
 
 export function BoutiqueMeasurementsListPage() {
   const navigate = useNavigate();
-  const { data = [], isLoading, error } = useListBoutiqueMeasurementsQuery();
-  const { data: customers = [] } = useListCustomersQuery();
-  const { data: specs = [] } = useListBoutiqueMeasurementSpecsQuery();
-  const [createMeas, createState] = useCreateBoutiqueMeasurementMutation();
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
@@ -60,6 +60,32 @@ export function BoutiqueMeasurementsListPage() {
   const [formError, setFormError] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [form, setForm] = useState<MeasurementFormValue | null>(null);
+
+  const { data, isLoading, error } = useListBoutiqueMeasurementsQuery({
+    measurement_number: filters.measurement_number || undefined,
+    wearer_name: filters.wearer_name || undefined,
+    person_type: filters.person_type || undefined,
+    ...sortQueryParams(sort),
+    page,
+    page_size: LIST_PAGE_SIZE,
+  });
+  const { data: customers = [] } = useListCustomersQuery();
+  const { data: specs = [] } = useListBoutiqueMeasurementSpecsQuery();
+  const [createMeas, createState] = useCreateBoutiqueMeasurementMutation();
+
+  const pageRows = pagedItems(data);
+  const total = pagedTotal(data);
+  const pages = pagedPageCount(data, LIST_PAGE_SIZE);
+
+  const customerNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const cust of customers) {
+      const id = String(cust.id || '');
+      if (!id) continue;
+      map.set(id, asCaption(cust.customer_name || cust.name) || id);
+    }
+    return map;
+  }, [customers]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
@@ -76,18 +102,40 @@ export function BoutiqueMeasurementsListPage() {
     [],
   );
 
-  const filtered = useMemo(() => {
-    const rows = data.filter((row) => {
-      if (!matchesRegex(row.measurement_number, filters.measurement_number)) return false;
-      if (!matchesRegex(row.wearer_name, filters.wearer_name)) return false;
-      if (filters.person_type && String(row.person_type || '') !== filters.person_type) return false;
-      return true;
-    });
-    return sortRows(rows, sort);
-  }, [data, filters, sort]);
+  type MeasRow = (typeof pageRows)[number];
 
-  const pages = pageCount(filtered.length, PAGE_SIZE);
-  const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
+  const columns: EntityListColumn<MeasRow>[] = useMemo(
+    () => [
+      {
+        id: 'measurement',
+        header: 'Measurement',
+        render: (row) => {
+          const number = displayName(row, ['measurement_number'], String(row.id));
+          const wearer = asCaption(row.wearer_name) || 'No wearer';
+          const customer = customerNameById.get(String(row.customer_id || '')) || '—';
+          return (
+            <div className="el-customer">
+              <div className="el-customer-meta">
+                <span className="el-customer-name">{number}</span>
+                <span className="el-customer-sub">
+                  {wearer} · {customer}
+                </span>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'person_type',
+        header: 'Person type',
+        render: (row) => {
+          const pt = asCaption(row.person_type);
+          return <span className={pt ? undefined : 'el-muted'}>{pt || '—'}</span>;
+        },
+      },
+    ],
+    [customerNameById],
+  );
 
   async function onCreate() {
     setFormError('');
@@ -107,7 +155,18 @@ export function BoutiqueMeasurementsListPage() {
     try {
       const created = await createMeas({
         customer_id: customerId,
-        ...form,
+        person_type: form.person_type,
+        wearer_name: form.wearer_name,
+        wearer_age: form.wearer_age,
+        wearer_height: form.wearer_height,
+        wearer_weight: form.wearer_weight,
+        unit: form.unit,
+        fit_preference: form.fit_preference,
+        notes: form.notes,
+        print_notes: form.print_notes,
+        measured_at: form.measured_at || undefined,
+        measured_by: form.measured_by,
+        values: form.values,
       }).unwrap();
       setOpen(false);
       navigate(`/boutique/measurements/${created.id}`);
@@ -116,57 +175,18 @@ export function BoutiqueMeasurementsListPage() {
     }
   }
 
-  type MeasurementRow = (typeof data)[number];
-
-  const columns: EntityListColumn<MeasurementRow>[] = useMemo(
-    () => [
-      {
-        id: 'measurement',
-        header: 'Measurement',
-        render: (row) => {
-          const number = displayName(row, ['measurement_number'], String(row.id));
-          const wearer = asCaption(row.wearer_name) || 'No wearer';
-          return (
-            <div className="el-customer">
-              <div className="el-customer-meta">
-                <span className="el-customer-name">{number}</span>
-                <span className="el-customer-sub">{wearer}</span>
-              </div>
-            </div>
-          );
-        },
-      },
-      {
-        id: 'person_type',
-        header: 'Person type',
-        render: (row) => {
-          const personType = asCaption(row.person_type);
-          return <span className={personType ? undefined : 'el-muted'}>{personType || '—'}</span>;
-        },
-      },
-      {
-        id: 'customer',
-        header: 'Customer',
-        render: (row) => {
-          const customer = asCaption(row.customer_id);
-          return <span className={customer ? undefined : 'el-muted'}>{customer || '—'}</span>;
-        },
-      },
-    ],
-    [],
-  );
-
   return (
     <EntityListPage>
       <EntityListHero
         kicker="Boutique"
         title="Measurements"
-        count={`${filtered.length} ${filtered.length === 1 ? 'record' : 'records'}`}
+        count={`${total} ${total === 1 ? 'measurement' : 'measurements'}`}
         actions={
           <Button
             type="button"
             onClick={() => {
               setFormError('');
+              setCustomerId('');
               setForm(null);
               setOpen(true);
             }}
@@ -232,10 +252,16 @@ export function BoutiqueMeasurementsListPage() {
         />
       ) : null}
 
-      {!isLoading && !error && pageRows.length > 0 ? (
+      {!isLoading && !error && total > 0 ? (
         <EntityListFoot>
           <div className="el-foot-pager">
-            <PaginationBar page={Math.min(page, pages)} pageCount={pages} onPage={setPage} />
+            <PaginationBar
+              page={Math.min(page, pages)}
+              pageCount={pages}
+              onPage={setPage}
+              totalCount={total}
+              pageSize={LIST_PAGE_SIZE}
+            />
           </div>
         </EntityListFoot>
       ) : null}
@@ -282,12 +308,16 @@ export function BoutiqueMeasurementDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useGetBoutiqueMeasurementQuery(id, { skip: !id });
+  const customerId = data ? String(data.customer_id || '') : '';
+  const { data: customer } = useGetCustomerQuery(customerId, { skip: !customerId });
   const { data: specs = [] } = useListBoutiqueMeasurementSpecsQuery();
-  const [updateMeas] = useUpdateBoutiqueMeasurementMutation();
-  const [deleteMeas] = useDeleteBoutiqueMeasurementMutation();
+  const [updateMeas, updateState] = useUpdateBoutiqueMeasurementMutation();
+  const [deleteMeas, deleteState] = useDeleteBoutiqueMeasurementMutation();
   const [fetchPdf] = useLazyGetBoutiqueMeasurementPdfQuery();
   const [form, setForm] = useState<MeasurementFormValue | null>(null);
   const [actionError, setActionError] = useState('');
+  const [saveOk, setSaveOk] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const initial = useMemo(() => {
     if (!data) return undefined;
@@ -306,75 +336,137 @@ export function BoutiqueMeasurementDetailPage() {
       values: Array.isArray(data.values)
         ? (data.values as MeasurementFormValue['values'])
         : [],
-    };
+    } satisfies MeasurementFormValue;
   }, [data]);
 
-  if (isLoading) return <p>Loading…</p>;
+  useEffect(() => {
+    if (initial) setForm(initial);
+  }, [initial]);
+
+  if (isLoading) return <EntityListLoading>Loading measurement…</EntityListLoading>;
   if (error || !data) return <ErrorText>Measurement not found.</ErrorText>;
 
+  const customerName =
+    asCaption(customer?.customer_name || customer?.name) || asCaption(data.customer_id) || '—';
+  const customerPhone = asCaption(customer?.phone_number || customer?.phone);
+  const measurementNumber = asCaption(data.measurement_number) || id;
+  const wearer = asCaption(form?.wearer_name || data.wearer_name) || '—';
+  const personType = asCaption(form?.person_type || data.person_type) || '—';
+  const measuredAt = asCaption(form?.measured_at || data.measured_at).slice(0, 10) || '—';
+  const filled = (form?.values || []).filter((v) => String(v.value || '').trim()).length;
+
+  async function onSave() {
+    setActionError('');
+    setSaveOk(false);
+    const payload = form || initial;
+    if (!payload) return;
+    const missing = measurementFormMissingRequired(specs, payload.person_type, payload.values);
+    if (missing.length) {
+      setActionError(`Missing required: ${missing.join(', ')}`);
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateMeas({ id, body: payload }).unwrap();
+      setSaveOk(true);
+      refetch();
+    } catch (e) {
+      setActionError(extractError(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onPdf() {
+    setActionError('');
+    try {
+      const blob = await fetchPdf(id).unwrap();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${measurementNumber}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setActionError(extractError(e));
+    }
+  }
+
   return (
-    <div>
-      <p style={{ marginBottom: 12 }}>
-        <Link to="/boutique/measurements">← Measurements</Link>
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+    <div className="md">
+      <Link className="md-back" to="/boutique/measurements">
+        ← Measurements
+      </Link>
+
+      <header className="md-hero">
         <div>
-          <h2 style={{ margin: '0 0 8px', color: 'var(--vb-color-primary, #185c4c)' }}>
-            {asCaption(data.measurement_number) || id}
-          </h2>
-          <p style={{ color: '#667', marginBottom: 16 }}>
-            {asCaption(data.person_type)} · Customer {asCaption(data.customer_id)}
+          <p className="md-kicker">Boutique measurement</p>
+          <h1>{measurementNumber}</h1>
+          <p className="md-lead">
+            Reusable for this customer&apos;s future customization orders.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={async () => {
-            setActionError('');
-            try {
-              const blob = await fetchPdf(id).unwrap();
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `${asCaption(data.measurement_number) || id}.pdf`;
-              a.click();
-              URL.revokeObjectURL(url);
-            } catch (e) {
-              setActionError(extractError(e));
-            }
-          }}
-        >
-          Download PDF
-        </Button>
-      </div>
-      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-      <div style={{ maxWidth: 640 }}>
-        <MeasurementForm key={id} initial={initial} onChange={setForm} />
-        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-          <Button
-            type="button"
-            onClick={async () => {
-              setActionError('');
-              if (!form) return;
-              const missing = measurementFormMissingRequired(specs, form.person_type, form.values);
-              if (missing.length) {
-                setActionError(`Missing required: ${missing.join(', ')}`);
-                return;
-              }
-              try {
-                await updateMeas({ id, body: form }).unwrap();
-                refetch();
-              } catch (e) {
-                setActionError(extractError(e));
-              }
-            }}
-          >
-            Save
+        <div className="md-hero-actions">
+          {customerId ? (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => navigate(`/parties/customers/${customerId}`)}
+            >
+              Open customer
+            </Button>
+          ) : null}
+          <Button type="button" variant="ghost" onClick={() => void onPdf()}>
+            Download PDF
           </Button>
+        </div>
+      </header>
+
+      <div className="md-snapshot">
+        <div className="md-stat">
+          <span>Customer</span>
+          <strong title={customerName}>
+            {customerName}
+            {customerPhone ? ` · ${customerPhone}` : ''}
+          </strong>
+        </div>
+        <div className="md-stat">
+          <span>Wearer</span>
+          <strong>{wearer}</strong>
+        </div>
+        <div className="md-stat">
+          <span>Person type</span>
+          <strong>{personType}</strong>
+        </div>
+        <div className="md-stat">
+          <span>Measured</span>
+          <strong>
+            {measuredAt}
+            {filled ? ` · ${filled} values` : ''}
+          </strong>
+        </div>
+      </div>
+
+      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
+      {saveOk && !actionError ? (
+        <p className="md-lead" style={{ color: 'var(--md-accent)', marginBottom: 12 }}>
+          Measurement saved.
+        </p>
+      ) : null}
+
+      <MeasurementForm key={id} initial={initial} layout="detail" onChange={setForm} />
+
+      <div className="md-actions">
+        <div className="md-actions-hint">
+          Save before using this sheet on a new garment.
+        </div>
+        <div className="md-actions-right">
           <Button
             type="button"
             variant="ghost"
+            disabled={deleteState.isLoading}
             onClick={async () => {
+              if (!window.confirm('Delete this measurement?')) return;
               setActionError('');
               try {
                 await deleteMeas(id).unwrap();
@@ -385,6 +477,13 @@ export function BoutiqueMeasurementDetailPage() {
             }}
           >
             Delete
+          </Button>
+          <Button
+            type="button"
+            disabled={saving || updateState.isLoading}
+            onClick={() => void onSave()}
+          >
+            {saving || updateState.isLoading ? 'Saving…' : 'Save measurement'}
           </Button>
         </div>
       </div>

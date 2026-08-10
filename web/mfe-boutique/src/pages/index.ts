@@ -6,5 +6,5 @@ export {
   BoutiqueMeasurementsListPage,
   BoutiqueMeasurementDetailPage,
 } from './Measurements';
-export { BoutiqueTimePage, BoutiqueCalendarPage } from './TimeCalendar';
+export { BoutiqueTimePage, BoutiqueTimeLogPage, BoutiqueCalendarPage } from './TimeCalendar';
 export { BoutiqueReportsPage, BoutiqueScheduledReportsPage } from './Reports';

@@ -1,22 +1,27 @@
 """Module-aware activity options for the employee create/edit picker.
 
-The employee picker aggregates up to three activity catalogs based on the
-org's enabled modules:
+Aggregates activity catalogs based on the org's enabled modules:
 
 - Store activities are always available (baseline for every business).
 - Customization activities require the ``boutique`` module.
 - Project activities require the ``projects`` module.
+- Business ops activities require the ``business_ops`` module.
+- Production activities require the ``production`` module.
 """
 
 from dataclasses import dataclass
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 from vaybooks.bms.domain.entitlements.catalog import (
     MODULE_BOUTIQUE,
+    MODULE_BUSINESS_OPS,
+    MODULE_PRODUCTION,
     MODULE_PROJECTS,
 )
 from vaybooks.bms.domain.parties.workers.entities import (
+    SOURCE_BUSINESS,
     SOURCE_CUSTOMIZATION,
+    SOURCE_PRODUCTION,
     SOURCE_PROJECT,
     SOURCE_STORE,
     WorkerActivityRef,
@@ -26,6 +31,8 @@ SOURCE_LABELS = {
     SOURCE_STORE: "Store",
     SOURCE_CUSTOMIZATION: "Customization",
     SOURCE_PROJECT: "Project",
+    SOURCE_BUSINESS: "Business",
+    SOURCE_PRODUCTION: "Production",
 }
 
 
@@ -64,12 +71,16 @@ class EmployeeActivityOptionsService:
         store_activity_service,
         customization_activity_service,
         project_activity_service,
+        business_activity_service=None,
+        production_activity_service=None,
     ):
         self._plans = plans_service
         self._catalogs = {
             SOURCE_STORE: store_activity_service,
             SOURCE_CUSTOMIZATION: customization_activity_service,
             SOURCE_PROJECT: project_activity_service,
+            SOURCE_BUSINESS: business_activity_service,
+            SOURCE_PRODUCTION: production_activity_service,
         }
 
     def enabled_sources(self) -> List[str]:
@@ -80,6 +91,10 @@ class EmployeeActivityOptionsService:
             sources.append(SOURCE_CUSTOMIZATION)
         if MODULE_PROJECTS in modules:
             sources.append(SOURCE_PROJECT)
+        if MODULE_BUSINESS_OPS in modules:
+            sources.append(SOURCE_BUSINESS)
+        if MODULE_PRODUCTION in modules:
+            sources.append(SOURCE_PRODUCTION)
         return sources
 
     def _catalog_options(

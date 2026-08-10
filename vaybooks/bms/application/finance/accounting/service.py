@@ -2121,6 +2121,7 @@ class AccountingAppService:
         commission_pay_account_id: Optional[str] = None,
         location_id: str = "",
         location_name: str = "",
+        due_date: Optional[date] = None,
     ) -> Voucher:
         customer = self._account_repo.find_by_id(customer_account_id)
         store = self._account_repo.find_by_id(store_account_id)
@@ -2231,6 +2232,10 @@ class AccountingAppService:
             ),
         )
         voucher.financial_year = (financial_year or "").strip()
+        resolved_due = due_date
+        if resolved_due is None:
+            resolved_due = (voucher_date or date.today())
+        voucher.due_date = resolved_due
         return self._save_voucher(
             voucher,
             financial_year=financial_year,
@@ -2259,6 +2264,7 @@ class AccountingAppService:
         agent_account_id: Optional[str] = None,
         commission_paid: bool = False,
         commission_pay_account_id: Optional[str] = None,
+        due_date: Optional[date] = None,
     ) -> Voucher:
         old = self._voucher_repo.find_by_id(voucher_id)
         if not old or old.voucher_type != VoucherType.SALES_INVOICE:
@@ -2391,6 +2397,10 @@ class AccountingAppService:
         voucher.financial_year = (financial_year or "").strip() or (
             old.financial_year or ""
         )
+        if due_date is not None:
+            voucher.due_date = due_date
+        else:
+            voucher.due_date = getattr(old, "due_date", None)
         return self._update_voucher(voucher)
 
     def create_advance_refund(
@@ -2836,20 +2846,40 @@ class AccountingAppService:
         return self._voucher_repo.list_all(location_filter=location_filter)
 
     def list_vouchers_by_type(
-        self, voucher_type: VoucherType, *, location_filter: dict | None = None
+        self,
+        voucher_type: VoucherType,
+        *,
+        location_filter: dict | None = None,
+        extra_filter: dict | None = None,
     ) -> List[Voucher]:
-        return [
+        list_by_type = getattr(self._voucher_repo, "list_by_type", None)
+        if callable(list_by_type):
+            return list_by_type(
+                voucher_type,
+                location_filter=location_filter,
+                extra_filter=extra_filter,
+            )
+        vouchers = [
             v
             for v in self._voucher_repo.list_all(location_filter=location_filter)
             if v.voucher_type == voucher_type
         ]
+        return vouchers
 
     def list_vouchers_by_types(
         self,
         voucher_types: list[VoucherType],
         *,
         location_filter: dict | None = None,
+        extra_filter: dict | None = None,
     ) -> List[Voucher]:
+        list_by_types = getattr(self._voucher_repo, "list_by_types", None)
+        if callable(list_by_types):
+            return list_by_types(
+                voucher_types,
+                location_filter=location_filter,
+                extra_filter=extra_filter,
+            )
         allowed = set(voucher_types)
         return [
             v
@@ -2875,6 +2905,7 @@ class AccountingAppService:
         landed_cost_lines: Optional[list[dict]] = None,
         stock_reference_id: Optional[str] = None,
         financial_year: str = "",
+        due_date: Optional[date] = None,
     ) -> Voucher:
         from vaybooks.bms.domain.finance.accounting.purchase_parsing import (
             build_purchase_description,
@@ -2946,6 +2977,10 @@ class AccountingAppService:
             gst_input_accounts=gst_input_accounts,
         )
         voucher.financial_year = (financial_year or "").strip()
+        resolved_due = due_date
+        if resolved_due is None:
+            resolved_due = voucher_date or date.today()
+        voucher.due_date = resolved_due
         saved = self._save_voucher(
             voucher,
             financial_year=financial_year,
@@ -2966,6 +3001,7 @@ class AccountingAppService:
         voucher_date: Optional[date] = None,
         reference_service_id: Optional[str] = None,
         financial_year: str = "",
+        due_date: Optional[date] = None,
     ) -> Voucher:
         from vaybooks.bms.domain.finance.accounting.purchase_parsing import (
             build_purchase_description,
@@ -3044,6 +3080,10 @@ class AccountingAppService:
         voucher.financial_year = (financial_year or "").strip() or (
             old.financial_year or ""
         )
+        if due_date is not None:
+            voucher.due_date = due_date
+        else:
+            voucher.due_date = getattr(old, "due_date", None)
         return self._update_voucher(voucher)
 
     def delete_purchase_bill(self, voucher_id: str) -> None:

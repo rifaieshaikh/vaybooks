@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { usePurchasesReportsCatalogQuery, useRunPurchasesReportMutation } from '@vaybooks/store';
 import {
   Button,
@@ -13,6 +12,7 @@ import {
   type DataTableColumn,
 } from '@vaybooks/ui-kit';
 import { downloadCsv, extractError } from '../utils';
+import { ModuleScheduledReportsPanel } from './ScheduledReportsPanel';
 
 export function PurchasesReportsPage() {
   const { data: catalog, isLoading: catalogLoading, error: catalogError } =
@@ -107,13 +107,7 @@ export function PurchasesScheduledReportsPage() {
   return (
     <EntityListPage className="el-page--sales">
       <EntityListHero kicker="Purchases" title="Scheduled reports" />
-      <p className="el-muted" style={{ maxWidth: 620, marginTop: 0 }}>
-        Recurring purchase reports are configured from the shared scheduler module. Create or manage
-        a scheduled job there and pick a purchases report type.
-      </p>
-      <p style={{ marginTop: 12 }}>
-        <Link to="/schedulers/purchases?panel=reports">Open Schedulers → Purchases</Link>
-      </p>
+      <ModuleScheduledReportsPanel module="purchases" showSchedulersLink />
     </EntityListPage>
   );
 }

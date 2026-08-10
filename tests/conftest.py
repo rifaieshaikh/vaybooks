@@ -192,6 +192,40 @@ class FakeVoucherRepository:
             if (getattr(v, "location_id", "") or "").strip() == want
         ]
 
+    def list_by_type(
+        self,
+        voucher_type,
+        *,
+        location_filter: dict | None = None,
+        extra_filter: dict | None = None,
+    ) -> List[Voucher]:
+        _ = extra_filter
+        vt = voucher_type.value if hasattr(voucher_type, "value") else str(voucher_type)
+        return [
+            v
+            for v in self.list_all(location_filter=location_filter)
+            if (v.voucher_type.value if hasattr(v.voucher_type, "value") else str(v.voucher_type))
+            == vt
+        ]
+
+    def list_by_types(
+        self,
+        voucher_types,
+        *,
+        location_filter: dict | None = None,
+        extra_filter: dict | None = None,
+    ) -> List[Voucher]:
+        _ = extra_filter
+        allowed = {
+            vt.value if hasattr(vt, "value") else str(vt) for vt in voucher_types
+        }
+        return [
+            v
+            for v in self.list_all(location_filter=location_filter)
+            if (v.voucher_type.value if hasattr(v.voucher_type, "value") else str(v.voucher_type))
+            in allowed
+        ]
+
     def delete(self, voucher_id: str) -> None:
         self._store.pop(voucher_id, None)
 

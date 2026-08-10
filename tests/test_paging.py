@@ -1,12 +1,17 @@
+from datetime import date
+
 from packages.services_kit.paging import (
     apply_list_query,
+    build_mongo_list_filter,
     clamp_page,
     contains_ci,
     filter_by_date_range,
     filter_dicts,
     in_date_range,
+    mongo_ci_contains,
     page_slice,
     paged_result,
+    query_mongo_page,
     sort_dicts,
 )
 
@@ -76,3 +81,111 @@ def test_filter_by_date_range_and_apply_list_query():
     )
     assert page["total"] == 2
     assert [r["so_number"] for r in page["items"]] == ["SO-1", "SO-3"]
+
+
+def test_mongo_ci_contains_escapes():
+    clause = mongo_ci_contains("a+b")
+    assert clause["$options"] == "i"
+    assert "\\+" in clause["$regex"]
+
+
+def test_build_mongo_list_filter_composes_and():
+    filt = build_mongo_list_filter(
+        q="ada",
+        q_fields=("customer_name", "so_number"),
+        equals={"status": "Confirmed"},
+        contains={"customer_name": "Ad"},
+        date_field="order_date",
+        date_from="2026-08-01",
+        date_to="2026-08-31",
+        status_nin=("Closed", "Cancelled"),
+    )
+    assert "$and" in filt
+    parts = filt["$and"]
+    assert {"status": "Confirmed"} in parts
+    assert {"status": {"$nin": ["Closed", "Cancelled"]}} in parts
+    assert any("$or" in p for p in parts)  # q or date dual-match
+
+
+def test_build_mongo_list_filter_status_in_and_voucher_date():
+    filt = build_mongo_list_filter(
+        date_field="voucher_date",
+        date_from="2026-08-01",
+        date_to="2026-08-10",
+        status_in=("Draft", "Confirmed"),
+    )
+    assert "$and" in filt
+    status_part = next(p for p in filt["$and"] if "status" in p)
+    date_part = next(p for p in filt["$and"] if "voucher_date" in p)
+    assert status_part["status"] == {"$in": ["Draft", "Confirmed"]}
+    bounds = date_part["voucher_date"]
+    assert bounds["$gte"].date() == date(2026, 8, 1)
+    assert bounds["$lte"].date() == date(2026, 8, 10)
+
+
+class _FakeCollection:
+    def __init__(self, docs):
+        self._docs = list(docs)
+
+    def count_documents(self, query):
+        return len(self._match(query))
+
+    def find(self, query):
+        matched = self._match(query)
+        return _FakeCursor(matched)
+
+    def _match(self, query):
+        if not query:
+            return list(self._docs)
+        status = query.get("status")
+        if isinstance(status, dict) and "$nin" in status:
+            blocked = set(status["$nin"])
+            return [d for d in self._docs if d.get("status") not in blocked]
+        if "status" in query:
+            return [d for d in self._docs if d.get("status") == query["status"]]
+        return list(self._docs)
+
+
+class _FakeCursor:
+    def __init__(self, docs):
+        self._docs = list(docs)
+        self._skip = 0
+        self._limit = None
+
+    def sort(self, keys):
+        key, direction = keys[0]
+        reverse = direction < 0
+        self._docs.sort(
+            key=lambda d: (0, d.get(key)) if isinstance(d.get(key), (int, float)) else (1, str(d.get(key) or "")),
+            reverse=reverse,
+        )
+        return self
+
+    def skip(self, n):
+        self._skip = n
+        return self
+
+    def limit(self, n):
+        self._limit = n
+        return self
+
+    def __iter__(self):
+        end = None if self._limit is None else self._skip + self._limit
+        return iter(self._docs[self._skip : end])
+
+
+def test_query_mongo_page_clamps_and_maps():
+    docs = [{"_id": f"id-{i}", "n": i, "status": "Open"} for i in range(5)]
+    coll = _FakeCollection(docs)
+    page = query_mongo_page(
+        coll,
+        {},
+        sort_by="n",
+        sort_desc=False,
+        page=9,
+        page_size=2,
+        map_doc=lambda d: {"id": d["_id"], "n": d["n"]},
+    )
+    assert page["total"] == 5
+    assert page["page"] == 3
+    assert [r["n"] for r in page["items"]] == [4]

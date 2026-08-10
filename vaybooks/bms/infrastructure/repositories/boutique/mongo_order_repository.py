@@ -150,6 +150,7 @@ class MongoOrderRepository:
             "started_at": a.started_at,
             "completed_at": a.completed_at,
             "completed_by": a.completed_by,
+            "estimated_hours": float(a.estimated_hours or 0),
         }
 
     def _activity_from_doc(self, doc: dict) -> OrderActivity:
@@ -166,6 +167,7 @@ class MongoOrderRepository:
             started_at=doc.get("started_at"),
             completed_at=doc.get("completed_at"),
             completed_by=doc.get("completed_by"),
+            estimated_hours=float(doc.get("estimated_hours") or 0),
         )
 
     def _to_doc(self, order: CustomizationOrder) -> dict:

@@ -87,7 +87,9 @@ def test_order_measurement_time_overview_reports() -> None:
 
     listed_items = c.get("/api/boutique/items")
     assert listed_items.status_code == 200
-    assert any(row.get("item_id") == item_id for row in listed_items.json())
+    items_body = listed_items.json()
+    assert "items" in items_body and "total" in items_body
+    assert any(row.get("item_id") == item_id for row in items_body["items"])
 
     specs = c.get("/api/boutique/measurement-specs").json()
     values = [

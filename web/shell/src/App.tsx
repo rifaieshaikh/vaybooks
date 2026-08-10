@@ -57,6 +57,13 @@ import {
   BusinessCalendarPage,
 } from '../../mfe-store/src';
 import {
+  BusinessOverviewPage,
+  BusinessActivitiesPage,
+  BusinessTasksPage,
+  BusinessTimePage,
+  ProductionActivitiesPage,
+} from '../../mfe-business/src';
+import {
   ProductionBatchDetailPage,
   ProductionBatchesListPage,
   ProductionCalendarPage,
@@ -400,6 +407,7 @@ export default function App() {
           <Route path="production/reports" element={<ProductionReportsPage />} />
           <Route path="production/scheduled-reports" element={<ProductionScheduledReportsPage />} />
           <Route path="production/settings" element={<ProductionSettingsPage />} />
+          <Route path="settings/production-activities" element={<ProductionActivitiesPage />} />
         </Route>
 
         <Route element={<ModuleGate module="finance" />}>
@@ -454,11 +462,16 @@ export default function App() {
           <Route path="store-time" element={<StoreTimePage />} />
           <Route path="business-calendar" element={<BusinessCalendarPage />} />
         </Route>
+        <Route element={<ModuleGate module="business_ops" />}>
+          <Route path="business" element={<BusinessOverviewPage />} />
+          <Route path="business/tasks" element={<BusinessTasksPage />} />
+          <Route path="business/time" element={<BusinessTimePage />} />
+          <Route path="settings/business-activities" element={<BusinessActivitiesPage />} />
+        </Route>
         <Route element={<ModuleGate module="crm" />}>
           <Route path="settings/crm" element={<CrmSettingsRedirectPage />} />
         </Route>
         <Route path="settings/production" element={<Navigate to="/production/settings" replace />} />
-
         <Route element={<ModuleGate module="system" />}>
           <Route path="system" element={<SystemHubPage />} />
           <Route path="system/settings" element={<SystemSettingsPage />} />

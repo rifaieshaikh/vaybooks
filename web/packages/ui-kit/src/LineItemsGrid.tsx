@@ -16,6 +16,8 @@ export type LineProductOption = {
 export type EditorLineItem = {
   id: string;
   productId?: string;
+  itemType?: 'product' | 'service';
+  serviceId?: string;
   qty: number;
   rate: number;
   discountInput?: number;
@@ -34,14 +36,25 @@ export type LineItemsGridProps<T extends EditorLineItem = EditorLineItem> = {
   products: LineProductOption[];
   onChange: (lines: T[]) => void;
   onProductSelected?: (index: number, productId: string) => void;
+  onServiceSelected?: (index: number, serviceId: string) => void;
   showDiscount?: boolean;
   disabled?: boolean;
+  allowServices?: boolean;
+  services?: LineProductOption[];
 };
 
-function newBlankLine(): EditorLineItem {
+function lineHasItem(row: EditorLineItem, allowServices: boolean): boolean {
+  if (allowServices) {
+    return Boolean(row.productId || row.serviceId);
+  }
+  return Boolean(row.productId);
+}
+
+function newBlankLine(allowServices: boolean): EditorLineItem {
   return {
     id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     productId: '',
+    ...(allowServices ? { itemType: 'product' as const, serviceId: '' } : {}),
     qty: 1,
     rate: 0,
     discountInput: 0,
@@ -55,13 +68,13 @@ function newBlankLine(): EditorLineItem {
   };
 }
 
-function ensureTrailingBlank<T extends EditorLineItem>(lines: T[]): T[] {
+function ensureTrailingBlank<T extends EditorLineItem>(lines: T[], allowServices: boolean): T[] {
   if (!lines.length) {
-    return [newBlankLine() as T];
+    return [newBlankLine(allowServices) as T];
   }
   const last = lines[lines.length - 1];
-  if (last.productId) {
-    return [...lines, newBlankLine() as T];
+  if (lineHasItem(last, allowServices)) {
+    return [...lines, newBlankLine(allowServices) as T];
   }
   return lines;
 }
@@ -70,16 +83,8 @@ function money(n: number | undefined): string {
   return formatInr(Number(n) || 0);
 }
 
-export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
-  lines,
-  products,
-  onChange,
-  onProductSelected,
-  showDiscount = false,
-  disabled,
-}: LineItemsGridProps<T>) {
-  const rows = ensureTrailingBlank(lines);
-  const productOptions = products.map((p) => ({
+function toSelectOptions(items: LineProductOption[]) {
+  return items.map((p) => ({
     value: p.id,
     label: p.label,
     sublabel:
@@ -91,37 +96,50 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
         .filter(Boolean)
         .join(' · ') || undefined,
   }));
+}
 
-  function updateAt(index: number, patch: Partial<T>) {
-    const next = rows.map((row, i) => (i === index ? { ...row, ...patch } : row));
-    // Drop trailing blanks except one empty row convention handled by ensureTrailingBlank on render;
-    // persist without pure trailing blanks that weren't user-touched beyond the last product row.
-    const trimmed = trimTrailingBlanks(next as T[]);
-    onChange(trimmed);
-  }
+export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
+  lines,
+  products,
+  onChange,
+  onProductSelected,
+  onServiceSelected,
+  showDiscount = false,
+  disabled,
+  allowServices = false,
+  services = [],
+}: LineItemsGridProps<T>) {
+  const rows = ensureTrailingBlank(lines, allowServices);
+  const productOptions = toSelectOptions(products);
+  const serviceOptions = toSelectOptions(services);
 
   function trimTrailingBlanks(list: T[]): T[] {
     const copy = [...list];
     while (copy.length > 1) {
       const last = copy[copy.length - 1];
-      if (!last.productId) {
+      if (!lineHasItem(last, allowServices)) {
         copy.pop();
       } else {
         break;
       }
     }
-    // Keep one blank if last has product — parent may omit it; we re-add on render.
-    // For persistence: keep lines that have product OR are the sole blank starter.
     return copy.filter((row, i) => {
-      if (row.productId) return true;
-      // keep intermediate blanks that user may still edit? only trail blanks removed above
-      return i === 0 && copy.every((r) => !r.productId);
+      if (lineHasItem(row, allowServices)) return true;
+      return i === 0 && copy.every((r) => !lineHasItem(r, allowServices));
     });
+  }
+
+  function updateAt(index: number, patch: Partial<T>) {
+    const next = rows.map((row, i) => (i === index ? { ...row, ...patch } : row));
+    const trimmed = trimTrailingBlanks(next as T[]);
+    onChange(trimmed);
   }
 
   function removeAt(index: number) {
     const next = rows.filter((_, i) => i !== index) as T[];
-    onChange(trimTrailingBlanks(next.length ? next : ([newBlankLine()] as T[])));
+    onChange(
+      trimTrailingBlanks(next.length ? next : ([newBlankLine(allowServices)] as T[])),
+    );
   }
 
   function focusNext(e: KeyboardEvent<HTMLElement>) {
@@ -131,7 +149,7 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
     if (!root) return;
     const focusable = Array.from(
       root.querySelectorAll<HTMLElement>(
-        'input.de-cell-input:not([disabled]), button.de-del:not([disabled]), .de-search input',
+        'input.de-cell-input:not([disabled]), button.de-del:not([disabled]), .de-search input, select.de-cell-input:not([disabled])',
       ),
     ).filter((el) => el.offsetParent !== null);
     const idx = focusable.indexOf(e.currentTarget as HTMLElement);
@@ -144,7 +162,8 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
       <table className="de-grid">
         <thead>
           <tr>
-            <th className="de-product">Product</th>
+            {allowServices ? <th>Type</th> : null}
+            <th className="de-product">{allowServices ? 'Item' : 'Product'}</th>
             <th>Qty</th>
             <th>Rate</th>
             {showDiscount ? <th>Disc</th> : null}
@@ -158,26 +177,90 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
         </thead>
         <tbody>
           {rows.map((row, index) => {
-            const isBlank = !row.productId;
+            const itemType = row.itemType === 'service' ? 'service' : 'product';
+            const isBlank = !lineHasItem(row, allowServices);
+            const itemOptions = itemType === 'service' ? serviceOptions : productOptions;
+            const itemList = itemType === 'service' ? services : products;
+            const itemValue =
+              itemType === 'service' ? row.serviceId || '' : row.productId || '';
             return (
               <tr key={row.id}>
+                {allowServices ? (
+                  <td>
+                    <select
+                      className="de-cell-input"
+                      value={itemType}
+                      disabled={disabled}
+                      onKeyDown={focusNext}
+                      onChange={(e) => {
+                        const nextType = e.target.value === 'service' ? 'service' : 'product';
+                        updateAt(index, {
+                          itemType: nextType,
+                          ...(nextType === 'service'
+                            ? { productId: '', serviceId: row.serviceId || '' }
+                            : { serviceId: '', productId: row.productId || '' }),
+                          rate: 0,
+                          hsn: '',
+                          gstRate: 0,
+                          taxable: 0,
+                          tax: 0,
+                          total: 0,
+                        } as Partial<T>);
+                      }}
+                    >
+                      <option value="product">Product</option>
+                      <option value="service">Service</option>
+                    </select>
+                  </td>
+                ) : null}
                 <td className="de-product">
                   <SearchableSelect
-                    options={productOptions}
-                    value={row.productId || ''}
-                    placeholder="Select product"
+                    options={itemOptions}
+                    value={itemValue}
+                    placeholder={
+                      allowServices
+                        ? itemType === 'service'
+                          ? 'Select service'
+                          : 'Select product'
+                        : 'Select product'
+                    }
                     disabled={disabled}
-                    onChange={(productId) => {
-                      const product = products.find((p) => p.id === productId);
+                    onChange={(selectedId) => {
+                      const item = itemList.find((p) => p.id === selectedId);
+                      if (itemType === 'service') {
+                        const base = {
+                          ...row,
+                          itemType: 'service' as const,
+                          serviceId: selectedId,
+                          productId: '',
+                          ...(onServiceSelected
+                            ? {}
+                            : {
+                                rate: item?.rate ?? row.rate,
+                                hsn: item?.hsn ?? row.hsn,
+                                gstRate: item?.gstRate ?? row.gstRate,
+                              }),
+                        } as T;
+                        const next = rows.map((r, i) => (i === index ? base : r));
+                        const trimmed = trimTrailingBlanks(next as T[]);
+                        onChange(trimmed);
+                        if (onServiceSelected) {
+                          const at = trimmed.findIndex((r) => r.id === row.id);
+                          onServiceSelected(at >= 0 ? at : trimmed.length - 1, selectedId);
+                        }
+                        return;
+                      }
                       const base = {
                         ...row,
-                        productId,
+                        itemType: allowServices ? ('product' as const) : row.itemType,
+                        productId: selectedId,
+                        ...(allowServices ? { serviceId: '' } : {}),
                         ...(onProductSelected
                           ? {}
                           : {
-                              rate: product?.rate ?? row.rate,
-                              hsn: product?.hsn ?? row.hsn,
-                              gstRate: product?.gstRate ?? row.gstRate,
+                              rate: item?.rate ?? row.rate,
+                              hsn: item?.hsn ?? row.hsn,
+                              gstRate: item?.gstRate ?? row.gstRate,
                             }),
                       } as T;
                       const next = rows.map((r, i) => (i === index ? base : r));
@@ -185,7 +268,7 @@ export function LineItemsGrid<T extends EditorLineItem = EditorLineItem>({
                       onChange(trimmed);
                       if (onProductSelected) {
                         const at = trimmed.findIndex((r) => r.id === row.id);
-                        onProductSelected(at >= 0 ? at : trimmed.length - 1, productId);
+                        onProductSelected(at >= 0 ? at : trimmed.length - 1, selectedId);
                       }
                     }}
                   />

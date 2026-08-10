@@ -9,14 +9,18 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.7.1",
     "@vaybooks/i18n": "*",
     "@vaybooks/store": "*",
     "@vaybooks/theme": "*",
     "@vaybooks/ui-kit": "*",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
+    "react-hook-form": "^7.85.0",
     "react-redux": "^9.0.0",
-    "react-router-dom": "^6.30.4"
+    "react-router-dom": "^6.30.4",
+    "recharts": "^2.15.4",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/react": "^18.0.0",

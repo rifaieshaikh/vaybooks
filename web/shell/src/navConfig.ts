@@ -151,6 +151,15 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     ],
   },
   {
+    header: 'Business',
+    module: 'business_ops',
+    items: [
+      item('/business', 'Overview', 'business_ops', 'business_ops.overview.view', 'layoutGrid'),
+      item('/business/tasks', 'Tasks', 'business_ops', 'business_ops.tasks.view', 'clipboardList'),
+      item('/business/time', 'Time log', 'business_ops', 'business_ops.time.view', 'clock'),
+    ],
+  },
+  {
     header: 'Projects',
     module: 'projects',
     items: [
@@ -318,6 +327,20 @@ export const SETTINGS_SECTIONS: { title: string; items: NavItem[] }[] = [
         'activity',
       ),
       item('/settings/store-activities', 'Store Activities', 'store', 'settings.store_activities.view', 'activity'),
+      item(
+        '/settings/business-activities',
+        'Business Activities',
+        'business_ops',
+        'settings.business_activities.view',
+        'activity',
+      ),
+      item(
+        '/settings/production-activities',
+        'Production Activities',
+        'production',
+        'settings.production_activities.view',
+        'activity',
+      ),
       item(
         '/settings/measurement-specs',
         'Measurement Specs',

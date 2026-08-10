@@ -20,10 +20,13 @@ from vaybooks.bms.domain.boutique.orders.repository import BillRegistryRepositor
 from vaybooks.bms.domain.boutique.orders.services import OrderDomainService
 from vaybooks.bms.domain.boutique.orders.order_refs import compact_order_ref
 from vaybooks.bms.domain.shared.date_utils import today, utc_now
-from vaybooks.bms.domain.shared.enums import OrderStatus, VoucherType
+from vaybooks.bms.domain.shared.enums import ActivityStatus, OrderStatus, VoucherType
 from vaybooks.bms.domain.shared.exceptions import ValidationError
 from vaybooks.bms.domain.boutique.time_tracking.repository import TimeTrackingRepository
 from vaybooks.bms.domain.boutique.time_tracking.services import TimeTrackingDomainService
+from vaybooks.bms.domain.boutique.time_tracking.entities import TaskType
+
+_MEASUREMENT_UNSET = object()
 
 
 class OrderAppService:
@@ -64,6 +67,65 @@ class OrderAppService:
 
     def _sync_etd_tasks(self, order: CustomizationOrder) -> None:
         self._time_domain.sync_etd_tasks_for_order(order)
+
+    def _is_draft(self, order: CustomizationOrder) -> bool:
+        status = getattr(order.order_status, "value", None) or str(
+            order.order_status or ""
+        )
+        return status == OrderStatus.DRAFT.value or status == "Draft"
+
+    def _sync_activity_tasks(self, order: CustomizationOrder) -> None:
+        if self._is_draft(order):
+            return
+        self._time_domain.sync_activity_tasks_for_order(order)
+
+    def _sync_order_tasks(self, order: CustomizationOrder) -> None:
+        """ETD milestones always; activity tasks only after confirm (non-Draft)."""
+        self._sync_etd_tasks(order)
+        self._sync_activity_tasks(order)
+
+    def sync_activity_tasks(
+        self, order_id: Optional[str] = None
+    ) -> dict:
+        """Backfill Created activity tasks for open non-Draft orders (or one order)."""
+        if order_id:
+            order = self._order_repo.find_by_id(order_id)
+            if not order:
+                raise ValidationError("Order not found")
+            if self._is_draft(order):
+                return {
+                    "orders": 0,
+                    "entries_before": 0,
+                    "entries_after": 0,
+                    "skipped": "Draft",
+                }
+            before = len(self._time_repo.find_by_order(order.id))
+            self._sync_activity_tasks(order)
+            after = len(self._time_repo.find_by_order(order.id))
+            return {"orders": 1, "entries_before": before, "entries_after": after}
+
+        scanned = 0
+        created = 0
+        for order in self._order_repo.list_all():
+            status = getattr(order.order_status, "value", None) or str(
+                order.order_status or ""
+            )
+            if status in ("Cancelled", "Completed", "Draft"):
+                continue
+            scanned += 1
+            before = {
+                e.id
+                for e in self._time_repo.find_by_order(order.id)
+                if e.task_type == TaskType.ACTIVITY
+            }
+            self._sync_activity_tasks(order)
+            after = {
+                e.id
+                for e in self._time_repo.find_by_order(order.id)
+                if e.task_type == TaskType.ACTIVITY
+            }
+            created += len(after - before)
+        return {"orders": scanned, "tasks_created": created}
 
     def _release_order_advance(self, order: CustomizationOrder) -> None:
         if not self._accounting_service:
@@ -145,10 +207,16 @@ class OrderAppService:
             raise ValidationError("Cancelled orders cannot be confirmed")
         if not order.expected_delivery_date:
             raise ValidationError("Order ETD is required before confirming")
+        if not order.customization_items:
+            raise ValidationError(
+                "Customization order must have at least one customization item"
+            )
         order.order_status = OrderStatus.IN_PROGRESS
         self._order_domain.validate_order(order)
         order.updated_at = utc_now()
-        return self._order_repo.save(order)
+        saved = self._order_repo.save(order)
+        self._sync_order_tasks(saved)
+        return saved
 
     def update_order_notes(
         self, order_id: str, notes: str
@@ -174,7 +242,7 @@ class OrderAppService:
                 item.expected_delivery_date = expected_delivery_date
         order.updated_at = utc_now()
         saved = self._order_repo.save(order)
-        self._sync_etd_tasks(saved)
+        self._sync_order_tasks(saved)
         return saved
 
     def find_advance_voucher(self, order_id: str) -> Optional[Voucher]:
@@ -325,6 +393,8 @@ class OrderAppService:
         expected_delivery_date=None,
         customer_specification: str = "",
         measurement_id: Optional[str] = None,
+        sell_amount: float = 0.0,
+        activity_estimated_hours: Optional[dict] = None,
     ) -> CustomizationItem:
         order = self._order_repo.find_by_id(order_id)
         if not order:
@@ -360,9 +430,11 @@ class OrderAppService:
             customer_specification=customer_specification,
             measurement_id=measurement_id,
             measurement_number=measurement_number,
+            estimated_hours_map=activity_estimated_hours or {},
+            sell_amount=float(sell_amount or 0),
         )
         self._order_repo.save(order)
-        self._sync_etd_tasks(order)
+        self._sync_order_tasks(order)
         return item
 
     def create_customization_order(self, request: CreateOrderRequest) -> CustomizationOrder:
@@ -445,7 +517,7 @@ class OrderAppService:
                 )
                 self._accounting_domain.save_voucher(voucher)
 
-        self._sync_etd_tasks(saved)
+        self._sync_order_tasks(saved)
         return saved
 
     def search_customization_orders(
@@ -484,7 +556,7 @@ class OrderAppService:
 
         self._recalculate_order(order)
         saved = self._order_repo.save(order)
-        self._sync_etd_tasks(saved)
+        self._sync_order_tasks(saved)
         return saved
 
     def list_all_customization_items(self) -> List[dict]:
@@ -570,13 +642,14 @@ class OrderAppService:
         vendor_or_worker_name: str = "",
         notes: str = "",
     ) -> CustomizationOrder:
+        preview = self.prepare_complete_activity(order_activity_id)
         order = self._order_repo.find_by_order_activity_id(order_activity_id)
         order_activity = order.get_activity_by_id(order_activity_id)
-        activity_config = self._activity_repo.find_by_id(order_activity.activity_id)
 
-        if add_expense:
-            preview = self.prepare_complete_activity(order_activity_id)
-            from vaybooks.bms.domain.boutique.activities.services import ActivityCompletionPreview
+        if add_expense and preview.needs_expense:
+            from vaybooks.bms.domain.boutique.activities.services import (
+                ActivityCompletionPreview,
+            )
 
             activity_preview = ActivityCompletionPreview(
                 order_activity_id=preview.order_activity_id,
@@ -602,11 +675,21 @@ class OrderAppService:
                 notes=notes,
             )
 
+        # Close Created placeholder so outsourced/material (and in-house after
+        # separate time logs) do not leave orphan Created tasks.
+        bill_id = order_activity.bill_id or preview.bill_id or ""
+        if bill_id and preview.activity_id:
+            self._time_domain.complete_activity_placeholder(
+                order.id, bill_id, preview.activity_id
+            )
+
         self._order_domain.mark_activity_completed(
             order, order_activity_id, completed_by
         )
         self._recalculate_order(order)
-        return self._order_repo.save(order)
+        saved = self._order_repo.save(order)
+        self._sync_activity_tasks(saved)
+        return saved
 
     def complete_activity(
         self,
@@ -634,7 +717,9 @@ class OrderAppService:
         order = self._order_repo.find_by_order_activity_id(order_activity_id)
         self._order_domain.skip_activity(order, order_activity_id, completed_by)
         self._recalculate_order(order)
-        return self._order_repo.save(order)
+        saved = self._order_repo.save(order)
+        self._sync_activity_tasks(saved)
+        return saved
 
     def cancel_order(self, order_id: str) -> CustomizationOrder:
         order = self._order_repo.find_by_id(order_id)
@@ -700,7 +785,7 @@ class OrderAppService:
         order.updated_at = utc_now()
         self._recalculate_order(order)
         saved = self._order_repo.save(order)
-        self._sync_etd_tasks(saved)
+        self._sync_order_tasks(saved)
         return saved
 
     def update_customization_item(
@@ -711,22 +796,151 @@ class OrderAppService:
         description: str,
         expected_delivery_date=None,
         customer_specification: Optional[str] = None,
+        *,
+        measurement_id=_MEASUREMENT_UNSET,
+        required_activities: Optional[dict] = None,
+        sell_amount: Optional[float] = None,
+        activity_estimated_hours: Optional[dict] = None,
     ) -> CustomizationOrder:
         order = self._order_repo.find_by_id(order_id)
         if not order:
             raise ValidationError("Order not found")
+        item = order.get_item_by_id(item_id)
+        if not item:
+            raise ValidationError("Customization item not found")
+
+        resolved_bill = (bill_number or "").strip()
+        if measurement_id is not _MEASUREMENT_UNSET:
+            mid = (measurement_id or "").strip() if measurement_id is not None else ""
+            if mid:
+                if not self._measurement_repo:
+                    raise ValidationError("Measurement repository is unavailable")
+                record = self._measurement_repo.find_by_id(mid)
+                if not record:
+                    raise ValidationError("Measurement not found")
+                if item.measurement_id != mid:
+                    resolved_bill = self._order_domain.next_measurement_bill_number(
+                        record.measurement_number
+                    )
+                item.measurement_id = mid
+                item.measurement_number = (
+                    (record.measurement_number or "").strip().upper() or None
+                )
+                if not record.order_id:
+                    record.order_id = order.id
+                    record.updated_at = utc_now()
+                    self._measurement_repo.save(record)
+            else:
+                # Explicit clear: keep bill number, drop measurement link.
+                if not (resolved_bill or item.bill_number or "").strip():
+                    raise ValidationError(
+                        "Measurement bill number is required when no measurement is linked"
+                    )
+                item.measurement_id = None
+                item.measurement_number = None
+
+        # Keep existing bill when client omits it (common with linked measurements).
+        if not resolved_bill:
+            resolved_bill = (item.bill_number or "").strip()
+        if not resolved_bill and item.measurement_id and self._measurement_repo:
+            record = self._measurement_repo.find_by_id(item.measurement_id)
+            if record:
+                resolved_bill = self._order_domain.next_measurement_bill_number(
+                    record.measurement_number
+                )
+        if not resolved_bill:
+            raise ValidationError(
+                "Measurement bill number is required when no measurement is linked"
+            )
+
         self._order_domain.update_customization_item(
             order,
             item_id,
-            bill_number,
+            resolved_bill,
             description,
             expected_delivery_date=expected_delivery_date,
             customer_specification=customer_specification,
+            sell_amount=sell_amount,
         )
+
+        if required_activities is not None or activity_estimated_hours is not None:
+            self._sync_item_required_activities(
+                order,
+                item_id,
+                required_activities
+                if required_activities is not None
+                else {
+                    a.activity_name: True
+                    for a in order.activities_for_item(item_id)
+                    if a.is_required
+                },
+                estimated_hours_map=activity_estimated_hours or {},
+            )
+
         self._recalculate_order(order)
         saved = self._order_repo.save(order)
-        self._sync_etd_tasks(saved)
+        self._sync_order_tasks(saved)
         return saved
+
+    def _sync_item_required_activities(
+        self,
+        order: CustomizationOrder,
+        item_id: str,
+        required_activities: dict,
+        estimated_hours_map: Optional[dict] = None,
+    ) -> None:
+        """Pending-only rebuild for one item; never remove COMPLETED/SKIPPED."""
+        hours_map = estimated_hours_map or {}
+        checked = {
+            str(name)
+            for name, wanted in (required_activities or {}).items()
+            if wanted
+        }
+        existing = list(order.activities_for_item(item_id))
+
+        # Drop unchecked PENDING activities only.
+        keep_ids = set()
+        for activity in existing:
+            if activity.activity_status in (
+                ActivityStatus.COMPLETED,
+                ActivityStatus.SKIPPED,
+            ):
+                keep_ids.add(activity.order_activity_id)
+                continue
+            if activity.activity_status != ActivityStatus.PENDING:
+                # Preserve in-progress (and any other non-pending) rows.
+                keep_ids.add(activity.order_activity_id)
+                continue
+            if activity.activity_name in checked:
+                keep_ids.add(activity.order_activity_id)
+                if activity.activity_name in hours_map:
+                    hours = round(float(hours_map.get(activity.activity_name) or 0), 2)
+                    if hours < 0:
+                        raise ValidationError("Estimated hours cannot be negative")
+                    activity.estimated_hours = hours
+        order.order_activities = [
+            a
+            for a in order.order_activities
+            if a.bill_id != item_id or a.order_activity_id in keep_ids
+        ]
+
+        # Add newly checked activities from catalog.
+        present_names = {
+            a.activity_name for a in order.activities_for_item(item_id)
+        }
+        for config in self._activity_repo.list_all():
+            if config.activity_name not in checked:
+                continue
+            if config.activity_name in present_names:
+                continue
+            hours = float(hours_map.get(config.activity_name) or 0)
+            self._order_domain.add_activity_to_item(
+                order,
+                item_id,
+                config.id,
+                config.activity_name,
+                estimated_hours=hours,
+            )
 
     def remove_customization_item(
         self,
@@ -738,7 +952,14 @@ class OrderAppService:
             raise ValidationError("Order not found")
         self._order_domain.remove_customization_item(order, item_id)
         self._recalculate_order(order)
-        return self._order_repo.save(order)
+        saved = self._order_repo.save(order)
+        self._sync_activity_tasks(saved)
+        if self._attachment_service:
+            for attachment in list(
+                self._attachment_service.list_by_item(item_id) or []
+            ):
+                self._attachment_service.delete(attachment.id)
+        return saved
 
     def add_activity_to_item(
         self,
@@ -757,7 +978,9 @@ class OrderAppService:
             config.activity_name,
         )
         self._recalculate_order(order)
-        return self._order_repo.save(order)
+        saved = self._order_repo.save(order)
+        self._sync_activity_tasks(saved)
+        return saved
 
     def get_activity_statuses(self, activity_id: str) -> List[str]:
         config = self._activity_repo.find_by_id(activity_id)
@@ -790,7 +1013,9 @@ class OrderAppService:
         order = self._order_repo.find_by_id(order_id)
         self._order_domain.remove_activity_from_item(order, order_activity_id)
         self._recalculate_order(order)
-        return self._order_repo.save(order)
+        saved = self._order_repo.save(order)
+        self._sync_activity_tasks(saved)
+        return saved
 
     def get_customization_item_detail(
         self, order_id: str, item_id: str

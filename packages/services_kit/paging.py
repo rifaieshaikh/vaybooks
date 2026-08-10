@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Mapping, Sequence, TypeVar
+import re
+from datetime import date, datetime
+from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar
 
 T = TypeVar("T")
 
 DEFAULT_PAGE_SIZE = 12
 MAX_PAGE_SIZE = 500
+
+_DATETIME_DATE_FIELDS = frozenset(
+    {"voucher_date", "created_at", "updated_at"}
+)
 
 
 def clamp_page(page: int | None = None, page_size: int | None = None) -> tuple[int, int]:
@@ -198,3 +204,155 @@ def apply_list_query(
         )
     sorted_rows = sort_dicts(filtered, sort_by, sort_desc=sort_desc)
     return paged_result(sorted_rows, page=page, page_size=page_size)
+
+
+def mongo_ci_contains(text: str) -> dict:
+    """Case-insensitive substring regex clause for Mongo queries."""
+    return {"$regex": re.escape((text or "").strip()), "$options": "i"}
+
+
+def _mongo_date_bounds(
+    field: str,
+    date_from: str,
+    date_to: str,
+    *,
+    as_datetime: bool | None = None,
+) -> dict | None:
+    """Build a Mongo range clause for one date/datetime field."""
+    start = (date_from or "").strip()[:10]
+    end = (date_to or "").strip()[:10]
+    if not start and not end:
+        return None
+    use_dt = (
+        as_datetime
+        if as_datetime is not None
+        else (field in _DATETIME_DATE_FIELDS or field.endswith("_at"))
+    )
+    if use_dt:
+        clause: dict[str, Any] = {}
+        if start:
+            clause["$gte"] = datetime.combine(
+                date.fromisoformat(start), datetime.min.time()
+            )
+        if end:
+            clause["$lte"] = datetime.combine(
+                date.fromisoformat(end), datetime.max.time()
+            )
+        return {field: clause}
+
+    # Document date fields may be BSON date/datetime or ISO ``YYYY-MM-DD`` strings.
+    date_clause: dict[str, Any] = {}
+    str_clause: dict[str, Any] = {}
+    if start:
+        d0 = date.fromisoformat(start)
+        date_clause["$gte"] = d0
+        str_clause["$gte"] = start
+    if end:
+        d1 = date.fromisoformat(end)
+        date_clause["$lte"] = d1
+        str_clause["$lte"] = end
+    return {"$or": [{field: date_clause}, {field: str_clause}]}
+
+
+def build_mongo_list_filter(
+    *,
+    base: dict | None = None,
+    q: str = "",
+    q_fields: Sequence[str] = (),
+    equals: Mapping[str, str] | None = None,
+    contains: Mapping[str, str] | None = None,
+    date_field: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    alt_date_fields: Sequence[str] = (),
+    status_nin: Sequence[str] | None = None,
+    status_in: Sequence[str] | None = None,
+) -> dict:
+    """AND-compose Mongo filter for document lists."""
+    parts: list[dict[str, Any]] = []
+    if base:
+        parts.append(dict(base))
+
+    needle = (q or "").strip()
+    if needle and q_fields:
+        parts.append(
+            {"$or": [{field: mongo_ci_contains(needle)} for field in q_fields if field]}
+        )
+
+    for key, want in (equals or {}).items():
+        text = (want or "").strip()
+        if text:
+            parts.append({key: text})
+
+    for key, want in (contains or {}).items():
+        text = (want or "").strip()
+        if text:
+            parts.append({key: mongo_ci_contains(text)})
+
+    nin = [str(v) for v in (status_nin or ()) if str(v).strip()]
+    if nin:
+        parts.append({"status": {"$nin": nin}})
+    vin = [str(v) for v in (status_in or ()) if str(v).strip()]
+    if vin:
+        parts.append({"status": {"$in": vin}})
+
+    fields = tuple(
+        f for f in ((date_field,) + tuple(alt_date_fields or ())) if f
+    )
+    if fields and ((date_from or "").strip() or (date_to or "").strip()):
+        if len(fields) == 1:
+            clause = _mongo_date_bounds(fields[0], date_from, date_to)
+            if clause:
+                parts.append(clause)
+        else:
+            or_parts = [
+                c
+                for c in (
+                    _mongo_date_bounds(f, date_from, date_to) for f in fields
+                )
+                if c
+            ]
+            if or_parts:
+                parts.append({"$or": or_parts})
+
+    if not parts:
+        return {}
+    if len(parts) == 1:
+        return parts[0]
+    return {"$and": parts}
+
+
+def query_mongo_page(
+    collection,
+    query: dict,
+    *,
+    sort_by: str = "",
+    sort_desc: bool = True,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    map_doc: Callable[[Any], Any],
+) -> dict[str, Any]:
+    """``count_documents`` + ``find().sort().skip().limit()`` page envelope."""
+    filt = query or {}
+    total = int(collection.count_documents(filt))
+    p, size = clamp_page(page, page_size)
+    if total == 0:
+        return {"items": [], "total": 0, "page": 1, "page_size": size}
+    last = max(1, (total + size - 1) // size)
+    if p > last:
+        p = last
+    key = (sort_by or "").strip() or "_id"
+    direction = -1 if sort_desc else 1
+    cursor = (
+        collection.find(filt)
+        .sort([(key, direction)])
+        .skip((p - 1) * size)
+        .limit(size)
+    )
+    items = [map_doc(doc) for doc in cursor]
+    return {
+        "items": items,
+        "total": total,
+        "page": p,
+        "page_size": size,
+    }

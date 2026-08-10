@@ -13,12 +13,20 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from packages.services_kit.purchases_container import get_purchases_container
-from packages.services_kit.paging import DEFAULT_PAGE_SIZE, apply_list_query
+from packages.services_kit.paging import (
+    DEFAULT_PAGE_SIZE,
+    apply_list_query,
+    build_mongo_list_filter,
+)
 from services.finance.router import is_consumer_healthy as finance_healthy
 from services.inventory.router import is_consumer_healthy as inventory_healthy
 from services.parties.serialize import entity_dict
 from services.sales.degraded import is_degraded_pending
-from vaybooks.bms.domain.shared.enums import CatalogItemType, PurchaseOrderStatus
+from vaybooks.bms.domain.shared.enums import (
+    CatalogItemType,
+    GoodsReceiptStatus,
+    PurchaseOrderStatus,
+)
 from vaybooks.bms.domain.shared.exceptions import ValidationError
 
 router = APIRouter(prefix="/api/purchases", tags=["purchases"])
@@ -90,6 +98,7 @@ class PurchaseBillWrite(BaseModel):
     vendor_id: str = Field(min_length=1)
     vendor_bill_number: str = Field(min_length=1)
     voucher_date: Optional[str] = None
+    due_date: Optional[str] = None
     amount_paid: float = 0.0
     paying_account_id: Optional[str] = None
     reference_po_id: Optional[str] = None
@@ -182,6 +191,35 @@ def _po_dict(po: Any, *, include_lines: bool = True) -> dict[str, Any]:
     if not include_lines:
         data.pop("lines", None)
     return data
+
+
+def _map_po_page(page: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "items": [_po_dict(item, include_lines=False) for item in page.get("items") or []],
+        "total": int(page.get("total") or 0),
+        "page": int(page.get("page") or 1),
+        "page_size": int(page.get("page_size") or DEFAULT_PAGE_SIZE),
+    }
+
+
+def _map_grn_page(page: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "items": [_grn_dict(item, include_lines=False) for item in page.get("items") or []],
+        "total": int(page.get("total") or 0),
+        "page": int(page.get("page") or 1),
+        "page_size": int(page.get("page_size") or DEFAULT_PAGE_SIZE),
+    }
+
+
+def _map_return_page(page: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "items": [
+            _return_dict(item, include_lines=False) for item in page.get("items") or []
+        ],
+        "total": int(page.get("total") or 0),
+        "page": int(page.get("page") or 1),
+        "page_size": int(page.get("page_size") or DEFAULT_PAGE_SIZE),
+    }
 
 
 def _grn_dict(grn: Any, *, include_lines: bool = True) -> dict[str, Any]:
@@ -298,23 +336,17 @@ def list_orders(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     try:
-        rows = [_po_dict(po, include_lines=False) for po in _svc().list_purchase_orders()]
         status_key = status.strip()
-        if status_key.lower() == "open":
-            rows = [
-                r
-                for r in rows
-                if (s := str(r.get("status") or "").lower())
-                and "closed" not in s
-                and "cancelled" not in s
-                and "canceled" not in s
-            ]
-            status_key = ""
         equals: dict[str, str] = {}
-        if status_key:
+        status_nin = None
+        if status_key.lower() == "open":
+            status_nin = [
+                PurchaseOrderStatus.CLOSED.value,
+                PurchaseOrderStatus.CANCELLED.value,
+            ]
+        elif status_key:
             equals["status"] = status_key
-        return apply_list_query(
-            rows,
+        query = build_mongo_list_filter(
             q=q,
             q_fields=("po_number", "vendor_name", "status"),
             equals=equals,
@@ -322,10 +354,16 @@ def list_orders(
             date_field="order_date",
             date_from=date_from,
             date_to=date_to,
-            sort_by=sort_by or "order_date",
-            sort_desc=sort_desc,
-            page=page,
-            page_size=page_size,
+            status_nin=status_nin,
+        )
+        return _map_po_page(
+            _svc().query_purchase_orders(
+                query,
+                sort_by=sort_by or "order_date",
+                sort_desc=sort_desc,
+                page=page,
+                page_size=page_size,
+            )
         )
     except Exception as exc:
         raise _http_err(exc) from exc
@@ -473,25 +511,14 @@ def list_goods_receipts(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     try:
-        rows = [_grn_dict(g, include_lines=False) for g in _svc().list_goods_receipts()]
         status_key = status.strip()
-        if status_key.lower() == "pending":
-
-            def _pending(row: dict[str, Any]) -> bool:
-                s = str(row.get("status") or "").lower()
-                if "cancel" in s:
-                    return False
-                if "received" in s and "partial" not in s:
-                    return False
-                return (not s) or "draft" in s or "partial" in s or "pending" in s
-
-            rows = [r for r in rows if _pending(r)]
-            status_key = ""
         equals: dict[str, str] = {}
-        if status_key:
+        status_in = None
+        if status_key.lower() == "pending":
+            status_in = [GoodsReceiptStatus.DRAFT.value]
+        elif status_key:
             equals["status"] = status_key
-        return apply_list_query(
-            rows,
+        query = build_mongo_list_filter(
             q=q,
             q_fields=("grn_number", "vendor_name", "status", "po_number"),
             equals=equals,
@@ -499,10 +526,16 @@ def list_goods_receipts(
             date_field="receipt_date",
             date_from=date_from,
             date_to=date_to,
-            sort_by=sort_by or "receipt_date",
-            sort_desc=sort_desc,
-            page=page,
-            page_size=page_size,
+            status_in=status_in,
+        )
+        return _map_grn_page(
+            _svc().query_goods_receipts(
+                query,
+                sort_by=sort_by or "receipt_date",
+                sort_desc=sort_desc,
+                page=page,
+                page_size=page_size,
+            )
         )
     except Exception as exc:
         raise _http_err(exc) from exc
@@ -598,7 +631,19 @@ def list_bills(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     try:
-        rows = [_bill_dict(row) for row in _svc().list_purchase_bills()]
+        mongo_filter = build_mongo_list_filter(
+            contains={
+                "description": vendor_bill_number,
+                "voucher_number": voucher_number,
+            },
+            date_field="voucher_date",
+            date_from=date_from,
+            date_to=date_to,
+        )
+        rows = [
+            _bill_dict(row)
+            for row in _svc().list_purchase_bills(mongo_filter=mongo_filter or None)
+        ]
         hv = has_voucher.strip().lower()
         if hv in {"yes", "no"}:
             rows = [
@@ -626,10 +671,6 @@ def list_bills(
                 "vendor_name": vendor_name,
                 "voucher_number": voucher_number,
             },
-            date_field="bill_date",
-            alt_date_fields=("voucher_date",),
-            date_from=date_from,
-            date_to=date_to,
             sort_by=sort_by or "bill_date",
             sort_desc=sort_desc,
             page=page,
@@ -650,6 +691,7 @@ def create_bill(body: PurchaseBillWrite) -> dict[str, Any]:
             amount_paid=body.amount_paid,
             paying_account_id=body.paying_account_id,
             voucher_date=_parse_date(body.voucher_date),
+            due_date=_parse_date(body.due_date),
             reference_po_id=body.reference_po_id,
             reference_grn_id=body.reference_grn_id,
             apply_stock=body.apply_stock,
@@ -684,6 +726,7 @@ def update_bill(bill_id: str, body: PurchaseBillWrite) -> dict[str, Any]:
             amount_paid=body.amount_paid,
             paying_account_id=body.paying_account_id,
             voucher_date=_parse_date(body.voucher_date),
+            due_date=_parse_date(body.due_date),
         )
         row = _svc().get_purchase_bill(voucher.id) or {"id": voucher.id}
         return _bill_dict(row, include_lines=True)
@@ -707,19 +750,22 @@ def list_returns(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
     try:
-        rows = [_return_dict(r, include_lines=False) for r in _svc().list_purchase_returns()]
-        return apply_list_query(
-            rows,
+        query = build_mongo_list_filter(
             q=q,
             q_fields=("return_number", "vendor_name"),
             contains={"return_number": return_number, "vendor_name": vendor_name},
             date_field="return_date",
             date_from=date_from,
             date_to=date_to,
-            sort_by=sort_by or "return_date",
-            sort_desc=sort_desc,
-            page=page,
-            page_size=page_size,
+        )
+        return _map_return_page(
+            _svc().query_purchase_returns(
+                query,
+                sort_by=sort_by or "return_date",
+                sort_desc=sort_desc,
+                page=page,
+                page_size=page_size,
+            )
         )
     except Exception as exc:
         raise _http_err(exc) from exc

@@ -19,6 +19,7 @@ import {
   useLazyGetVendorPurchaseRateQuery,
   useListFinanceAccountsQuery,
   useListInventoryProductsQuery,
+  useListVendorServicesQuery,
   useListVendorsQuery,
   useUpdatePurchaseBillMutation,
 } from '@vaybooks/store';
@@ -28,6 +29,7 @@ import {
   editorLinesToBillPayload,
   mapApiLinesToEditor,
   mapProductsToLineOptions,
+  mapServicesToLineOptions,
   recomputePurchaseLines,
   todayISO,
 } from './linePreview';
@@ -59,6 +61,7 @@ export function BillEditorPage() {
   const { data: existing, isLoading } = useGetPurchaseBillQuery(editId, { skip: !editId });
   const { data: vendors = [] } = useListVendorsQuery();
   const { data: products = [] } = useListInventoryProductsQuery();
+  const { data: services = [] } = useListVendorServicesQuery();
   const { data: accounts = [] } = useListFinanceAccountsQuery();
   const { data: business } = useGetBusinessProfileQuery();
   const { locationId: workingLocationId } = useWorkingLocation();
@@ -69,6 +72,7 @@ export function BillEditorPage() {
   const [vendorId, setVendorId] = useState(() => params.get('vendor_id') || '');
   const [billNumber, setBillNumber] = useState('');
   const [voucherDate, setVoucherDate] = useState(todayISO());
+  const [dueDate, setDueDate] = useState(todayISO());
   const [existingLocationId, setExistingLocationId] = useState('');
   const [amountPaid, setAmountPaid] = useState('0');
   const [payingAccountId, setPayingAccountId] = useState('');
@@ -81,6 +85,7 @@ export function BillEditorPage() {
 
   const { data: vendorDetail } = useGetVendorQuery(vendorId, { skip: !vendorId });
   const productOptions = useMemo(() => mapProductsToLineOptions(products), [products]);
+  const serviceOptions = useMemo(() => mapServicesToLineOptions(services), [services]);
   const payAccounts = useMemo(() => accounts.filter(isCashOrBank), [accounts]);
 
   const gstCtx = useMemo(() => {
@@ -110,7 +115,9 @@ export function BillEditorPage() {
     if (!isEdit || !existing || hydrated) return;
     setVendorId(String(existing.vendor_id || params.get('vendor_id') || ''));
     setBillNumber(String(existing.vendor_bill_number || ''));
-    setVoucherDate(String(existing.bill_date || existing.voucher_date || todayISO()).slice(0, 10));
+    const billDate = String(existing.bill_date || existing.voucher_date || todayISO()).slice(0, 10);
+    setVoucherDate(billDate);
+    setDueDate(String(existing.due_date || billDate).slice(0, 10));
     setExistingLocationId(String(existing.location_id || ''));
     setAmountPaid(String(existing.amount_paid ?? 0));
     setPayingAccountId(String(existing.paying_account_id || ''));
@@ -139,10 +146,30 @@ export function BillEditorPage() {
       if (!next[index]) return prev;
       next[index] = {
         ...next[index],
+        itemType: 'product',
         productId,
+        serviceId: '',
         rate,
         hsn: product?.hsn || '',
         gstRate: product?.gstRate ?? 0,
+      };
+      return next;
+    });
+  }
+
+  function onServiceSelected(index: number, serviceId: string) {
+    const service = serviceOptions.find((s) => s.id === serviceId);
+    setLines((prev) => {
+      const next = [...prev];
+      if (!next[index]) return prev;
+      next[index] = {
+        ...next[index],
+        itemType: 'service',
+        serviceId,
+        productId: '',
+        rate: service?.rate ?? 0,
+        hsn: service?.hsn || '',
+        gstRate: service?.gstRate ?? 0,
       };
       return next;
     });
@@ -169,13 +196,14 @@ export function BillEditorPage() {
       }
       const payloadLines = editorLinesToBillPayload(previewLines);
       if (!payloadLines.length) {
-        setError('Add at least one product line.');
+        setError('Add at least one product or service line.');
         return;
       }
       const body: Record<string, unknown> = {
         vendor_id: vendorId,
         vendor_bill_number: billNumber.trim(),
         voucher_date: voucherDate || undefined,
+        due_date: dueDate || voucherDate || undefined,
         amount_paid: Number(amountPaid) || 0,
         paying_account_id: payingAccountId || undefined,
         apply_stock: hasGrnRef ? false : applyStock,
@@ -213,10 +241,13 @@ export function BillEditorPage() {
           <LineItemsGrid
             lines={previewLines}
             products={productOptions}
+            services={serviceOptions}
+            allowServices
             showDiscount={false}
             disabled={isEdit && !monthEditable}
             onChange={setLines}
             onProductSelected={onProductSelected}
+            onServiceSelected={onServiceSelected}
           />
         </div>
       }
@@ -294,7 +325,21 @@ export function BillEditorPage() {
           <TextInput
             type="date"
             value={voucherDate}
-            onChange={(e) => setVoucherDate(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              setVoucherDate(next);
+              if (!isEdit && (!dueDate || dueDate === voucherDate)) {
+                setDueDate(next);
+              }
+            }}
+            disabled={isEdit && !monthEditable}
+          />
+        </FormRow>
+        <FormRow label="Due date">
+          <TextInput
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
             disabled={isEdit && !monthEditable}
           />
         </FormRow>

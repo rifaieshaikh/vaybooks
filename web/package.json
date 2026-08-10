@@ -15,6 +15,7 @@
     "mfe-access",
     "mfe-settings",
     "mfe-store",
+    "mfe-business",
     "mfe-production",
     "mfe-schedulers",
     "mfe-migration",
@@ -35,12 +36,13 @@
     "dev:access": "npm run dev -w mfe-access",
     "dev:settings": "npm run dev -w mfe-settings",
     "dev:store": "npm run dev -w mfe-store",
+    "dev:business": "npm run dev -w mfe-business",
     "dev:production": "npm run dev -w mfe-production",
     "dev:schedulers": "npm run dev -w mfe-schedulers",
     "dev:migration": "npm run dev -w mfe-migration",
     "dev:system": "npm run dev -w mfe-system",
     "dev:home": "npm run dev -w mfe-home",
     "dev:desktop": "npm run dev -w desktop-compose",
-    "build": "npm run build -w shell -w mfe-parties -w mfe-inventory -w mfe-finance -w mfe-purchases -w mfe-sales -w mfe-boutique -w mfe-crm -w mfe-projects -w mfe-access -w mfe-settings -w mfe-store -w mfe-production -w mfe-schedulers -w mfe-migration -w mfe-system -w mfe-home -w desktop-compose"
+    "build": "npm run build -w shell -w mfe-parties -w mfe-inventory -w mfe-finance -w mfe-purchases -w mfe-sales -w mfe-boutique -w mfe-crm -w mfe-projects -w mfe-access -w mfe-settings -w mfe-store -w mfe-business -w mfe-production -w mfe-schedulers -w mfe-migration -w mfe-system -w mfe-home -w desktop-compose"
   }
 }

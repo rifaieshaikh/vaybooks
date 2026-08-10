@@ -8,6 +8,7 @@ export {
   BoutiqueMeasurementsListPage,
   BoutiqueMeasurementDetailPage,
   BoutiqueTimePage,
+  BoutiqueTimeLogPage,
   BoutiqueCalendarPage,
   BoutiqueReportsPage,
   BoutiqueScheduledReportsPage,

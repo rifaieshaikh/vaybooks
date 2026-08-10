@@ -142,6 +142,7 @@ def sales_row_from_voucher(
     return {
         "id": voucher.id,
         "store_invoice_number": store_number,
+        "voucher_number": getattr(voucher, "voucher_number", None) or "",
         "party_name": amounts["party_name"],
         "customer_account_id": amounts["customer_account_id"],
         "sale_date": sale_date,
@@ -155,4 +156,5 @@ def sales_row_from_voucher(
         "payment_status_label": payment_status_label(amounts["payment_status"]),
         "reference_project_id": getattr(voucher, "reference_project_id", None),
         "project_name": getattr(voucher, "project_name", None) or "",
+        "due_date": getattr(voucher, "due_date", None),
     }
