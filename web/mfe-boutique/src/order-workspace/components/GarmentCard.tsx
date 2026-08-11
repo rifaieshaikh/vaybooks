@@ -6,6 +6,7 @@ import {
   useLazyGetBoutiqueItemPdfQuery,
   useCan,
   useListInventoryCategoriesQuery,
+  useListInventorySkusQuery,
   useRemoveBoutiqueOrderItemMutation,
   useUpdateBoutiqueOrderItemMutation,
 } from '@vaybooks/store';
@@ -70,6 +71,10 @@ export function GarmentCard({
     { active_only: true },
     { skip: !canEditCategory },
   );
+  const { data: skus = [] } = useListInventorySkusQuery(
+    { active_only: true },
+    { skip: readOnly },
+  );
   const categoryOptions = useMemo(
     () => [
       { value: '', label: '— No category —' },
@@ -79,6 +84,18 @@ export function GarmentCard({
       })),
     ],
     [categories],
+  );
+  const skuOptions = useMemo(
+    () => [
+      { value: '', label: '— No SKU —' },
+      ...(skus as Record<string, unknown>[]).map((sku) => ({
+        value: asCaption(sku.id),
+        label: `${asCaption(sku.name) || asCaption(sku.id)}${
+          sku.sku ? ` (${asCaption(sku.sku)})` : ''
+        }`,
+      })),
+    ],
+    [skus],
   );
 
   const form = useForm<GarmentValues>({
@@ -95,6 +112,7 @@ export function GarmentCard({
         '',
       measurementId: asCaption(item?.measurement_id) || draftSeed?.measurementId || '',
       categoryId: asCaption(item?.category_id) || draftSeed?.categoryId || '',
+      skuId: asCaption(item?.sku_id) || draftSeed?.skuId || '',
       billNumber: asCaption(item?.bill_number) || draftSeed?.billNumber || '',
       requiredActivities:
         draftSeed?.requiredActivities ||
@@ -147,6 +165,15 @@ export function GarmentCard({
       expected_delivery_date: values.expectedDeliveryDate || undefined,
       measurement_id: values.measurementId || undefined,
       ...(canEditCategory ? { category_id: values.categoryId || null } : {}),
+      sku_id: values.skuId || null,
+      catalog_product_id: (() => {
+        const selected = (skus as Record<string, unknown>[]).find(
+          (row) => asCaption(row.id) === String(values.skuId || ''),
+        );
+        return selected
+          ? asCaption(selected.catalog_product_id) || null
+          : asCaption(item?.catalog_product_id) || null;
+      })(),
       // With a measurement, bill is assigned server-side; keep existing if already set.
       bill_number: values.measurementId
         ? String(values.billNumber || item?.bill_number || '').trim()
@@ -338,6 +365,24 @@ export function GarmentCard({
             </FormRow>
           ) : null}
 
+          {!readOnly || form.watch('skuId') ? (
+            <FormRow label="Linked SKU">
+              <Controller
+                control={form.control}
+                name="skuId"
+                render={({ field }) => (
+                  <SearchableSelect
+                    options={skuOptions}
+                    value={field.value || ''}
+                    onChange={field.onChange}
+                    disabled={readOnly}
+                    placeholder="Select SKU (optional)"
+                  />
+                )}
+              />
+            </FormRow>
+          ) : null}
+
           <Controller
             control={form.control}
             name="measurementId"
@@ -416,6 +461,7 @@ export function GarmentCard({
                   activityEstimatedHours: { ...form.getValues('activityEstimatedHours') },
                   measurementId: '',
                   categoryId: form.getValues('categoryId'),
+                  skuId: form.getValues('skuId'),
                   billNumber: '',
                 })
               }

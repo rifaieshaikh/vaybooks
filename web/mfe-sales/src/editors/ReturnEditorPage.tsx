@@ -17,7 +17,7 @@ import {
   useGetCustomerQuery,
   useGetSalesReturnQuery,
   useListCustomersQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useListSalesInvoicesQuery,
   useUpdateSalesReturnMutation,
 } from '@vaybooks/store';
@@ -44,7 +44,7 @@ export function ReturnEditorPage() {
 
   const { data: existing, isLoading } = useGetSalesReturnQuery(editId, { skip: !editId });
   const { data: customers = [] } = useListCustomersQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
+  const { data: products = [] } = useListInventorySkusQuery();
   const { data: invoicesPage } = useListSalesInvoicesQuery({
     page: 1,
     page_size: LIST_FETCH_ALL_SIZE,
@@ -130,6 +130,7 @@ export function ReturnEditorPage() {
       }
       const payloadLines = editorLinesToPayload(previewLines, locationId).map((l) => ({
         product_id: l.product_id,
+        sku_id: l.sku_id,
         qty: l.qty,
         rate: l.rate,
       }));

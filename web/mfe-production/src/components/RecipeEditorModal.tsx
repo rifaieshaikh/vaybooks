@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   useCreateRecipeMutation,
   useGetProductionSettingsQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useUpdateRecipeMutation,
 } from '@vaybooks/store';
 import {
@@ -58,7 +58,7 @@ export function RecipeEditorModal({
   onSaved: () => void;
 }) {
   const isEdit = Boolean(recipe?.id);
-  const { data: products = [] } = useListInventoryProductsQuery();
+  const { data: products = [] } = useListInventorySkusQuery();
   const { data: settings } = useGetProductionSettingsQuery();
   const [createRecipe, createState] = useCreateRecipeMutation();
   const [updateRecipe, updateState] = useUpdateRecipeMutation();
@@ -156,6 +156,7 @@ export function RecipeEditorModal({
       .filter((l) => l.product_id)
       .map((l) => ({
         product_id: l.product_id,
+        sku_id: l.product_id,
         qty: Number(l.qty) || 0,
         scrap_pct: advanced ? Number(l.scrap_pct) || 0 : 0,
       }));
@@ -163,6 +164,7 @@ export function RecipeEditorModal({
       .filter((l) => l.product_id)
       .map((l) => ({
         product_id: l.product_id,
+        sku_id: l.product_id,
         expected_qty: Number(l.qty) || 0,
         role: advanced ? l.role : 'Main',
         allocation_pct: advanced ? Number(l.allocation_pct) || 0 : 0,

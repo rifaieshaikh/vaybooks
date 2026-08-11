@@ -21,7 +21,7 @@ import {
   useGetSalesOrderQuery,
   useListCustomersQuery,
   useListDeliveryPartnersQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useListSalesInvoicesQuery,
   useListSalesOrdersQuery,
   useUpdateDeliveryNoteMutation,
@@ -98,7 +98,7 @@ export function DeliveryNoteEditorPage() {
 
   const { data: existing, isLoading } = useGetDeliveryNoteQuery(editId, { skip: !editId });
   const { data: customers = [] } = useListCustomersQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
+  const { data: products = [] } = useListInventorySkusQuery();
   const { data: ordersPage } = useListSalesOrdersQuery({
     page: 1,
     page_size: LIST_FETCH_ALL_SIZE,

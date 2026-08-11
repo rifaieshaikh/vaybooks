@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
+  useCan,
   useCreateInventoryProductMutation,
+  useGetCatalogProductQuery,
   useGetInventoryProductQuery,
+  useGetSkuActivityQuery,
+  useGetSkuCustomizationBreakdownQuery,
+  useGetSkuProductionBreakdownQuery,
+  useGetSkuPurchaseBreakdownQuery,
+  useGetSkuSalesBreakdownQuery,
+  useListCustomerPricesQuery,
   useListInventoryCategoriesQuery,
   useListInventoryLocationsQuery,
-  useListInventoryProductsQuery,
+  useListInventoryMovementsQuery,
+  useListInventorySkusQuery,
+  useListInventoryUnitsQuery,
   useUpdateInventoryProductMutation,
 } from '@vaybooks/store';
 import {
@@ -50,9 +60,19 @@ import {
   type SortCriterion,
   type StatusPillTone,
 } from '@vaybooks/ui-kit';
-import { toCategoryOptions, toLocationOptions, withNoneOption } from '../pickerOptions';
+import { BreakdownPanel, useBreakdownRange } from '../components/BreakdownPanel';
+import { toCategoryOptions, toLocationOptions, toUnitOptions, resolveUnitId, unitCodeForId, withNoneOption } from '../pickerOptions';
 
-type SkuDetailTab = 'details' | 'pricing' | 'stock';
+type SkuDetailTab =
+  | 'details'
+  | 'pricing'
+  | 'movements'
+  | 'customerPrices'
+  | 'sales'
+  | 'purchase'
+  | 'production'
+  | 'customization'
+  | 'activity';
 
 function stockStatusTone(status: unknown): StatusPillTone {
   const s = String(status || '');
@@ -66,7 +86,7 @@ type SkuFormValues = {
   sku: string;
   name: string;
   category_ids: string[];
-  unit_code: string;
+  unit_id: string;
   hsn_sac: string;
   selling_rate: string;
   mrp: string;
@@ -81,7 +101,7 @@ function emptySkuForm(): SkuFormValues {
     sku: '',
     name: '',
     category_ids: [],
-    unit_code: 'pcs',
+    unit_id: '',
     hsn_sac: '',
     selling_rate: '0',
     mrp: '0',
@@ -92,12 +112,16 @@ function emptySkuForm(): SkuFormValues {
   };
 }
 
-function productToForm(row: Record<string, unknown>): SkuFormValues {
+function productToForm(row: Record<string, unknown>, units: Record<string, unknown>[] = []): SkuFormValues {
   return {
     sku: String(row.sku || ''),
     name: String(row.name || ''),
     category_ids: Array.isArray(row.category_ids) ? (row.category_ids as unknown[]).map(String) : [],
-    unit_code: String(row.unit || row.unit_code || 'pcs'),
+    unit_id: resolveUnitId(units, {
+      unit_id: String(row.unit_id || ''),
+      unit_code: String(row.unit || row.unit_code || ''),
+      unit: String(row.unit || ''),
+    }),
     hsn_sac: String(row.hsn_sac || ''),
     selling_rate: String(row.selling_rate ?? 0),
     mrp: String(row.mrp ?? 0),
@@ -108,20 +132,26 @@ function productToForm(row: Record<string, unknown>): SkuFormValues {
   };
 }
 
-function productBody(v: SkuFormValues) {
-  return {
+function productBody(v: SkuFormValues, units: Record<string, unknown>[], opts?: { includeOpening?: boolean }) {
+  const includeOpening = opts?.includeOpening !== false;
+  const unitId = v.unit_id || resolveUnitId(units);
+  const body: Record<string, unknown> = {
     sku: v.sku.trim(),
     name: v.name.trim(),
     category_ids: v.category_ids,
-    unit_code: v.unit_code || 'pcs',
+    unit_id: unitId,
+    unit_code: unitCodeForId(units, unitId),
     hsn_sac: v.hsn_sac || '',
     selling_rate: Number(v.selling_rate) || 0,
     mrp: Number(v.mrp) || 0,
     gst_rate: Number(v.gst_rate) || 0,
-    opening_qty: Number(v.opening_qty) || 0,
-    location_id: v.location_id || '',
     is_active: v.is_active,
   };
+  if (includeOpening) {
+    body.opening_qty = Number(v.opening_qty) || 0;
+    body.location_id = v.location_id || '';
+  }
+  return body;
 }
 
 function extractError(e: unknown): string {
@@ -152,11 +182,15 @@ function ProductFormFields({
   onChange,
   categoryOptions,
   locationOptions,
+  unitOptions,
+  showOpening = true,
 }: {
   values: SkuFormValues;
   onChange: (n: keyof SkuFormValues, v: string | boolean | string[]) => void;
   categoryOptions: SearchableSelectOption[];
   locationOptions: SearchableSelectOption[];
+  unitOptions: SearchableSelectOption[];
+  showOpening?: boolean;
 }) {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
@@ -178,8 +212,13 @@ function ProductFormFields({
         />
       </FormRow>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <FormRow label="Unit code">
-          <TextInput value={values.unit_code} onChange={(e) => onChange('unit_code', e.target.value)} />
+        <FormRow label="Unit *">
+          <SearchableSelect
+            options={unitOptions}
+            value={values.unit_id}
+            placeholder="Select unit"
+            onChange={(next) => onChange('unit_id', next)}
+          />
         </FormRow>
         <FormRow label="HSN / SAC">
           <TextInput value={values.hsn_sac} onChange={(e) => onChange('hsn_sac', e.target.value)} />
@@ -196,19 +235,21 @@ function ProductFormFields({
           <TextInput type="number" value={values.gst_rate} onChange={(e) => onChange('gst_rate', e.target.value)} />
         </FormRow>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <FormRow label="Opening qty (new SKUs only)">
-          <TextInput type="number" value={values.opening_qty} onChange={(e) => onChange('opening_qty', e.target.value)} />
-        </FormRow>
-        <FormRow label="Opening location">
-          <SearchableSelect
-            options={withNoneOption(locationOptions, '— Default location —')}
-            value={values.location_id}
-            placeholder="Select location"
-            onChange={(next) => onChange('location_id', next)}
-          />
-        </FormRow>
-      </div>
+      {showOpening ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <FormRow label="Opening qty (tagged to this SKU)">
+            <TextInput type="number" value={values.opening_qty} onChange={(e) => onChange('opening_qty', e.target.value)} />
+          </FormRow>
+          <FormRow label="Opening location">
+            <SearchableSelect
+              options={withNoneOption(locationOptions, '— Default location —')}
+              value={values.location_id}
+              placeholder="Select location"
+              onChange={(next) => onChange('location_id', next)}
+            />
+          </FormRow>
+        </div>
+      ) : null}
       <FormRow label="Status">
         <select
           value={values.is_active ? 'yes' : 'no'}
@@ -227,9 +268,10 @@ function ProductFormFields({
 export function SkusListPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data = [], isLoading, error, refetch } = useListInventoryProductsQuery({ active_only: false });
+  const { data = [], isLoading, error, refetch } = useListInventorySkusQuery({ active_only: false });
   const { data: categories = [] } = useListInventoryCategoriesQuery({ active_only: true });
   const { data: locations = [] } = useListInventoryLocationsQuery({ active_only: true });
+  const { data: units = [] } = useListInventoryUnitsQuery({ active_only: true });
   const [createProduct, createState] = useCreateInventoryProductMutation();
   const [updateProduct, updateState] = useUpdateInventoryProductMutation();
 
@@ -248,6 +290,10 @@ export function SkusListPage() {
   const locationOptions = useMemo(
     () => toLocationOptions(locations as Record<string, unknown>[]),
     [locations],
+  );
+  const unitOptions = useMemo(
+    () => toUnitOptions(units as Record<string, unknown>[]),
+    [units],
   );
   const categoryNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -306,7 +352,10 @@ export function SkusListPage() {
 
   function openAdd() {
     setFormError('');
-    setValues(emptySkuForm());
+    setValues({
+      ...emptySkuForm(),
+      unit_id: resolveUnitId(units as Record<string, unknown>[]),
+    });
     setEditId(null);
     setDialog('add');
   }
@@ -322,7 +371,7 @@ export function SkusListPage() {
   function openEdit(row: ProductRow) {
     setFormError('');
     setEditId(String(row.id));
-    setValues(productToForm(row));
+    setValues(productToForm(row, units as Record<string, unknown>[]));
     setDialog('edit');
   }
 
@@ -332,11 +381,18 @@ export function SkusListPage() {
       setFormError('SKU and name are required');
       return;
     }
+    if (!values.unit_id && !(units as Record<string, unknown>[]).length) {
+      setFormError('Select a unit');
+      return;
+    }
     try {
       if (dialog === 'add') {
-        await createProduct(productBody(values)).unwrap();
+        await createProduct(productBody(values, units as Record<string, unknown>[], { includeOpening: true })).unwrap();
       } else if (dialog === 'edit' && editId) {
-        await updateProduct({ id: editId, body: productBody(values) }).unwrap();
+        await updateProduct({
+          id: editId,
+          body: productBody(values, units as Record<string, unknown>[], { includeOpening: false }),
+        }).unwrap();
       }
       setDialog(null);
       refetch();
@@ -500,6 +556,8 @@ export function SkusListPage() {
             onChange={setField}
             categoryOptions={categoryOptions}
             locationOptions={locationOptions}
+            unitOptions={unitOptions}
+            showOpening={dialog === 'add'}
           />
           <ModalFormActions
             busy={createState.isLoading || updateState.isLoading}
@@ -513,17 +571,60 @@ export function SkusListPage() {
   );
 }
 
-/** SKU detail — tabbed Details / Pricing / Stock with searchable pickers. */
+/** SKU detail — identity/pricing on the SKU; stock qty is tagged here (read-only), adjustments via Stock. */
 export function SkuDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const can = useCan();
+
+  const canView = can('inventory.products.view');
+  const canCustomerPrices = can('inventory.customer_prices.view');
+
   const { data, isLoading, error, refetch } = useGetInventoryProductQuery(id, { skip: !id });
   const { data: categories = [] } = useListInventoryCategoriesQuery({ active_only: false });
   const { data: locations = [] } = useListInventoryLocationsQuery({ active_only: false });
+  const { data: units = [] } = useListInventoryUnitsQuery({ active_only: true });
   const [updateProduct, updateState] = useUpdateInventoryProductMutation();
-  const [tab, setTab] = useState<SkuDetailTab>('details');
   const [values, setValues] = useState<SkuFormValues>(emptySkuForm());
   const [formError, setFormError] = useState('');
+
+  const catalogProductId = String(data?.catalog_product_id || '');
+  const { data: parentProduct } = useGetCatalogProductQuery(catalogProductId, {
+    skip: !catalogProductId || !canView,
+  });
+
+  const unitOptions = useMemo(
+    () => toUnitOptions(units as Record<string, unknown>[]),
+    [units],
+  );
+
+  const tabs = useMemo(() => {
+    const all: { id: SkuDetailTab; label: string; show: boolean }[] = [
+      { id: 'details', label: 'Details', show: true },
+      { id: 'pricing', label: 'Pricing', show: true },
+      { id: 'movements', label: 'Movements', show: true },
+      { id: 'customerPrices', label: 'Customer prices', show: canCustomerPrices },
+      { id: 'sales', label: 'Sales', show: canView },
+      { id: 'purchase', label: 'Purchase', show: canView },
+      { id: 'production', label: 'Production', show: canView },
+      { id: 'customization', label: 'Customization', show: canView },
+      { id: 'activity', label: 'Activity', show: canView },
+    ];
+    return all.filter((t) => t.show);
+  }, [canView, canCustomerPrices]);
+
+  const requestedTab = (searchParams.get('tab') || '') as SkuDetailTab;
+  const tab: SkuDetailTab | '' = tabs.some((t) => t.id === requestedTab) ? requestedTab : tabs[0]?.id || '';
+
+  useEffect(() => {
+    if (!tabs.length) return;
+    if (!tabs.some((t) => t.id === requestedTab)) {
+      const next = new URLSearchParams(searchParams);
+      next.set('tab', tabs[0].id);
+      setSearchParams(next, { replace: true });
+    }
+  }, [tabs, requestedTab, searchParams, setSearchParams]);
 
   const categoryOptions = useMemo(
     () => toCategoryOptions(categories as Record<string, unknown>[]),
@@ -571,11 +672,80 @@ export function SkuDetailPage() {
     return rows;
   }, [data]);
 
+  const { data: allMovements = [] } = useListInventoryMovementsQuery(undefined, {
+    skip: !id || tab !== 'movements',
+  });
+  const movementRows = useMemo(
+    () =>
+      (allMovements as Record<string, unknown>[])
+        .filter((m) => String(m.product_id) === id)
+        .map((m, i) => ({
+          id: String(m.id || i),
+          date: String(m.movement_date || '—'),
+          type: String(m.movement_type || '—'),
+          qty_in: Number(m.qty_in ?? 0),
+          qty_out: Number(m.qty_out ?? 0),
+          location: String(m.location_name || '—'),
+          notes: String(m.notes || ''),
+        })),
+    [allMovements, id],
+  );
+
+  const { data: allCustomerPrices = [] } = useListCustomerPricesQuery(undefined, {
+    skip: !id || !canCustomerPrices || tab !== 'customerPrices',
+  });
+  const customerPriceRows = useMemo(
+    () =>
+      (allCustomerPrices as Record<string, unknown>[])
+        .filter((r) => String(r.product_id) === id)
+        .map((r, i) => ({
+          id: String(r.id || i),
+          customer: String(r.customer_name || r.customer_id || '—'),
+          customer_rate: Number(r.customer_rate ?? 0),
+          selling_rate: Number(r.selling_rate ?? 0),
+          difference: Number(r.difference ?? 0),
+          effective_date: String(r.effective_date || '—'),
+        })),
+    [allCustomerPrices, id],
+  );
+
+  const range = useBreakdownRange();
+  const breakdownArgs = useMemo(
+    () => ({ id, start_date: range.start, end_date: range.end, grain: range.grain }),
+    [id, range.start, range.end, range.grain],
+  );
+  const { data: salesBreakdown, isLoading: salesLoading } = useGetSkuSalesBreakdownQuery(breakdownArgs, {
+    skip: !id || !canView || tab !== 'sales',
+  });
+  const { data: purchaseBreakdown, isLoading: purchaseLoading } = useGetSkuPurchaseBreakdownQuery(
+    breakdownArgs,
+    { skip: !id || !canView || tab !== 'purchase' },
+  );
+  const { data: productionBreakdown, isLoading: productionLoading } = useGetSkuProductionBreakdownQuery(
+    breakdownArgs,
+    { skip: !id || !canView || tab !== 'production' },
+  );
+  const { data: customizationBreakdown, isLoading: customizationLoading } =
+    useGetSkuCustomizationBreakdownQuery(breakdownArgs, {
+      skip: !id || !canView || tab !== 'customization',
+    });
+  const { data: activity, isLoading: activityLoading } = useGetSkuActivityQuery(
+    { id, limit: 50 },
+    { skip: !id || !canView || tab !== 'activity' },
+  );
+  const activityEvents = useMemo(
+    () =>
+      Array.isArray((activity as { events?: unknown[] } | undefined)?.events)
+        ? ((activity as { events: Record<string, unknown>[] }).events || [])
+        : [],
+    [activity],
+  );
+
   useEffect(() => {
     if (!data) return;
-    setValues(productToForm(data));
+    setValues(productToForm(data as Record<string, unknown>, units as Record<string, unknown>[]));
     setFormError('');
-  }, [data]);
+  }, [data, units]);
 
   function setField(name: keyof SkuFormValues, value: string | boolean | string[]) {
     setValues((p) => ({ ...p, [name]: value }));
@@ -584,7 +754,10 @@ export function SkuDetailPage() {
   async function onSave() {
     setFormError('');
     try {
-      await updateProduct({ id, body: productBody(values) }).unwrap();
+      await updateProduct({
+        id,
+        body: productBody(values, units as Record<string, unknown>[], { includeOpening: false }),
+      }).unwrap();
       refetch();
     } catch (e: unknown) {
       setFormError(extractError(e));
@@ -608,8 +781,18 @@ export function SkuDetailPage() {
   }
 
   const stockLabel = stockStatusLabel(data.stock_status);
+  const skuLabel = String(data.sku || data.name || id);
   const heroActions = (
     <>
+      {catalogProductId ? (
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => navigate(`/inventory/products/${catalogProductId}`)}
+        >
+          View parent product{parentProduct?.name ? `: ${String(parentProduct.name)}` : ''}
+        </Button>
+      ) : null}
       <Button type="button" variant="ghost" onClick={() => void refetch()}>
         Refresh
       </Button>
@@ -624,13 +807,25 @@ export function SkuDetailPage() {
       <EntityDetailBack to="/inventory/skus" label="SKUs" />
 
       <EntityDetailHero
-        kicker="Inventory · Product"
+        kicker="Inventory · SKU"
         title={displayName(data as Record<string, unknown>, ['name'], String(data.name || id))}
         lead={
           <>
             <StatusPill status={stockLabel} tone={stockStatusTone(data.stock_status)} />
             <span className="ed-lead-sep"> · {String(data.sku || '—')}</span>
             {data.is_active === false ? <span className="ed-lead-sep"> · Inactive</span> : null}
+            {catalogProductId ? (
+              <span className="ed-lead-sep">
+                {' · Product: '}
+                <button
+                  type="button"
+                  className="ed-inline-link"
+                  onClick={() => navigate(`/inventory/products/${catalogProductId}`)}
+                >
+                  {parentProduct?.name ? String(parentProduct.name) : catalogProductId}
+                </button>
+              </span>
+            ) : null}
           </>
         }
         actions={heroActions}
@@ -652,16 +847,24 @@ export function SkuDetailPage() {
       <EntityDetailTabs
         value={tab}
         ariaLabel="SKU sections"
-        onChange={(next) => setTab(next as SkuDetailTab)}
-        options={[
-          { id: 'details', label: 'Details' },
-          { id: 'pricing', label: 'Pricing' },
-          { id: 'stock', label: 'Stock' },
-        ]}
+        onChange={(next) => {
+          const params = new URLSearchParams(searchParams);
+          params.set('tab', next);
+          setSearchParams(params, { replace: true });
+        }}
+        options={tabs.map((t) => ({ id: t.id, label: t.label }))}
       />
 
       {tab === 'details' ? (
-        <EntityDetailPanel title="Details" note="Identity, categories, and catalog status.">
+        <EntityDetailPanel
+          title="Details"
+          note="Identity for this SKU. On-hand qty is tagged to the SKU — adjust stock from Inventory → Stock."
+          headerEnd={
+            <Button type="button" variant="ghost" onClick={() => navigate('/inventory/stock')}>
+              Open Stock
+            </Button>
+          }
+        >
           <EntityDetailForm>
             <div className="ed-grid ed-grid-2">
               <FormRow label="SKU *">
@@ -670,11 +873,22 @@ export function SkuDetailPage() {
               <FormRow label="Name *">
                 <TextInput value={values.name} onChange={(e) => setField('name', e.target.value)} required />
               </FormRow>
-              <FormRow label="Unit code">
-                <TextInput value={values.unit_code} onChange={(e) => setField('unit_code', e.target.value)} />
+              <FormRow label="Unit *">
+                <SearchableSelect
+                  options={unitOptions}
+                  value={values.unit_id}
+                  placeholder="Select unit"
+                  onChange={(next) => setField('unit_id', next)}
+                />
               </FormRow>
               <FormRow label="HSN / SAC">
                 <TextInput value={values.hsn_sac} onChange={(e) => setField('hsn_sac', e.target.value)} />
+              </FormRow>
+              <FormRow label="Qty on hand (tagged)">
+                <TextInput value={String(Number(data.current_qty ?? 0))} disabled />
+              </FormRow>
+              <FormRow label="Stock status">
+                <TextInput value={stockLabel} disabled />
               </FormRow>
               <FormRow label="Status">
                 <select
@@ -696,6 +910,21 @@ export function SkuDetailPage() {
               />
             </FormRow>
           </EntityDetailForm>
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 650, marginBottom: 8 }}>Balances by location</div>
+            {balanceRows.length === 0 ? (
+              <p className="ed-panel-note">No per-location balances for this SKU.</p>
+            ) : (
+              <DataTable
+                columns={[
+                  { key: 'location', header: 'Location' },
+                  { key: 'qty', header: 'Qty' },
+                ]}
+                data={balanceRows}
+                rowKey={(row) => row.id}
+              />
+            )}
+          </div>
         </EntityDetailPanel>
       ) : null}
 
@@ -742,48 +971,129 @@ export function SkuDetailPage() {
         </EntityDetailPanel>
       ) : null}
 
-      {tab === 'stock' ? (
-        <EntityDetailPanel title="Stock" note="On-hand quantity, opening stock, and per-location balances.">
-          <EntityDetailForm>
-            <div className="ed-grid ed-grid-2">
-              <FormRow label="Qty on hand">
-                <TextInput value={String(Number(data.current_qty ?? 0))} disabled />
-              </FormRow>
-              <FormRow label="Stock status">
-                <TextInput value={stockLabel} disabled />
-              </FormRow>
-              <FormRow label="Opening qty (new SKUs only)">
-                <TextInput
-                  type="number"
-                  value={values.opening_qty}
-                  onChange={(e) => setField('opening_qty', e.target.value)}
-                />
-              </FormRow>
-              <FormRow label="Opening location">
-                <SearchableSelect
-                  options={withNoneOption(locationOptions, '— Default location —')}
-                  value={values.location_id}
-                  placeholder="Select location"
-                  onChange={(next) => setField('location_id', next)}
-                />
-              </FormRow>
-            </div>
-          </EntityDetailForm>
-          <div style={{ marginTop: 16 }}>
-            <div style={{ fontWeight: 650, marginBottom: 8 }}>Balances by location</div>
-            {balanceRows.length === 0 ? (
-              <p className="ed-panel-note">No per-location balances.</p>
-            ) : (
-              <DataTable
-                columns={[
-                  { key: 'location', header: 'Location' },
-                  { key: 'qty', header: 'Qty' },
-                ]}
-                data={balanceRows}
-                rowKey={(row) => row.id}
-              />
-            )}
-          </div>
+      {tab === 'movements' ? (
+        <EntityDetailPanel title="Movements" note="Stock ledger entries tagged to this SKU.">
+          {movementRows.length === 0 ? (
+            <EntityListEmpty>
+              <strong>No movements recorded for this SKU.</strong>
+            </EntityListEmpty>
+          ) : (
+            <DataTable
+              columns={[
+                { key: 'date', header: 'Date' },
+                { key: 'type', header: 'Type' },
+                { key: 'qty_in', header: 'Qty in' },
+                { key: 'qty_out', header: 'Qty out' },
+                { key: 'location', header: 'Location' },
+                { key: 'notes', header: 'Notes' },
+              ]}
+              data={movementRows}
+              rowKey={(row) => row.id}
+            />
+          )}
+        </EntityDetailPanel>
+      ) : null}
+
+      {tab === 'customerPrices' ? (
+        <EntityDetailPanel title="Customer prices" note="Customer-specific rates for this SKU.">
+          {customerPriceRows.length === 0 ? (
+            <EntityListEmpty>
+              <strong>No customer-specific prices for this SKU.</strong>
+            </EntityListEmpty>
+          ) : (
+            <DataTable
+              columns={[
+                { key: 'customer', header: 'Customer' },
+                { key: 'customer_rate', header: 'Customer rate' },
+                { key: 'selling_rate', header: 'Selling rate' },
+                { key: 'difference', header: 'Difference' },
+                { key: 'effective_date', header: 'Effective date' },
+              ]}
+              data={customerPriceRows}
+              rowKey={(row) => row.id}
+            />
+          )}
+        </EntityDetailPanel>
+      ) : null}
+
+      {tab === 'sales' ? (
+        <BreakdownPanel
+          title="Sales breakdown"
+          metricLabel="Sales"
+          mode="money"
+          range={range}
+          data={salesBreakdown as Record<string, unknown> | undefined}
+          isLoading={salesLoading}
+          entitySlug={skuLabel}
+          emptyMessage="No sales for this range."
+        />
+      ) : null}
+
+      {tab === 'purchase' ? (
+        <BreakdownPanel
+          title="Purchase breakdown"
+          metricLabel="Purchases"
+          mode="money"
+          range={range}
+          data={purchaseBreakdown as Record<string, unknown> | undefined}
+          isLoading={purchaseLoading}
+          entitySlug={skuLabel}
+          emptyMessage="No purchases for this range."
+        />
+      ) : null}
+
+      {tab === 'production' ? (
+        <BreakdownPanel
+          title="Production breakdown"
+          metricLabel="Production"
+          mode="qty"
+          range={range}
+          data={productionBreakdown as Record<string, unknown> | undefined}
+          isLoading={productionLoading}
+          entitySlug={skuLabel}
+          emptyMessage="No production for this range."
+        />
+      ) : null}
+
+      {tab === 'customization' ? (
+        <BreakdownPanel
+          title="Customization breakdown"
+          metricLabel="Customization"
+          mode="customization"
+          range={range}
+          data={customizationBreakdown as Record<string, unknown> | undefined}
+          isLoading={customizationLoading}
+          entitySlug={skuLabel}
+          emptyMessage="No customization jobs for this range."
+        />
+      ) : null}
+
+      {tab === 'activity' ? (
+        <EntityDetailPanel title="Activity" note="Recent events for this SKU.">
+          {activityLoading ? <EntityListLoading>Loading activity…</EntityListLoading> : null}
+          {!activityLoading && activityEvents.length === 0 ? (
+            <EntityListEmpty>
+              <strong>No recent activity.</strong>
+            </EntityListEmpty>
+          ) : null}
+          {!activityLoading && activityEvents.length > 0 ? (
+            <DataTable
+              columns={[
+                { key: 'date', header: 'Date' },
+                { key: 'type', header: 'Type' },
+                { key: 'summary', header: 'Event' },
+                { key: 'ref', header: 'Reference' },
+              ]}
+              data={activityEvents.map((e, i) => ({
+                id: String(e.id || i),
+                date: String(e.date || e.created_at || '—'),
+                type: String(e.type || e.event_type || '—'),
+                summary: String(e.summary || e.description || e.notes || '—'),
+                ref: String(e.ref || e.reference || '—'),
+              }))}
+              rowKey={(row) => row.id}
+            />
+          ) : null}
         </EntityDetailPanel>
       ) : null}
 

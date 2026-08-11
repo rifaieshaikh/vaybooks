@@ -77,6 +77,7 @@ class PurchaseAppService:
             get_expense_account_name=lambda account_id: (
                 (acct.account_name if (acct := self._accounting.get_account(account_id)) else "")
             ),
+            get_catalog_product=getattr(self._inventory, "get_catalog_product", None),
         )
 
     def resolve_purchase_lines(self, raw_lines: list[dict], vendor_id: str):

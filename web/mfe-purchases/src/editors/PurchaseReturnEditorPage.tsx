@@ -16,7 +16,7 @@ import {
   useGetBusinessProfileQuery,
   useGetVendorQuery,
   useListFinanceAccountsQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useListPurchaseBillsQuery,
   useListVendorsQuery,
 } from '@vaybooks/store';
@@ -48,7 +48,7 @@ export function PurchaseReturnEditorPage() {
   const navigate = useNavigate();
 
   const { data: vendors = [] } = useListVendorsQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
+  const { data: products = [] } = useListInventorySkusQuery();
   const { data: billsPage } = useListPurchaseBillsQuery({
     page: 1,
     page_size: LIST_FETCH_ALL_SIZE,

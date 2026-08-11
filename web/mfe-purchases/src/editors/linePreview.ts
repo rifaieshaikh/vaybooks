@@ -196,6 +196,7 @@ export function editorLinesToBillPayload(lines: EditorLineItem[]): Record<string
       }
       return {
         product_id: l.productId,
+        sku_id: l.productId,
         ...base,
       };
     });
@@ -206,6 +207,7 @@ export function editorLinesToPoPayload(lines: EditorLineItem[]): Record<string, 
     .filter((l) => l.productId && Number(l.qty) > 0)
     .map((l) => ({
       product_id: l.productId,
+      sku_id: l.productId,
       qty_ordered: Number(l.qty) || 0,
       rate: Number(l.rate) || 0,
     }));
@@ -216,6 +218,7 @@ export function editorLinesToReturnPayload(lines: EditorLineItem[]): Record<stri
     .filter((l) => l.productId && Number(l.qty) > 0)
     .map((l) => ({
       product_id: l.productId,
+      sku_id: l.productId,
       qty: Number(l.qty) || 0,
       rate: Number(l.rate) || 0,
     }));

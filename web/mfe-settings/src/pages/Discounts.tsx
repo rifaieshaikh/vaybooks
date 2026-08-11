@@ -4,10 +4,11 @@ import {
   useCan,
   useCreateDiscountRuleMutation,
   useDeleteDiscountRuleMutation,
+  useListCatalogProductsQuery,
   useListCustomersQuery,
   useListDiscountRulesQuery,
   useListInventoryCategoriesQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useListPartySegmentsQuery,
   useUpdateDiscountRuleMutation,
 } from '@vaybooks/store';
@@ -91,6 +92,7 @@ type FormState = {
   isActive: boolean;
   applyTo: string[];
   productIds: string[];
+  catalogProductIds: string[];
   categoryIds: string[];
   customerIds: string[];
   segmentIds: string[];
@@ -109,6 +111,7 @@ const emptyForm = (): FormState => ({
   isActive: true,
   applyTo: [...DEFAULT_APPLY],
   productIds: [],
+  catalogProductIds: [],
   categoryIds: [],
   customerIds: [],
   segmentIds: [],
@@ -153,6 +156,9 @@ function formFromRule(row: Record<string, unknown>): FormState {
     isActive: row.is_active !== false,
     applyTo: apply.length ? apply : [...DEFAULT_APPLY],
     productIds: Array.isArray(row.product_ids) ? (row.product_ids as string[]).map(String) : [],
+    catalogProductIds: Array.isArray(row.catalog_product_ids)
+      ? (row.catalog_product_ids as string[]).map(String)
+      : [],
     categoryIds: Array.isArray(row.category_ids) ? (row.category_ids as string[]).map(String) : [],
     customerIds: Array.isArray(row.customer_ids) ? (row.customer_ids as string[]).map(String) : [],
     segmentIds: Array.isArray(row.segment_ids) ? (row.segment_ids as string[]).map(String) : [],
@@ -170,6 +176,8 @@ function idsForScope(form: FormState) {
   const scope = form.scope;
   return {
     product_ids: scope === 'product' || scope === 'seasonal' ? form.productIds : [],
+    catalog_product_ids:
+      scope === 'product' || scope === 'seasonal' ? form.catalogProductIds : [],
     category_ids: scope === 'category' || scope === 'seasonal' ? form.categoryIds : [],
     customer_ids: scope === 'customer' || scope === 'seasonal' ? form.customerIds : [],
     segment_ids: scope === 'customer' ? form.segmentIds : [],
@@ -297,7 +305,11 @@ export function DiscountsSettingsPage() {
   const [updateRule, updateState] = useUpdateDiscountRuleMutation();
   const [deleteRule, deleteState] = useDeleteDiscountRuleMutation();
 
-  const { data: products = [] } = useListInventoryProductsQuery({ active_only: true }, { skip: !canEdit });
+  const { data: products = [] } = useListInventorySkusQuery({ active_only: true }, { skip: !canEdit });
+  const { data: catalogProducts = [] } = useListCatalogProductsQuery(
+    { active_only: true },
+    { skip: !canEdit },
+  );
   const { data: categories = [] } = useListInventoryCategoriesQuery({ active_only: true }, { skip: !canEdit });
   const { data: customers = [] } = useListCustomersQuery(undefined, { skip: !canEdit });
   const { data: segments = [] } = useListPartySegmentsQuery(
@@ -336,6 +348,14 @@ export function DiscountsSettingsPage() {
         label: `${String(p.name || p.id)}${p.sku ? ` (${p.sku})` : ''}`,
       })),
     [products],
+  );
+  const catalogProductOptions = useMemo(
+    () =>
+      catalogProducts.map((p) => ({
+        id: String(p.id),
+        label: `${String(p.name || p.id)}${p.sku ? ` (${p.sku})` : ''}`,
+      })),
+    [catalogProducts],
   );
   const categoryOptions = useMemo(
     () => categories.map((c) => ({ id: String(c.id), label: String(c.name || c.id) })),
@@ -410,8 +430,12 @@ export function DiscountsSettingsPage() {
     if (form.discountType === 'percent' && Number(form.value) > 100) {
       return 'Discount percentage cannot exceed 100';
     }
-    if (form.scope === 'product' && form.productIds.length === 0) {
-      return 'Select at least one product';
+    if (
+      form.scope === 'product' &&
+      form.productIds.length === 0 &&
+      form.catalogProductIds.length === 0
+    ) {
+      return 'Select at least one product or catalog product';
     }
     if (form.scope === 'category' && form.categoryIds.length === 0) {
       return 'Select at least one category';
@@ -851,16 +875,31 @@ export function DiscountsSettingsPage() {
               ) : null}
               <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
                 {form.scope === 'product' ? (
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <EntityPicker
-                      label="Products"
-                      required
-                      options={productOptions}
-                      selected={form.productIds}
-                      onChange={(productIds) => patchForm({ productIds })}
-                      emptyHint="Add products in Inventory before creating a product discount."
-                    />
-                  </div>
+                  <>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <EntityPicker
+                        label="SKUs"
+                        required={form.catalogProductIds.length === 0}
+                        options={productOptions}
+                        selected={form.productIds}
+                        onChange={(productIds) => patchForm({ productIds })}
+                        emptyHint="Add SKUs in Inventory before creating a product discount."
+                      />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <EntityPicker
+                        label="Catalog products"
+                        required={form.productIds.length === 0}
+                        options={catalogProductOptions}
+                        selected={form.catalogProductIds}
+                        onChange={(catalogProductIds) => patchForm({ catalogProductIds })}
+                        emptyHint="Add catalog products in Inventory to target a whole catalog product."
+                      />
+                    </div>
+                    <p className="el-muted" style={{ margin: 0, fontSize: 12, gridColumn: '1 / -1' }}>
+                      Select SKUs, catalog products, or both — either is enough to scope this rule.
+                    </p>
+                  </>
                 ) : null}
                 {form.scope === 'category' ? (
                   <div style={{ gridColumn: '1 / -1' }}>
@@ -904,7 +943,7 @@ export function DiscountsSettingsPage() {
                     ) : null}
                     {productOptions.length > 0 ? (
                       <EntityPicker
-                        label="Products (optional)"
+                        label="SKUs (optional)"
                         options={productOptions}
                         selected={form.productIds}
                         onChange={(productIds) => patchForm({ productIds })}
@@ -918,9 +957,31 @@ export function DiscountsSettingsPage() {
                           background: '#f4f8f6',
                         }}
                       >
-                        <strong style={{ display: 'block', fontSize: 13 }}>Products</strong>
+                        <strong style={{ display: 'block', fontSize: 13 }}>SKUs</strong>
                         <p style={{ margin: 0, fontSize: 13, color: '#5a6f66' }}>
-                          None yet — campaign won’t filter by product.
+                          None yet — campaign won’t filter by SKU.
+                        </p>
+                      </div>
+                    )}
+                    {catalogProductOptions.length > 0 ? (
+                      <EntityPicker
+                        label="Catalog products (optional)"
+                        options={catalogProductOptions}
+                        selected={form.catalogProductIds}
+                        onChange={(catalogProductIds) => patchForm({ catalogProductIds })}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          padding: '0.75rem',
+                          border: '1px dashed #c9d8d0',
+                          borderRadius: 8,
+                          background: '#f4f8f6',
+                        }}
+                      >
+                        <strong style={{ display: 'block', fontSize: 13 }}>Catalog products</strong>
+                        <p style={{ margin: 0, fontSize: 13, color: '#5a6f66' }}>
+                          None yet — campaign won’t filter by catalog product.
                         </p>
                       </div>
                     )}

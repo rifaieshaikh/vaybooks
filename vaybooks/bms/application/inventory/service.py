@@ -1113,6 +1113,269 @@ class InventoryAppService:
             },
         }
 
+    def catalog_product_purchase_breakdown(
+        self,
+        catalog_product_id: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        skus = self.list_skus_for_catalog(catalog_product_id)
+        rows = self._sku_breakdown_seed_rows([s.id for s in skus])
+        return self._fill_purchase_breakdown_rows(
+            rows, start_date=start_date, end_date=end_date, grain=grain
+        )
+
+    def sku_purchase_breakdown(
+        self,
+        sku_id: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        rows = self._sku_breakdown_seed_rows([sku_id])
+        return self._fill_purchase_breakdown_rows(
+            rows, start_date=start_date, end_date=end_date, grain=grain
+        )
+
+    def _fill_purchase_breakdown_rows(
+        self,
+        rows: List[dict[str, Any]],
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        by_product = {row["product_id"]: row for row in rows}
+        trend_map: dict[str, dict[str, Any]] = {}
+        if by_product:
+            try:
+                from packages.services_kit.purchases_container import get_purchases_container
+                from vaybooks.bms.domain.shared.enums import GoodsReceiptStatus
+
+                for grn in get_purchases_container().purchases.list_goods_receipts():
+                    if getattr(grn, "status", None) != GoodsReceiptStatus.RECEIVED:
+                        continue
+                    grn_day = self._as_date(getattr(grn, "receipt_date", None))
+                    if not self._date_in_range(grn_day, start_date, end_date):
+                        continue
+                    period = self._period_key(grn_day or date.today(), grain)
+                    for line in getattr(grn, "lines", []) or []:
+                        pid = str(
+                            getattr(line, "sku_id", None)
+                            or getattr(line, "product_id", None)
+                            or ""
+                        ).strip()
+                        row = by_product.get(pid)
+                        if not row:
+                            continue
+                        qty = float(
+                            getattr(line, "qty_accepted", None)
+                            or getattr(line, "qty_received", None)
+                            or 0
+                        )
+                        rate = float(getattr(line, "rate", 0) or 0)
+                        amount = round(qty * rate, 2)
+                        row["qty"] += qty
+                        row["amount"] += amount
+                        bucket = trend_map.setdefault(
+                            period, {"period": period, "qty": 0.0, "amount": 0.0}
+                        )
+                        bucket["qty"] += qty
+                        bucket["amount"] += amount
+            except Exception:
+                pass
+        for row in rows:
+            row["qty"] = round(row["qty"], 4)
+            row["amount"] = round(row["amount"], 2)
+        trend = sorted(trend_map.values(), key=lambda item: item["period"])
+        for bucket in trend:
+            bucket["qty"] = round(bucket["qty"], 4)
+            bucket["amount"] = round(bucket["amount"], 2)
+        return {
+            "rows": rows,
+            "trend": trend,
+            "totals": {
+                "qty": round(sum(row["qty"] for row in rows), 4),
+                "amount": round(sum(row["amount"] for row in rows), 2),
+            },
+        }
+
+    def catalog_product_production_breakdown(
+        self,
+        catalog_product_id: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        skus = self.list_skus_for_catalog(catalog_product_id)
+        rows = self._sku_breakdown_seed_rows([s.id for s in skus])
+        return self._fill_production_breakdown_rows(
+            rows, start_date=start_date, end_date=end_date, grain=grain
+        )
+
+    def sku_production_breakdown(
+        self,
+        sku_id: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        rows = self._sku_breakdown_seed_rows([sku_id])
+        return self._fill_production_breakdown_rows(
+            rows, start_date=start_date, end_date=end_date, grain=grain
+        )
+
+    def _fill_production_breakdown_rows(
+        self,
+        rows: List[dict[str, Any]],
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        by_product = {row["product_id"]: row for row in rows}
+        trend_map: dict[str, dict[str, Any]] = {}
+        if by_product:
+            try:
+                from packages.services_kit.production_container import get_production_container
+                from vaybooks.bms.domain.shared.enums import ProductionBatchStatus
+
+                for batch in get_production_container().production.list_batches():
+                    if getattr(batch, "status", None) != ProductionBatchStatus.POSTED:
+                        continue
+                    batch_day = self._as_date(getattr(batch, "batch_date", None))
+                    if not self._date_in_range(batch_day, start_date, end_date):
+                        continue
+                    period = self._period_key(batch_day or date.today(), grain)
+                    for output in getattr(batch, "outputs", []) or []:
+                        pid = str(getattr(output, "product_id", "") or "").strip()
+                        row = by_product.get(pid)
+                        if not row:
+                            continue
+                        qty = float(getattr(output, "qty", 0) or 0)
+                        row["qty"] += qty
+                        bucket = trend_map.setdefault(
+                            period, {"period": period, "qty": 0.0}
+                        )
+                        bucket["qty"] += qty
+            except Exception:
+                pass
+        for row in rows:
+            row["qty"] = round(row["qty"], 4)
+            row.pop("amount", None)
+        trend = sorted(trend_map.values(), key=lambda item: item["period"])
+        for bucket in trend:
+            bucket["qty"] = round(bucket["qty"], 4)
+        return {
+            "rows": rows,
+            "trend": trend,
+            "totals": {"qty": round(sum(row["qty"] for row in rows), 4)},
+        }
+
+    def catalog_product_customization_breakdown(
+        self,
+        catalog_product_id: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        return self._fill_customization_breakdown(
+            catalog_product_id=catalog_product_id,
+            sku_id=None,
+            start_date=start_date,
+            end_date=end_date,
+            grain=grain,
+        )
+
+    def sku_customization_breakdown(
+        self,
+        sku_id: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        return self._fill_customization_breakdown(
+            catalog_product_id=None,
+            sku_id=sku_id,
+            start_date=start_date,
+            end_date=end_date,
+            grain=grain,
+        )
+
+    def _fill_customization_breakdown(
+        self,
+        *,
+        catalog_product_id: Optional[str],
+        sku_id: Optional[str],
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        by_status: dict[str, dict[str, Any]] = {}
+        trend_map: dict[str, dict[str, Any]] = {}
+        try:
+            from packages.services_kit.boutique_container import get_boutique_container
+
+            orders = get_boutique_container().orders._order_repo.list_all()
+            for order in orders:
+                order_day = self._as_date(getattr(order, "order_date", None))
+                if not self._date_in_range(order_day, start_date, end_date):
+                    continue
+                period = self._period_key(order_day or date.today(), grain)
+                for item in getattr(order, "customization_items", []) or []:
+                    item_sku = str(getattr(item, "sku_id", None) or "").strip()
+                    item_catalog = str(
+                        getattr(item, "catalog_product_id", None) or ""
+                    ).strip()
+                    if sku_id:
+                        if item_sku != sku_id:
+                            continue
+                    elif catalog_product_id:
+                        if item_catalog != catalog_product_id:
+                            continue
+                    else:
+                        continue
+                    if not item_sku and not item_catalog:
+                        continue
+                    status = (
+                        getattr(getattr(item, "item_status", None), "value", None)
+                        or "Unknown"
+                    )
+                    sell_amount = float(getattr(item, "sell_amount", 0) or 0)
+                    row = by_status.setdefault(
+                        status, {"status": status, "count": 0, "sell_amount": 0.0}
+                    )
+                    row["count"] += 1
+                    row["sell_amount"] += sell_amount
+                    bucket = trend_map.setdefault(
+                        period, {"period": period, "count": 0, "sell_amount": 0.0}
+                    )
+                    bucket["count"] += 1
+                    bucket["sell_amount"] += sell_amount
+        except Exception:
+            pass
+        rows = sorted(by_status.values(), key=lambda row: row["status"])
+        for row in rows:
+            row["sell_amount"] = round(row["sell_amount"], 2)
+        trend = sorted(trend_map.values(), key=lambda item: item["period"])
+        for bucket in trend:
+            bucket["sell_amount"] = round(bucket["sell_amount"], 2)
+        return {
+            "rows": rows,
+            "trend": trend,
+            "totals": {
+                "count": sum(row["count"] for row in rows),
+                "sell_amount": round(sum(row["sell_amount"] for row in rows), 2),
+            },
+        }
+
     def catalog_product_spec_insights(self, catalog_product_id: str) -> dict[str, Any]:
         catalog = self.get_catalog_product(catalog_product_id)
         if not catalog:

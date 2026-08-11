@@ -18,7 +18,7 @@ import {
   useGetVendorQuery,
   useLazyGetVendorPurchaseRateQuery,
   useListFinanceAccountsQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useListVendorServicesQuery,
   useListVendorsQuery,
   useUpdatePurchaseBillMutation,
@@ -60,7 +60,7 @@ export function BillEditorPage() {
 
   const { data: existing, isLoading } = useGetPurchaseBillQuery(editId, { skip: !editId });
   const { data: vendors = [] } = useListVendorsQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
+  const { data: products = [] } = useListInventorySkusQuery();
   const { data: services = [] } = useListVendorServicesQuery();
   const { data: accounts = [] } = useListFinanceAccountsQuery();
   const { data: business } = useGetBusinessProfileQuery();

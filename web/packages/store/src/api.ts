@@ -1231,6 +1231,48 @@ export const baseApi = createApi({
       }),
       providesTags: ['Inventory'],
     }),
+    getCatalogProductPurchaseBreakdown: build.query<
+      Record<string, unknown>,
+      { id: string; start_date?: string; end_date?: string; grain?: string }
+    >({
+      query: ({ id, start_date, end_date, grain }) => ({
+        url: `/inventory/catalog-products/${id}/purchase-breakdown`,
+        params: {
+          ...(start_date ? { start_date } : {}),
+          ...(end_date ? { end_date } : {}),
+          ...(grain ? { grain } : {}),
+        },
+      }),
+      providesTags: ['Inventory'],
+    }),
+    getCatalogProductProductionBreakdown: build.query<
+      Record<string, unknown>,
+      { id: string; start_date?: string; end_date?: string; grain?: string }
+    >({
+      query: ({ id, start_date, end_date, grain }) => ({
+        url: `/inventory/catalog-products/${id}/production-breakdown`,
+        params: {
+          ...(start_date ? { start_date } : {}),
+          ...(end_date ? { end_date } : {}),
+          ...(grain ? { grain } : {}),
+        },
+      }),
+      providesTags: ['Inventory'],
+    }),
+    getCatalogProductCustomizationBreakdown: build.query<
+      Record<string, unknown>,
+      { id: string; start_date?: string; end_date?: string; grain?: string }
+    >({
+      query: ({ id, start_date, end_date, grain }) => ({
+        url: `/inventory/catalog-products/${id}/customization-breakdown`,
+        params: {
+          ...(start_date ? { start_date } : {}),
+          ...(end_date ? { end_date } : {}),
+          ...(grain ? { grain } : {}),
+        },
+      }),
+      providesTags: ['Inventory'],
+    }),
     getCatalogProductSpecInsights: build.query<Record<string, unknown>, string>({
       query: (id) => `/inventory/catalog-products/${id}/spec-insights`,
       providesTags: ['Inventory'],
@@ -1245,6 +1287,21 @@ export const baseApi = createApi({
       }),
       providesTags: ['Inventory'],
     }),
+    mergeCatalogProducts: build.mutation<
+      Record<string, unknown>,
+      {
+        target_catalog_product_id: string;
+        source_catalog_product_ids: string[];
+        force?: boolean;
+      }
+    >({
+      query: (body) => ({
+        url: '/inventory/catalog-products/merge',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Inventory'],
+    }),
     resolveInventoryEntity: build.query<Record<string, unknown>, string>({
       query: (id) => `/inventory/resolve/${id}`,
       providesTags: ['Inventory'],
@@ -1254,6 +1311,69 @@ export const baseApi = createApi({
       { q?: string; active_only?: boolean } | void
     >({
       query: (args) => ({ url: '/inventory/skus', params: args || undefined }),
+      providesTags: ['Inventory'],
+    }),
+    getSkuSalesBreakdown: build.query<
+      Record<string, unknown>,
+      { id: string; start_date?: string; end_date?: string; grain?: string }
+    >({
+      query: ({ id, start_date, end_date, grain }) => ({
+        url: `/inventory/skus/${id}/sales-breakdown`,
+        params: {
+          ...(start_date ? { start_date } : {}),
+          ...(end_date ? { end_date } : {}),
+          ...(grain ? { grain } : {}),
+        },
+      }),
+      providesTags: ['Inventory'],
+    }),
+    getSkuPurchaseBreakdown: build.query<
+      Record<string, unknown>,
+      { id: string; start_date?: string; end_date?: string; grain?: string }
+    >({
+      query: ({ id, start_date, end_date, grain }) => ({
+        url: `/inventory/skus/${id}/purchase-breakdown`,
+        params: {
+          ...(start_date ? { start_date } : {}),
+          ...(end_date ? { end_date } : {}),
+          ...(grain ? { grain } : {}),
+        },
+      }),
+      providesTags: ['Inventory'],
+    }),
+    getSkuProductionBreakdown: build.query<
+      Record<string, unknown>,
+      { id: string; start_date?: string; end_date?: string; grain?: string }
+    >({
+      query: ({ id, start_date, end_date, grain }) => ({
+        url: `/inventory/skus/${id}/production-breakdown`,
+        params: {
+          ...(start_date ? { start_date } : {}),
+          ...(end_date ? { end_date } : {}),
+          ...(grain ? { grain } : {}),
+        },
+      }),
+      providesTags: ['Inventory'],
+    }),
+    getSkuCustomizationBreakdown: build.query<
+      Record<string, unknown>,
+      { id: string; start_date?: string; end_date?: string; grain?: string }
+    >({
+      query: ({ id, start_date, end_date, grain }) => ({
+        url: `/inventory/skus/${id}/customization-breakdown`,
+        params: {
+          ...(start_date ? { start_date } : {}),
+          ...(end_date ? { end_date } : {}),
+          ...(grain ? { grain } : {}),
+        },
+      }),
+      providesTags: ['Inventory'],
+    }),
+    getSkuActivity: build.query<Record<string, unknown>, { id: string; limit?: number }>({
+      query: ({ id, limit }) => ({
+        url: `/inventory/skus/${id}/activity`,
+        params: limit ? { limit } : undefined,
+      }),
       providesTags: ['Inventory'],
     }),
     createInventoryProduct: build.mutation<Record<string, unknown>, Record<string, unknown>>({
@@ -3977,10 +4097,19 @@ export const {
   useUpdateCatalogProductMutation,
   useCreateCatalogSkuMutation,
   useGetCatalogProductSalesBreakdownQuery,
+  useGetCatalogProductPurchaseBreakdownQuery,
+  useGetCatalogProductProductionBreakdownQuery,
+  useGetCatalogProductCustomizationBreakdownQuery,
   useGetCatalogProductSpecInsightsQuery,
   useGetCatalogProductActivityQuery,
+  useMergeCatalogProductsMutation,
   useResolveInventoryEntityQuery,
   useListInventorySkusQuery,
+  useGetSkuSalesBreakdownQuery,
+  useGetSkuPurchaseBreakdownQuery,
+  useGetSkuProductionBreakdownQuery,
+  useGetSkuCustomizationBreakdownQuery,
+  useGetSkuActivityQuery,
   useCreateInventoryProductMutation,
   useGetInventoryProductQuery,
   useUpdateInventoryProductMutation,

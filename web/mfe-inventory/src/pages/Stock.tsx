@@ -4,7 +4,7 @@ import {
   useCreateInventoryMovementMutation,
   useListInventoryLocationsQuery,
   useListInventoryMovementsQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useListInventoryStockQuery,
   useListStockLedgerQuery,
 } from '@vaybooks/store';
@@ -420,7 +420,7 @@ export function MovementsListPage() {
   const [searchParams] = useSearchParams();
   const focusId = (searchParams.get('id') || '').trim();
   const { data = [], isLoading, error, refetch } = useListInventoryMovementsQuery();
-  const { data: products = [] } = useListInventoryProductsQuery({ active_only: true });
+  const { data: products = [] } = useListInventorySkusQuery({ active_only: true });
   const { data: locations = [] } = useListInventoryLocationsQuery({ active_only: true });
   const [recordMovement, recordState] = useCreateInventoryMovementMutation();
 
@@ -483,6 +483,7 @@ export function MovementsListPage() {
     try {
       await recordMovement({
         product_id: productId,
+        sku_id: productId,
         movement_type: movementType,
         qty: qtyNum,
         notes,

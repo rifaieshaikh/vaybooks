@@ -17,6 +17,7 @@ export const garmentSchema = z
     expectedDeliveryDate: z.string(),
     measurementId: z.string(),
     categoryId: z.string(),
+    skuId: z.string(),
     billNumber: z.string(),
     requiredActivities: z.record(z.string(), z.boolean()),
     activityEstimatedHours: z.record(z.string(), z.coerce.number().min(0)),

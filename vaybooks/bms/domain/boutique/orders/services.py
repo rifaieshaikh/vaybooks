@@ -80,6 +80,8 @@ class OrderDomainService:
         estimated_hours_map: Optional[dict] = None,
         sell_amount: float = 0.0,
         category_id: Optional[str] = None,
+        sku_id: Optional[str] = None,
+        catalog_product_id: Optional[str] = None,
     ) -> CustomizationItem:
         bill_number = bill_number.strip().upper()
         if not bill_number:
@@ -111,6 +113,8 @@ class OrderDomainService:
             measurement_number=(measurement_number or "").strip().upper() or None,
             sell_amount=amount,
             category_id=(category_id or "").strip() or None,
+            sku_id=(sku_id or "").strip() or None,
+            catalog_product_id=(catalog_product_id or "").strip() or None,
         )
         if not existing:
             entry = BillRegistryEntry(
@@ -352,6 +356,8 @@ class OrderDomainService:
         customer_specification: Optional[str] = None,
         sell_amount: Optional[float] = None,
         category_id: Optional[str] = None,
+        sku_id: Optional[str] = None,
+        catalog_product_id: Optional[str] = None,
     ) -> CustomizationItem:
         item = order.get_item_by_id(item_id)
         if not item:
@@ -396,6 +402,8 @@ class OrderDomainService:
                 raise ValidationError("Estimate amount cannot be negative")
             item.sell_amount = amount
         item.category_id = (category_id or "").strip() or None
+        item.sku_id = (sku_id or "").strip() or None
+        item.catalog_product_id = (catalog_product_id or "").strip() or None
         item.updated_at = utc_now()
         order.updated_at = utc_now()
         return item

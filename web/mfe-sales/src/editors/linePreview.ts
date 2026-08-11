@@ -195,6 +195,7 @@ export function editorLinesToPayload(
     .filter((l) => l.productId && Number(l.qty) > 0)
     .map((l) => ({
       product_id: l.productId,
+      sku_id: l.productId,
       qty: Number(l.qty) || 0,
       rate: Number(l.rate) || 0,
       discount: Number(l.discount ?? 0) || 0,

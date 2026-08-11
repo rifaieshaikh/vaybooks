@@ -4,7 +4,7 @@ import {
   useListCustomerPriceHistoryQuery,
   useListCustomerPricesQuery,
   useListCustomersQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
 } from '@vaybooks/store';
 import {
   Button,
@@ -50,7 +50,7 @@ function extractError(e: unknown): string {
 /** Customer-specific price list, add-price modal, per-row history modal. */
 export function CustomerPricesPage() {
   const { data = [], isLoading, error, refetch } = useListCustomerPricesQuery();
-  const { data: products = [] } = useListInventoryProductsQuery({ active_only: true });
+  const { data: products = [] } = useListInventorySkusQuery({ active_only: true });
   const { data: customers = [] } = useListCustomersQuery();
   const [createPrice, createState] = useCreateCustomerPriceMutation();
 
@@ -149,6 +149,7 @@ export function CustomerPricesPage() {
         customer_id: customerId,
         customer_name: selectedCustomerName,
         product_id: productId,
+        sku_id: productId,
         rate: Number(rate) || 0,
       }).unwrap();
       setAddOpen(false);

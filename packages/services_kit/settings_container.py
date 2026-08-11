@@ -109,7 +109,19 @@ def _build_mongo(uri: str) -> SettingsContainer:
     boutique = get_boutique_container()
     business = BusinessAppService(MongoBusinessProfileRepository(db))
     vendor_services = VendorServiceAppService(MongoVendorServiceRepository(db))
-    discounts = DiscountAppService(MongoDiscountRuleRepository(db))
+
+    def _list_sku_ids_for_catalog(catalog_id: str):
+        from packages.services_kit.inventory_container import get_inventory_container
+
+        return [
+            sku.id
+            for sku in get_inventory_container().inventory.list_skus_for_catalog(catalog_id)
+        ]
+
+    discounts = DiscountAppService(
+        MongoDiscountRuleRepository(db),
+        list_sku_ids_for_catalog=_list_sku_ids_for_catalog,
+    )
     store_activities = StoreActivityAppService(MongoStoreActivityRepository(db))
     project_activities = ProjectActivityConfigAppService(
         MongoProjectActivityConfigRepository(db)

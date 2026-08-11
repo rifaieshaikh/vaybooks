@@ -64,6 +64,14 @@ def _run_finance_demo(db: Database) -> dict[str, Any]:
     }
 
 
+def _run_product_sku_analytics(db: Database) -> dict[str, Any]:
+    from vaybooks.bms.infrastructure.db.product_sku_analytics_seed import (
+        run_product_sku_analytics_seed,
+    )
+
+    return run_product_sku_analytics_seed(db)
+
+
 SEED_PACKS: tuple[SeedPack, ...] = (
     SeedPack(
         id="category_analytics",
@@ -75,6 +83,21 @@ SEED_PACKS: tuple[SeedPack, ...] = (
         marker="CAT-ANALYTICS",
         how_to_verify="Inventory -> Categories -> Demo Analytics Wear -> Sales/Production/Customization",
         run=_run_category_analytics,
+    ),
+    SeedPack(
+        id="product_sku_analytics",
+        title="Product / SKU analytics",
+        description=(
+            "Demo Linen Shirt catalog + Size M/L SKUs with multi-month sales, "
+            "posted GRNs, production outputs, linked customization, and a "
+            "catalog-scoped discount for Product/SKU 360 tabs."
+        ),
+        marker="PROD-SKU-ANALYTICS",
+        how_to_verify=(
+            "Inventory -> Products -> Demo Linen Shirt (Sales/Purchase/Production/"
+            "Customization) and Inventory -> SKUs (PSA-LINEN-M/L)"
+        ),
+        run=_run_product_sku_analytics,
     ),
     SeedPack(
         id="core",

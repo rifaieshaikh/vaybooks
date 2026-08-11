@@ -22,11 +22,13 @@ class PurchaseLineResolver:
         get_service,
         get_expense_account_id_by_name: Callable[[str], Optional[str]],
         get_expense_account_name: Callable[[str], str],
+        get_catalog_product: Optional[Callable[[str], object]] = None,
     ):
         self._get_product = get_product
         self._get_service = get_service
         self._get_expense_id = get_expense_account_id_by_name
         self._get_expense_name = get_expense_account_name
+        self._get_catalog_product = get_catalog_product
         self._cached_material_expense_id: Optional[str] = None
 
     def _material_expense_account_id(self) -> str:
@@ -60,7 +62,9 @@ class PurchaseLineResolver:
             item_type = CatalogItemType(
                 raw.get("item_type") or CatalogItemType.PRODUCT.value
             )
-            item_id = str(raw.get("item_id") or "").strip()
+            item_id = str(
+                raw.get("sku_id") or raw.get("item_id") or raw.get("product_id") or ""
+            ).strip()
             if not item_id:
                 raise ValidationError(
                     "Each line must have a product or service selected"
@@ -78,9 +82,15 @@ class PurchaseLineResolver:
                 vendor_state_code=vendor.state_code,
             )
             expense_name = self._get_expense_name(expense_id)
+            patched = {
+                **raw,
+                "item_id": item_id,
+                "sku_id": item_id,
+                "product_id": item_id,
+            }
             resolved.append(
                 PurchaseBillLine.from_raw(
-                    raw,
+                    patched,
                     tax_profile=tax_profile,
                     gst=gst,
                     expense_account_id=expense_id,
@@ -100,9 +110,15 @@ class PurchaseLineResolver:
     ) -> tuple[ItemTaxProfile, str, str]:
         if item_type == CatalogItemType.PRODUCT:
             product = self._get_product(item_id)
-            if not product:
-                raise ValidationError("Product not found")
-            return product.active_tax_profile(), product.name, self._material_expense_account_id()
+            if product:
+                return (
+                    product.active_tax_profile(),
+                    product.name,
+                    self._material_expense_account_id(),
+                )
+            if self._get_catalog_product and self._get_catalog_product(item_id):
+                raise ValidationError("Select a SKU, not a catalog product")
+            raise ValidationError("Product not found")
         service = self._get_service(item_id)
         if not service:
             raise ValidationError("Service not found")

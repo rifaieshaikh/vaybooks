@@ -14,7 +14,7 @@ import {
 import {
   useCreateGoodsReceiptMutation,
   useGetPurchaseOrderQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useListPurchaseOrdersQuery,
   useListVendorsQuery,
 } from '@vaybooks/store';
@@ -33,7 +33,7 @@ export function GoodsReceiptEditorPage() {
   const navigate = useNavigate();
 
   const { data: vendors = [] } = useListVendorsQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
+  const { data: products = [] } = useListInventorySkusQuery();
   const { data: ordersPage } = useListPurchaseOrdersQuery({
     page: 1,
     page_size: LIST_FETCH_ALL_SIZE,
@@ -121,6 +121,7 @@ export function GoodsReceiptEditorPage() {
           .filter((l) => Number(l.receivedQty) > 0 && l.productId)
           .map((l) => ({
             product_id: l.productId,
+            sku_id: l.productId,
             qty_received: Number(l.receivedQty) || 0,
             rate: Number(l.rate) || 0,
             purchase_order_line_id: l.purchaseOrderLineId || l.id,
@@ -131,6 +132,7 @@ export function GoodsReceiptEditorPage() {
           .filter((l) => l.productId && Number(l.qty) > 0)
           .map((l) => ({
             product_id: l.productId,
+            sku_id: l.productId,
             qty_received: Number(l.qty) || 0,
             rate: Number(l.rate) || 0,
           }));

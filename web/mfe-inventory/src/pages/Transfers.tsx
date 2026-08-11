@@ -6,7 +6,7 @@ import {
   useDispatchInventoryTransferMutation,
   useGetInventoryTransferQuery,
   useListInventoryLocationsQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useListInventoryTransfersQuery,
   useReceiveInventoryTransferMutation,
 } from '@vaybooks/store';
@@ -79,7 +79,7 @@ export function TransfersListPage() {
   const navigate = useNavigate();
   const { data = [], isLoading, error, refetch } = useListInventoryTransfersQuery();
   const { data: locations = [] } = useListInventoryLocationsQuery({ active_only: true });
-  const { data: products = [] } = useListInventoryProductsQuery({ active_only: true });
+  const { data: products = [] } = useListInventorySkusQuery({ active_only: true });
   const [createTransfer, createState] = useCreateInventoryTransferMutation();
 
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_TRANSFER_SORT);
@@ -176,7 +176,7 @@ export function TransfersListPage() {
   async function createNow() {
     const cleanLines = lines
       .filter((ln) => ln.product_id && Number(ln.qty) > 0)
-      .map((ln) => ({ product_id: ln.product_id, qty: Number(ln.qty) }));
+      .map((ln) => ({ product_id: ln.product_id, sku_id: ln.product_id, qty: Number(ln.qty) }));
     try {
       await createTransfer({
         from_location_id: fromLocationId,

@@ -27,6 +27,43 @@ export function toCategoryOptions(rows: Record<string, unknown>[]): SearchableSe
   }));
 }
 
+export function toUnitOptions(rows: Record<string, unknown>[]): SearchableSelectOption[] {
+  return rows.map((u) => {
+    const code = asCaption(u.code);
+    const label = asCaption(u.label);
+    return {
+      value: String(u.id),
+      label: label && code && label.toLowerCase() !== code.toLowerCase() ? `${label} (${code})` : label || code || String(u.id),
+      sublabel: code || undefined,
+    };
+  });
+}
+
+/** Resolve unit_id (+ code) from BE units list, preferring id then code then pcs/first. */
+export function resolveUnitId(
+  units: Record<string, unknown>[],
+  preferred?: { unit_id?: string; unit_code?: string; unit?: string },
+): string {
+  const preferredId = asCaption(preferred?.unit_id);
+  if (preferredId) {
+    const byId = units.find((u) => String(u.id) === preferredId);
+    if (byId) return String(byId.id);
+  }
+  const preferredCode = asCaption(preferred?.unit_code || preferred?.unit).toLowerCase();
+  if (preferredCode) {
+    const byCode = units.find((u) => asCaption(u.code).toLowerCase() === preferredCode);
+    if (byCode) return String(byCode.id);
+  }
+  const pcs = units.find((u) => asCaption(u.code).toLowerCase() === 'pcs');
+  if (pcs) return String(pcs.id);
+  return units[0] ? String(units[0].id) : '';
+}
+
+export function unitCodeForId(units: Record<string, unknown>[], unitId: string): string {
+  const match = units.find((u) => String(u.id) === unitId);
+  return asCaption(match?.code) || 'pcs';
+}
+
 export function toCustomerOptions(rows: Record<string, unknown>[]): SearchableSelectOption[] {
   return rows.map((c) => ({
     value: String(c.id),

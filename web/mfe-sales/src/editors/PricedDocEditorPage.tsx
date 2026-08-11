@@ -19,7 +19,7 @@ import {
   useGetSalesQuotationQuery,
   useListCustomerPricesQuery,
   useListCustomersQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useUpdateSalesEstimateMutation,
   useUpdateSalesQuotationMutation,
 } from '@vaybooks/store';
@@ -56,7 +56,7 @@ export function PricedDocEditorPage({ mode }: { mode: PricedDocMode }) {
   const loading = mode === 'estimate' ? estimateQ.isLoading : quotationQ.isLoading;
 
   const { data: customers = [] } = useListCustomersQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
+  const { data: products = [] } = useListInventorySkusQuery();
   const { data: business } = useGetBusinessProfileQuery();
   const { locationId: workingLocationId } = useWorkingLocation();
 

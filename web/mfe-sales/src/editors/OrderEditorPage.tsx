@@ -18,7 +18,7 @@ import {
   useListCommissionAgentsQuery,
   useListCustomerPricesQuery,
   useListCustomersQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useListWorkersQuery,
   useUpdateSalesOrderMutation,
 } from '@vaybooks/store';
@@ -49,7 +49,7 @@ export function OrderEditorPage() {
 
   const { data: existing, isLoading } = useGetSalesOrderQuery(editId, { skip: !editId });
   const { data: customers = [] } = useListCustomersQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
+  const { data: products = [] } = useListInventorySkusQuery();
   const { data: business } = useGetBusinessProfileQuery();
   const { data: agents = [] } = useListCommissionAgentsQuery();
   const { data: workers = [] } = useListWorkersQuery({ active_only: true });

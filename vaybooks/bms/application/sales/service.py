@@ -130,7 +130,10 @@ class SalesAppService:
             )
 
     def _line_resolver(self) -> SalesLineResolver:
-        return SalesLineResolver(get_product=self._inventory.get_product)
+        return SalesLineResolver(
+            get_product=self._inventory.get_product,
+            get_catalog_product=getattr(self._inventory, "get_catalog_product", None),
+        )
 
     def _customer_from_account(self, customer_account_id: str) -> Customer:
         account = self._accounting.get_account(customer_account_id)

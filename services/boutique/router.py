@@ -60,6 +60,8 @@ class OrderItemWrite(BaseModel):
     description: str = Field(min_length=1)
     bill_number: str = ""
     category_id: Optional[str] = None
+    sku_id: Optional[str] = None
+    catalog_product_id: Optional[str] = None
     expected_delivery_date: Optional[str] = None
     customer_specification: str = ""
     measurement_id: Optional[str] = None
@@ -72,6 +74,8 @@ class OrderItemUpdate(BaseModel):
     bill_number: str = ""
     description: str = Field(min_length=1)
     category_id: Optional[str] = None
+    sku_id: Optional[str] = None
+    catalog_product_id: Optional[str] = None
     expected_delivery_date: Optional[str] = None
     customer_specification: Optional[str] = None
     measurement_id: Optional[str] = None
@@ -853,6 +857,8 @@ def add_order_item(order_id: str, body: OrderItemWrite) -> dict[str, Any]:
             sell_amount=float(body.sell_amount or 0),
             activity_estimated_hours=body.activity_estimated_hours or {},
             category_id=_validate_category_id(body.category_id),
+            sku_id=(body.sku_id or "").strip() or None,
+            catalog_product_id=(body.catalog_product_id or "").strip() or None,
         )
         order = _c().orders.get_order_detail(order_id)
         return {
@@ -872,6 +878,10 @@ def update_order_item(order_id: str, item_id: str, body: OrderItemUpdate) -> dic
             kwargs["measurement_id"] = body.measurement_id if body.measurement_id is not None else ""
         if "category_id" in fields_set:
             kwargs["category_id"] = _validate_category_id(body.category_id)
+        if "sku_id" in fields_set:
+            kwargs["sku_id"] = (body.sku_id or "").strip() or None
+        if "catalog_product_id" in fields_set:
+            kwargs["catalog_product_id"] = (body.catalog_product_id or "").strip() or None
         if "required_activities" in fields_set:
             kwargs["required_activities"] = body.required_activities or {}
         if "activity_estimated_hours" in fields_set:

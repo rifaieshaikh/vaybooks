@@ -139,6 +139,7 @@ class DiscountCreate(BaseModel):
     priority: int = 100
     is_active: bool = True
     product_ids: list[str] = Field(default_factory=list)
+    catalog_product_ids: list[str] = Field(default_factory=list)
     category_ids: list[str] = Field(default_factory=list)
     customer_ids: list[str] = Field(default_factory=list)
     segment_ids: list[str] = Field(default_factory=list)
@@ -156,6 +157,7 @@ class DiscountPatch(BaseModel):
     priority: Optional[int] = None
     is_active: Optional[bool] = None
     product_ids: Optional[list[str]] = None
+    catalog_product_ids: Optional[list[str]] = None
     category_ids: Optional[list[str]] = None
     customer_ids: Optional[list[str]] = None
     segment_ids: Optional[list[str]] = None
@@ -570,6 +572,7 @@ def create_discount(
             "priority": body.priority,
             "is_active": body.is_active,
             "product_ids": body.product_ids,
+            "catalog_product_ids": body.catalog_product_ids,
             "category_ids": body.category_ids,
             "customer_ids": body.customer_ids,
             "segment_ids": body.segment_ids,

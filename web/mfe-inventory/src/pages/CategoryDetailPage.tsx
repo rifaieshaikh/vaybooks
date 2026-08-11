@@ -19,7 +19,7 @@ import {
   useGetInventoryCategorySalesBreakdownQuery,
   useListInventoryCategoriesQuery,
   useListInventoryCategoryProductsQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useUpdateInventoryCategoryMutation,
 } from '@vaybooks/store';
 import {
@@ -307,7 +307,7 @@ export function CategoryDetailPage() {
       ? 'All time'
       : `${analyticsRange.start || '…'} → ${analyticsRange.end || '…'}`;
 
-  const { data: allProducts = [] } = useListInventoryProductsQuery(
+  const { data: allProducts = [] } = useListInventorySkusQuery(
     { active_only: true },
     { skip: !canItemsAdd },
   );

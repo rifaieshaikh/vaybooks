@@ -674,6 +674,54 @@ def catalog_sales_breakdown(
     )
 
 
+@router.get("/catalog-products/{catalog_product_id}/purchase-breakdown")
+def catalog_purchase_breakdown(
+    catalog_product_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    grain: Optional[str] = Query(default="month"),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return _svc().catalog_product_purchase_breakdown(
+        catalog_product_id,
+        start_date=_parse_optional_date(start_date),
+        end_date=_parse_optional_date(end_date),
+        grain=_parse_grain(grain),
+    )
+
+
+@router.get("/catalog-products/{catalog_product_id}/production-breakdown")
+def catalog_production_breakdown(
+    catalog_product_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    grain: Optional[str] = Query(default="month"),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return _svc().catalog_product_production_breakdown(
+        catalog_product_id,
+        start_date=_parse_optional_date(start_date),
+        end_date=_parse_optional_date(end_date),
+        grain=_parse_grain(grain),
+    )
+
+
+@router.get("/catalog-products/{catalog_product_id}/customization-breakdown")
+def catalog_customization_breakdown(
+    catalog_product_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    grain: Optional[str] = Query(default="month"),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return _svc().catalog_product_customization_breakdown(
+        catalog_product_id,
+        start_date=_parse_optional_date(start_date),
+        end_date=_parse_optional_date(end_date),
+        grain=_parse_grain(grain),
+    )
+
+
 @router.get("/catalog-products/{catalog_product_id}/spec-insights")
 def catalog_spec_insights(
     catalog_product_id: str,
@@ -727,6 +775,54 @@ def sku_sales_breakdown(
     _: str = Depends(require_permission("inventory.products.view")),
 ) -> dict[str, Any]:
     return _svc().sku_sales_breakdown(
+        sku_id,
+        start_date=_parse_optional_date(start_date),
+        end_date=_parse_optional_date(end_date),
+        grain=_parse_grain(grain),
+    )
+
+
+@router.get("/skus/{sku_id}/purchase-breakdown")
+def sku_purchase_breakdown(
+    sku_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    grain: Optional[str] = Query(default="month"),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return _svc().sku_purchase_breakdown(
+        sku_id,
+        start_date=_parse_optional_date(start_date),
+        end_date=_parse_optional_date(end_date),
+        grain=_parse_grain(grain),
+    )
+
+
+@router.get("/skus/{sku_id}/production-breakdown")
+def sku_production_breakdown(
+    sku_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    grain: Optional[str] = Query(default="month"),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return _svc().sku_production_breakdown(
+        sku_id,
+        start_date=_parse_optional_date(start_date),
+        end_date=_parse_optional_date(end_date),
+        grain=_parse_grain(grain),
+    )
+
+
+@router.get("/skus/{sku_id}/customization-breakdown")
+def sku_customization_breakdown(
+    sku_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    grain: Optional[str] = Query(default="month"),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return _svc().sku_customization_breakdown(
         sku_id,
         start_date=_parse_optional_date(start_date),
         end_date=_parse_optional_date(end_date),

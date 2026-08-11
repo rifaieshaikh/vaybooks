@@ -686,7 +686,12 @@ def get_services():
     )
     accounting_service.set_commission_service(commission_service)
     discount_rule_repo = MongoDiscountRuleRepository(db)
-    discount_service = DiscountAppService(discount_rule_repo)
+    discount_service = DiscountAppService(
+        discount_rule_repo,
+        list_sku_ids_for_catalog=lambda catalog_id: [
+            sku.id for sku in inventory_service.list_skus_for_catalog(catalog_id)
+        ],
+    )
     sales_service = SalesAppService(
         so_repo,
         dn_repo,

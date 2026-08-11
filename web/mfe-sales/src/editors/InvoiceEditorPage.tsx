@@ -26,7 +26,7 @@ import {
   useListCustomersQuery,
   useListDiscountRulesQuery,
   useListFinanceAccountsQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useListWorkersQuery,
   useUpdateSalesInvoiceMutation,
 } from '@vaybooks/store';
@@ -61,7 +61,7 @@ export function InvoiceEditorPage() {
     skip: !editId,
   });
   const { data: customers = [] } = useListCustomersQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
+  const { data: products = [] } = useListInventorySkusQuery();
   const { data: accounts = [] } = useListFinanceAccountsQuery();
   const { data: business } = useGetBusinessProfileQuery();
   const { locationId: workingLocationId } = useWorkingLocation();

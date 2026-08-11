@@ -16,7 +16,7 @@ import {
   useGetPurchaseOrderQuery,
   useGetVendorQuery,
   useLazyGetVendorPurchaseRateQuery,
-  useListInventoryProductsQuery,
+  useListInventorySkusQuery,
   useListVendorsQuery,
   useUpdatePurchaseOrderMutation,
 } from '@vaybooks/store';
@@ -42,7 +42,7 @@ export function PurchaseOrderEditorPage() {
 
   const { data: existing, isLoading } = useGetPurchaseOrderQuery(editId, { skip: !editId });
   const { data: vendors = [] } = useListVendorsQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
+  const { data: products = [] } = useListInventorySkusQuery();
   const { data: business } = useGetBusinessProfileQuery();
   const { locationId: workingLocationId } = useWorkingLocation();
   const [createPo, createState] = useCreatePurchaseOrderMutation();
