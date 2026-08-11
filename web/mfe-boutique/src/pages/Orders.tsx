@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useListBoutiqueOrdersQuery } from '@vaybooks/store';
 import {
   Button,
@@ -44,9 +44,18 @@ const DEFAULT_SORT: SortCriterion[] = [{ key: 'order_date', desc: true }];
 
 export function BoutiqueOrdersListPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
+  const seededCustomerName = useRef(false);
+
+  useEffect(() => {
+    if (seededCustomerName.current) return;
+    seededCustomerName.current = true;
+    const name = (params.get('customer_name') || '').trim();
+    if (name) setFilters((prev) => ({ ...prev, customer_name: name }));
+  }, [params]);
 
   const { data, isLoading, error } = useListBoutiqueOrdersQuery({
     order_number: filters.order_number || undefined,

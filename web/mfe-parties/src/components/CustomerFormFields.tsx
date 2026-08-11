@@ -90,27 +90,44 @@ export function CustomerFormFields({
             No party segments defined yet. Add them under Parties → Segments.
           </div>
         ) : (
-          <FormRow label="Segments">
-            <select
-              multiple
-              value={selectedSegments}
-              onChange={(e) =>
-                onChange(
-                  'segment_ids',
-                  Array.from(e.target.selectedOptions)
-                    .map((o) => o.value)
-                    .join(','),
-                )
-              }
-              style={{ minHeight: 72, padding: 6, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              {segmentOptions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </FormRow>
+          <div
+            role="group"
+            aria-label="Segments"
+            style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}
+          >
+            {segmentOptions.map((s) => {
+              const checked = selectedSegments.includes(s.id);
+              return (
+                <label
+                  key={s.id}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '0.35rem 0.7rem',
+                    borderRadius: 8,
+                    border: `1px solid ${checked ? '#185c4c' : '#c5d4ce'}`,
+                    background: checked ? 'rgba(24, 92, 76, 0.08)' : '#fff',
+                    color: '#14241f',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => {
+                      const next = checked
+                        ? selectedSegments.filter((id) => id !== s.id)
+                        : [...selectedSegments, s.id];
+                      onChange('segment_ids', next.join(','));
+                    }}
+                  />
+                  <span>{s.name}</span>
+                </label>
+              );
+            })}
+          </div>
         )}
       </section>
 

@@ -356,18 +356,25 @@ export function DiscountsSettingsPage() {
 
   type DiscountRow = Record<string, unknown>;
 
-  function openAdd() {
+  function openAdd(prefill?: { customerId?: string }) {
     setFormError('');
     setEditId('');
-    setForm(emptyForm());
+    const next = emptyForm();
+    if (prefill?.customerId) {
+      next.scope = 'customer';
+      next.customerIds = [prefill.customerId];
+    }
+    setForm(next);
     setDialog('add');
   }
 
   useEffect(() => {
     if (!canEdit || searchParams.get('new') !== '1') return;
-    openAdd();
+    const customerId = (searchParams.get('customer_id') || '').trim();
+    openAdd(customerId ? { customerId } : undefined);
     const next = new URLSearchParams(searchParams);
     next.delete('new');
+    next.delete('customer_id');
     setSearchParams(next, { replace: true });
   }, [canEdit, searchParams, setSearchParams]);
 
@@ -592,7 +599,7 @@ export function DiscountsSettingsPage() {
         }`}
         actions={
           canEdit ? (
-            <Button type="button" onClick={openAdd}>
+            <Button type="button" onClick={() => openAdd()}>
               Add discount
             </Button>
           ) : null
@@ -653,7 +660,7 @@ export function DiscountsSettingsPage() {
           rowKey={(row) => String(row.id)}
           keyboardNav
           onEditRow={canEdit ? (row) => openEdit(row) : undefined}
-          onNew={canEdit ? openAdd : undefined}
+          onNew={canEdit ? () => openAdd() : undefined}
           actions={(row) =>
             canEdit ? (
               <div className="el-actions">

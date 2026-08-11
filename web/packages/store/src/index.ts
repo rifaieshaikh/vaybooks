@@ -60,6 +60,7 @@ export {
   useBlacklistCustomerMutation,
   useGetCustomerSummaryQuery,
   useSettleCustomerMutation,
+  useRefundCustomerMutation,
   useGetSalesCustomerRelatedSummaryQuery,
   useGetSalesCustomerProductHistoryQuery,
   useGetBoutiqueCustomerRelatedSummaryQuery,

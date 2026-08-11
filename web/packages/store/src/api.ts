@@ -508,6 +508,28 @@ export const baseApi = createApi({
       }),
       invalidatesTags: ['Customer'],
     }),
+    refundCustomer: build.mutation<
+      Record<string, unknown>,
+      {
+        id: string;
+        store_account_id: string;
+        amount: number;
+        description?: string;
+        voucher_date?: string;
+      }
+    >({
+      query: ({ id, store_account_id, amount, description, voucher_date }) => ({
+        url: `/parties/customers/${id}/refund`,
+        method: 'POST',
+        body: {
+          store_account_id,
+          amount,
+          description: description || 'Customer refund',
+          ...(voucher_date ? { voucher_date } : {}),
+        },
+      }),
+      invalidatesTags: ['Customer', 'Finance'],
+    }),
 
     getSalesCustomerRelatedSummary: build.query<Record<string, unknown>, string>({
       query: (id) => `/sales/customers/${id}/related-summary`,
@@ -3686,6 +3708,7 @@ export const {
   useBlacklistCustomerMutation,
   useGetCustomerSummaryQuery,
   useSettleCustomerMutation,
+  useRefundCustomerMutation,
   useGetSalesCustomerRelatedSummaryQuery,
   useGetSalesCustomerProductHistoryQuery,
   useGetBoutiqueCustomerRelatedSummaryQuery,

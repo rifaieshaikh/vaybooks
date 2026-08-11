@@ -143,6 +143,13 @@ class SettleBody(BaseModel):
     voucher_date: Optional[date] = None
 
 
+class CustomerRefundBody(BaseModel):
+    store_account_id: str = Field(min_length=1)
+    amount: float = Field(gt=0)
+    description: str = "Customer refund"
+    voucher_date: Optional[date] = None
+
+
 class PartySummary(BaseModel):
     account_id: str = ""
     balance: float = 0.0

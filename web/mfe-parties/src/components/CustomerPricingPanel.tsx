@@ -1,13 +1,13 @@
-import { Button, FormRow, TextInput, ErrorText } from '@vaybooks/ui-kit';
-import {
-  useCan,
-  useCreateCustomerPriceMutation,
-  useCreateDiscountRuleMutation,
-  useListCustomerPricesQuery,
-  useListDiscountRulesQuery,
-  useListInventoryProductsQuery,
-} from '@vaybooks/store';
-import { useMemo, useState } from 'react';
+import { StatusPill } from '@vaybooks/ui-kit';
+import { useCan, useListDiscountRulesQuery } from '@vaybooks/store';
+import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
+
+const APPLY_LABELS: Record<string, string> = {
+  sales_order: 'Sales order',
+  sales_invoice: 'Sales invoice',
+  boutique_invoice: 'Boutique invoice',
+};
 
 function money(v: unknown) {
   if (v == null || v === '') return '—';
@@ -16,191 +16,132 @@ function money(v: unknown) {
   return `₹${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
+function valueCaption(row: Record<string, unknown>) {
+  const n = Number(row.value) || 0;
+  if (String(row.discount_type) === 'fixed') return money(n);
+  return `${n}%`;
+}
+
+function applyToCaption(row: Record<string, unknown>) {
+  const apply = Array.isArray(row.apply_to) ? (row.apply_to as string[]) : [];
+  if (!apply.length) return '—';
+  return apply.map((k) => APPLY_LABELS[k] || k).join(', ');
+}
+
+function validityCaption(row: Record<string, unknown>) {
+  const from = row.valid_from ? String(row.valid_from).slice(0, 10) : '';
+  const to = row.valid_to ? String(row.valid_to).slice(0, 10) : '';
+  if (!from && !to) return 'Always';
+  return `${from || '…'} → ${to || '…'}`;
+}
+
+type DiscountRow = Record<string, unknown> & { _source: 'Customer' | 'Segment' };
+
 export function CustomerPricingPanel({
   customerId,
-  customerName,
   segmentIds,
-  onSeeAllPrices,
 }: {
   customerId: string;
-  customerName: string;
   segmentIds: string[];
-  onSeeAllPrices?: () => void;
 }) {
   const can = useCan();
   const canViewDiscounts = can('settings.discounts.view');
   const canEditDiscounts = can('settings.discounts.edit');
-  const canViewPrices = can('inventory.customer_prices.view');
-  const canEditPrices = can('inventory.customer_prices.edit');
 
   const discounts = useListDiscountRulesQuery(
     { customer_id: customerId },
     { skip: !canViewDiscounts },
   );
   const allDiscounts = useListDiscountRulesQuery(undefined, { skip: !canViewDiscounts });
-  const prices = useListCustomerPricesQuery(
-    { customer_id: customerId },
-    { skip: !canViewPrices },
-  );
-  const products = useListInventoryProductsQuery(
-    { active_only: true },
-    { skip: !canEditPrices },
-  );
-  const [createDiscount] = useCreateDiscountRuleMutation();
-  const [createPrice] = useCreateCustomerPriceMutation();
 
-  const [discName, setDiscName] = useState('');
-  const [discValue, setDiscValue] = useState('5');
-  const [productId, setProductId] = useState('');
-  const [rate, setRate] = useState('');
-  const [error, setError] = useState('');
+  const rows = useMemo(() => {
+    const customerRows: DiscountRow[] = (discounts.data || []).map((r) => ({
+      ...r,
+      _source: 'Customer' as const,
+    }));
+    const customerIds = new Set(customerRows.map((r) => String(r.id)));
+    const segmentRows: DiscountRow[] = (allDiscounts.data || [])
+      .filter((r) => {
+        if (customerIds.has(String(r.id))) return false;
+        const segs = Array.isArray(r.segment_ids) ? (r.segment_ids as string[]) : [];
+        return segs.some((s) => segmentIds.includes(String(s)));
+      })
+      .map((r) => ({ ...r, _source: 'Segment' as const }));
+    return [...customerRows, ...segmentRows].sort(
+      (a, b) => Number(a.priority ?? 999) - Number(b.priority ?? 999),
+    );
+  }, [discounts.data, allDiscounts.data, segmentIds]);
 
-  const segmentRules = useMemo(() => {
-    const rows = allDiscounts.data || [];
-    return rows.filter((r) => {
-      const segs = Array.isArray(r.segment_ids) ? (r.segment_ids as string[]) : [];
-      return segs.some((s) => segmentIds.includes(String(s)));
-    });
-  }, [allDiscounts.data, segmentIds]);
+  if (!canViewDiscounts) return null;
 
-  const latestPrices = useMemo(() => (prices.data || []).slice(0, 3), [prices.data]);
-
-  if (!canViewDiscounts && !canViewPrices) return null;
-
-  async function addDiscount() {
-    setError('');
-    try {
-      await createDiscount({
-        name: discName || `${customerName} discount`,
-        scope: 'customer',
-        discount_type: 'percent',
-        value: Number(discValue) || 0,
-        customer_ids: [customerId],
-        is_active: true,
-      }).unwrap();
-      setDiscName('');
-      discounts.refetch();
-    } catch (e: unknown) {
-      setError(
-        e && typeof e === 'object' && 'data' in e
-          ? String((e as { data?: { detail?: string } }).data?.detail || 'Failed')
-          : 'Failed',
-      );
-    }
-  }
-
-  async function addPrice() {
-    setError('');
-    try {
-      const prod = (products.data || []).find((p) => String(p.id) === productId);
-      await createPrice({
-        customer_id: customerId,
-        customer_name: customerName,
-        product_id: productId,
-        product_name: prod ? String(prod.name || '') : '',
-        sku: prod ? String(prod.sku || '') : '',
-        rate: Number(rate) || 0,
-      }).unwrap();
-      setProductId('');
-      setRate('');
-      prices.refetch();
-    } catch (e: unknown) {
-      setError(
-        e && typeof e === 'object' && 'data' in e
-          ? String((e as { data?: { detail?: string } }).data?.detail || 'Failed')
-          : 'Failed',
-      );
-    }
-  }
+  const settingsHref = canEditDiscounts
+    ? `/settings/discounts?new=1&customer_id=${encodeURIComponent(customerId)}`
+    : '/settings/discounts';
+  const loading = discounts.isLoading || allDiscounts.isLoading;
+  const errored = Boolean(discounts.error || allDiscounts.error);
 
   return (
-    <div className="cd-pricing">
-      {error ? <ErrorText>{error}</ErrorText> : null}
-
-      {canViewDiscounts ? (
-        <section className="cd-pricing-card">
-          <h4>Customer discount rules</h4>
-          <ul className="cd-pricing-list">
-            {(discounts.data || []).map((r) => (
-              <li key={String(r.id)}>
-                {String(r.name)} — {String(r.discount_type)} {String(r.value)}
-                {r.is_active === false ? ' (inactive)' : ''}
-              </li>
-            ))}
-            {(discounts.data || []).length === 0 ? <li>No customer-specific rules.</li> : null}
-          </ul>
-          {segmentRules.length > 0 ? (
-            <>
-              <h4>Segment-inherited (read-only)</h4>
-              <ul className="cd-pricing-list">
-                {segmentRules.map((r) => (
-                  <li key={`seg-${String(r.id)}`}>
-                    {String(r.name)} — {String(r.discount_type)} {String(r.value)}
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-          {canEditDiscounts ? (
-            <div className="cd-pricing-form">
-              <FormRow label="Rule name">
-                <TextInput value={discName} onChange={(e) => setDiscName(e.target.value)} />
-              </FormRow>
-              <FormRow label="Percent">
-                <TextInput type="number" value={discValue} onChange={(e) => setDiscValue(e.target.value)} />
-              </FormRow>
-              <Button type="button" onClick={() => void addDiscount()}>
-                Add discount
-              </Button>
-            </div>
-          ) : null}
-        </section>
+    <>
+      {loading ? <p className="cd-empty">Loading discounts…</p> : null}
+      {errored ? (
+        <p className="cd-empty" style={{ color: 'var(--cd-danger, #a12828)' }}>
+          Failed to load discount rules.
+        </p>
       ) : null}
-
-      {canViewPrices ? (
-        <section className="cd-pricing-card">
-          <div className="cd-pricing-card-head">
-            <h4>Latest product rates</h4>
-            {onSeeAllPrices ? (
-              <button type="button" className="cd-text-link" onClick={onSeeAllPrices}>
-                See all
-              </button>
-            ) : null}
-          </div>
-          <ul className="cd-pricing-list">
-            {latestPrices.map((r) => (
-              <li key={String(r.id)}>
-                {String(r.product_name || r.sku || r.product_id)} — {money(r.customer_rate ?? r.rate)}
-              </li>
-            ))}
-            {latestPrices.length === 0 ? <li>No customer prices.</li> : null}
-          </ul>
-          {canEditPrices ? (
-            <div className="cd-pricing-form">
-              <FormRow label="Product">
-                <select
-                  className="cd-select"
-                  value={productId}
-                  onChange={(e) => setProductId(e.target.value)}
-                >
-                  <option value="">Select…</option>
-                  {(products.data || []).map((p) => (
-                    <option key={String(p.id)} value={String(p.id)}>
-                      {String(p.name || p.sku || p.id)}
-                    </option>
-                  ))}
-                </select>
-              </FormRow>
-              <FormRow label="Rate">
-                <TextInput type="number" value={rate} onChange={(e) => setRate(e.target.value)} />
-              </FormRow>
-              <Button type="button" onClick={() => void addPrice()} disabled={!productId}>
-                Add rate
-              </Button>
-            </div>
-          ) : null}
-        </section>
+      {!loading && !errored && rows.length === 0 ? (
+        <div className="cd-empty">
+          <p style={{ margin: '0 0 0.65rem' }}>No discount rules for this customer.</p>
+          <Link className="cd-text-link" to={settingsHref}>
+            {canEditDiscounts ? 'Add a rule in Discount settings' : 'Open Discount settings'}
+          </Link>
+        </div>
       ) : null}
-    </div>
+      {!loading && !errored && rows.length > 0 ? (
+        <div className="cd-table-wrap">
+          <table className="cd-table">
+            <thead>
+              <tr>
+                <th>Rule</th>
+                <th>Value</th>
+                <th>Applies to</th>
+                <th>Source</th>
+                <th>Priority</th>
+                <th>Validity</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={`${r._source}-${String(r.id)}`}>
+                  <td>
+                    <div className="cd-disc-name">{String(r.name || '—')}</div>
+                    <div className="cd-disc-sub">
+                      {String(r.discount_type) === 'fixed' ? 'Fixed' : 'Percent'}
+                    </div>
+                  </td>
+                  <td>{valueCaption(r)}</td>
+                  <td>{applyToCaption(r)}</td>
+                  <td>{r._source}</td>
+                  <td>{String(r.priority ?? '—')}</td>
+                  <td>{validityCaption(r)}</td>
+                  <td>
+                    <StatusPill
+                      status={r.is_active === false ? 'Inactive' : 'Active'}
+                      tone={r.is_active === false ? 'neutral' : 'success'}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </>
   );
+}
+
+export function customerDiscountSettingsHref(customerId: string, canEdit: boolean) {
+  return canEdit
+    ? `/settings/discounts?new=1&customer_id=${encodeURIComponent(customerId)}`
+    : '/settings/discounts';
 }

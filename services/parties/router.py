@@ -14,6 +14,7 @@ from services.common.authz import require_permission
 from services.parties.schemas import (
     BlacklistBody,
     CommissionAgentWrite,
+    CustomerRefundBody,
     CustomerWrite,
     DeliveryPartnerWrite,
     SalaryCalculateBody,
@@ -367,6 +368,29 @@ def settle_customer(
     except Exception as exc:
         raise _http_err(exc) from exc
     return {"ok": True, "voucher_ids": [v.id for v in vouchers]}
+
+
+@router.post("/customers/{customer_id}/refund")
+def refund_customer(
+    customer_id: str,
+    body: CustomerRefundBody,
+    _: str = Depends(require_permission("finance.payments.create")),
+) -> dict[str, Any]:
+    acct = _svc().account_repo.find_customer_account(customer_id)
+    if not acct:
+        raise HTTPException(status_code=404, detail="customer account not found")
+    try:
+        voucher = _svc().accounting.create_refund(
+            customer_account_id=acct.id,
+            store_account_id=body.store_account_id,
+            amount=body.amount,
+            description=body.description or "Customer refund",
+            voucher_date=body.voucher_date,
+            refund_type="payment",
+        )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return {"ok": True, "voucher_id": voucher.id}
 
 
 # --- Vendors -------------------------------------------------------------------

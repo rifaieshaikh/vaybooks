@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useGetSalesInvoiceQuery,
@@ -92,6 +92,7 @@ export function SalesInvoicesListPage() {
       return { ...filters, has_voucher: '', month: '', unpaid: '' };
     },
   });
+  const seededCustomerName = useRef(false);
 
   useEffect(() => {
     if (list.params.get('new') === '1') {
@@ -99,8 +100,13 @@ export function SalesInvoicesListPage() {
       navigate(cid ? `/sales/invoices/new?customer_id=${cid}` : '/sales/invoices/new', {
         replace: true,
       });
+      return;
     }
-  }, [list.params, navigate]);
+    if (seededCustomerName.current) return;
+    seededCustomerName.current = true;
+    const name = (list.params.get('customer_name') || '').trim();
+    if (name) list.setFilters((prev) => ({ ...prev, customer_name: name }));
+  }, [list.params, list.setFilters, navigate]);
 
   const listArgs = useMemo(() => {
     const monthRange = list.filters.month === 'current' ? currentMonthRange() : null;
