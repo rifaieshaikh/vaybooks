@@ -1,6 +1,7 @@
 export { FinanceOverviewPage } from './Overview';
 export { AccountsListPage, AccountDetailPage } from './Accounts';
 export { VouchersListPage } from './Vouchers';
+export { VoucherDetailPage } from './VoucherDetail';
 export {
   ReceiptsListPage,
   PaymentsListPage,

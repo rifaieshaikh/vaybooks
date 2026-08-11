@@ -15,7 +15,7 @@ function cx(...parts: Array<string | undefined | false>): string {
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
-  variant?: 'primary' | 'ghost';
+  variant?: 'primary' | 'ghost' | 'danger';
 }
 
 export function Button({ children, variant = 'primary', style, className, ...props }: ButtonProps) {
@@ -23,8 +23,16 @@ export function Button({ children, variant = 'primary', style, className, ...pro
     padding: '0.5rem 0.95rem',
     borderRadius: 'var(--vb-control-radius, 8px)',
     border: variant === 'ghost' ? '1px solid var(--vb-color-control-border, #c5d4ce)' : 'none',
-    background: variant === 'primary' ? 'var(--vb-color-primary, #185c4c)' : 'transparent',
-    color: variant === 'primary' ? 'var(--vb-color-on-primary, #fff)' : 'inherit',
+    background:
+      variant === 'primary'
+        ? 'var(--vb-color-primary, #185c4c)'
+        : variant === 'danger'
+          ? 'var(--vb-color-danger, #b42318)'
+          : 'transparent',
+    color:
+      variant === 'primary' || variant === 'danger'
+        ? 'var(--vb-color-on-primary, #fff)'
+        : 'inherit',
     cursor: 'pointer',
     fontFamily: 'inherit',
     fontSize: 'var(--vb-control-font-size, 0.925rem)',

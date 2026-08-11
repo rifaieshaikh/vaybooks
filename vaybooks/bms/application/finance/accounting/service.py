@@ -2990,6 +2990,78 @@ class AccountingAppService:
         )
         return saved
 
+    def create_purchase_expense(
+        self,
+        vendor_account_id: str,
+        expense_account_id: str,
+        amount: float,
+        description: str,
+        voucher_date: Optional[date] = None,
+        location_id: str = "",
+        location_name: str = "",
+    ) -> Voucher:
+        """Unpaid vendor-credit purchase expense for Accounting Invoices chip."""
+        vendor = self._account_repo.find_by_id(vendor_account_id)
+        expense = self._account_repo.find_by_id(expense_account_id)
+        if not vendor:
+            raise ValueError("Vendor account not found")
+        if not expense:
+            raise ValueError("Expense account not found")
+        voucher_number = self._counter_repo.next("voucher_number")
+        v_date = datetime.combine(voucher_date or date.today(), datetime.min.time())
+        voucher = self._domain.build_purchase_expense_voucher(
+            voucher_number=voucher_number,
+            voucher_date=v_date,
+            description=description,
+            vendor_account_id=vendor.id,
+            vendor_account_name=vendor.account_name,
+            expense_account_id=expense.id,
+            expense_account_name=expense.account_name,
+            amount=amount,
+        )
+        return self._save_voucher(
+            voucher,
+            location_id=location_id,
+            location_name=location_name,
+            require_location=True,
+        )
+
+    def create_payment(
+        self,
+        expense_account_id: str,
+        paying_account_id: str,
+        amount: float,
+        description: str,
+        voucher_date: Optional[date] = None,
+        location_id: str = "",
+        location_name: str = "",
+    ) -> Voucher:
+        """Generic expense payment (Payments list Payment chip)."""
+        expense = self._account_repo.find_by_id(expense_account_id)
+        paying = self._account_repo.find_by_id(paying_account_id)
+        if not expense:
+            raise ValueError("Expense account not found")
+        if not paying:
+            raise ValueError("Paying account not found")
+        voucher_number = self._counter_repo.next("voucher_number")
+        v_date = datetime.combine(voucher_date or date.today(), datetime.min.time())
+        voucher = self._domain.build_payment_voucher(
+            voucher_number=voucher_number,
+            voucher_date=v_date,
+            description=description or "Payment",
+            expense_account_id=expense.id,
+            expense_account_name=expense.account_name,
+            paying_account_id=paying.id,
+            paying_account_name=paying.account_name,
+            amount=amount,
+        )
+        return self._save_voucher(
+            voucher,
+            location_id=location_id,
+            location_name=location_name,
+            require_location=True,
+        )
+
     def update_purchase_bill(
         self,
         voucher_id: str,

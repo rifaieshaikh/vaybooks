@@ -90,7 +90,7 @@ class RecipeCreate(BaseModel):
     code: str = ""
     description: str = ""
     base_quantity: float = 1.0
-    allocation_method: str = "NRV"
+    allocation_method: Optional[str] = None
     inputs: List[RecipeLineIn] = Field(default_factory=list)
     outputs: List[RecipeLineIn] = Field(default_factory=list)
     stages: List[RecipeStageIn] = Field(default_factory=list)
@@ -119,6 +119,20 @@ class BatchCreate(BaseModel):
     planned_quantity: float = 1.0
     planned_qty: float = 0.0  # legacy alias
     notes: str = ""
+
+
+class BatchLinePatch(BaseModel):
+    id: str = Field(min_length=1)
+    qty: Optional[float] = None
+    location_id: Optional[str] = None
+    nrv_rate: Optional[float] = None
+    allocation_pct: Optional[float] = None
+
+
+class BatchPatch(BaseModel):
+    issues: Optional[List[BatchLinePatch]] = None
+    outputs: Optional[List[BatchLinePatch]] = None
+    notes: Optional[str] = None
 
 
 class StageCompleteBody(BaseModel):
@@ -278,9 +292,7 @@ def overview() -> dict[str, Any]:
         summary["quick_actions"] = [
             {"to": "/production/recipes", "label": "Recipes"},
             {"to": "/production/batches", "label": "Batches"},
-            {"to": "/production/day-book", "label": "Day Book"},
-            {"to": "/production/margins", "label": "Margins"},
-            {"to": "/production/yield", "label": "Yield"},
+            {"to": "/production/profitability", "label": "Profitability"},
             {"to": "/production/reports", "label": "Reports"},
         ]
         return summary
@@ -299,8 +311,17 @@ def list_recipes(*, active_only: bool = False) -> list[dict[str, Any]]:
 @router.post("/recipes", status_code=201)
 def create_recipe(body: RecipeCreate) -> dict[str, Any]:
     try:
-        recipe = _c().production.save_recipe(_build_recipe(body))
-        return _recipe_dict(recipe)
+        recipe = _build_recipe(body)
+        if body.allocation_method is None:
+            settings = _c().production.get_settings()
+            method = getattr(settings, "default_allocation_method", None)
+            if method is not None:
+                recipe.allocation_method = (
+                    method
+                    if isinstance(method, ProductionCostAllocationMethod)
+                    else ProductionCostAllocationMethod(str(method))
+                )
+        return _recipe_dict(_c().production.save_recipe(recipe))
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -421,6 +442,39 @@ def get_batch(batch_id: str) -> dict[str, Any]:
     return _batch_dict(batch)
 
 
+@router.patch("/batches/{batch_id}")
+def patch_batch(batch_id: str, body: BatchPatch) -> dict[str, Any]:
+    try:
+        issues = (
+            [line.model_dump(exclude_unset=True) for line in body.issues]
+            if body.issues is not None
+            else None
+        )
+        outputs = (
+            [line.model_dump(exclude_unset=True) for line in body.outputs]
+            if body.outputs is not None
+            else None
+        )
+        return _batch_dict(
+            _c().production.update_batch_lines(
+                batch_id,
+                issues=issues,
+                outputs=outputs,
+                notes=body.notes,
+            )
+        )
+    except ValidationError as exc:
+        detail = str(exc)
+        status = (
+            409
+            if "Posted or cancelled" in detail or "cannot be edited" in detail
+            else 400
+        )
+        raise HTTPException(status_code=status, detail=detail) from exc
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
 @router.post("/batches/{batch_id}/complete")
 def complete_batch(batch_id: str, body: Optional[StageCompleteBody] = None) -> dict[str, Any]:
     """Complete a stage when stage_id is provided; otherwise save/advance to In Progress."""
@@ -459,6 +513,14 @@ def post_batch(batch_id: str, body: PostBody | None = None) -> dict[str, Any]:
     try:
         posted_by = body.posted_by if body else "api"
         return _batch_dict(_c().production.post_batch(batch_id, posted_by=posted_by))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.post("/batches/{batch_id}/unpost")
+def unpost_batch(batch_id: str) -> dict[str, Any]:
+    try:
+        return _batch_dict(_c().production.unpost_batch(batch_id))
     except Exception as exc:
         raise _http_err(exc) from exc
 
@@ -509,19 +571,219 @@ def day_book(
         raise _http_err(exc) from exc
 
 
+def _report_filters(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    recipe_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+) -> dict[str, Any]:
+    filters: dict[str, Any] = {}
+    start = _parse_date(start_date)
+    end = _parse_date(end_date)
+    if start or end:
+        filters["date_range"] = (start, end)
+    if recipe_id:
+        filters["recipe_id"] = recipe_id
+    if location_id:
+        filters["location_id"] = location_id
+    return filters
+
+
 @router.get("/margins")
-def margins() -> list[dict[str, Any]]:
+def margins(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    recipe_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+) -> list[dict[str, Any]]:
     try:
-        rows = _c().reports.batch_margin_report()
+        rows = _c().reports.batch_margin_report(
+            _report_filters(
+                start_date=start_date,
+                end_date=end_date,
+                recipe_id=recipe_id,
+                location_id=location_id,
+            )
+        )
         return [entity_dict(row) for row in rows]
     except Exception as exc:
         raise _http_err(exc) from exc
 
 
 @router.get("/yield")
-def yield_report() -> list[dict[str, Any]]:
+def yield_report(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    recipe_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+) -> list[dict[str, Any]]:
     try:
-        rows = _c().reports.yield_variance_report()
+        rows = _c().reports.yield_variance_report(
+            _report_filters(
+                start_date=start_date,
+                end_date=end_date,
+                recipe_id=recipe_id,
+                location_id=location_id,
+            )
+        )
+        return [entity_dict(row) for row in rows]
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/profitability/summary")
+def profitability_summary(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    recipe_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+) -> dict[str, Any]:
+    try:
+        return entity_dict(
+            _c().reports.profitability_summary(
+                _report_filters(
+                    start_date=start_date,
+                    end_date=end_date,
+                    recipe_id=recipe_id,
+                    location_id=location_id,
+                )
+            )
+        )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/profitability/recipes")
+def profitability_recipes(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    recipe_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    try:
+        rows = _c().reports.recipe_scorecards(
+            _report_filters(
+                start_date=start_date,
+                end_date=end_date,
+                recipe_id=recipe_id,
+                location_id=location_id,
+            )
+        )
+        return [entity_dict(row) for row in rows]
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/profitability/material-variance")
+def profitability_material_variance(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    recipe_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    try:
+        rows = _c().reports.material_variance_report(
+            _report_filters(
+                start_date=start_date,
+                end_date=end_date,
+                recipe_id=recipe_id,
+                location_id=location_id,
+            )
+        )
+        return [entity_dict(row) for row in rows]
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/profitability/products")
+def profitability_products(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    recipe_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    try:
+        rows = _c().reports.product_profitability_report(
+            _report_filters(
+                start_date=start_date,
+                end_date=end_date,
+                recipe_id=recipe_id,
+                location_id=location_id,
+            )
+        )
+        return [entity_dict(row) for row in rows]
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/profitability/cost-trend")
+def profitability_cost_trend(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    recipe_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    try:
+        rows = _c().reports.cost_per_unit_trend_report(
+            _report_filters(
+                start_date=start_date,
+                end_date=end_date,
+                recipe_id=recipe_id,
+                location_id=location_id,
+            )
+        )
+        return [entity_dict(row) for row in rows]
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/profitability/rm-consumption")
+def profitability_rm_consumption(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    recipe_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    try:
+        rows = _c().reports.rm_consumption_report(
+            _report_filters(
+                start_date=start_date,
+                end_date=end_date,
+                recipe_id=recipe_id,
+                location_id=location_id,
+            )
+        )
+        return [entity_dict(row) for row in rows]
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/profitability/wip")
+def profitability_wip(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    recipe_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    try:
+        rows = _c().reports.wip_open_batches_report(
+            _report_filters(
+                start_date=start_date,
+                end_date=end_date,
+                recipe_id=recipe_id,
+                location_id=location_id,
+            )
+        )
         return [entity_dict(row) for row in rows]
     except Exception as exc:
         raise _http_err(exc) from exc
@@ -554,7 +816,14 @@ def run_report(body: ReportRunBody) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"Unknown report: {key}")
     try:
         method = getattr(_c().reports, match["method"])
-        rows = method(body.filters or {})
+        filters = dict(body.filters or {})
+        date_range = filters.get("date_range")
+        if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+            filters["date_range"] = (
+                _parse_date(str(date_range[0])) if date_range[0] else None,
+                _parse_date(str(date_range[1])) if date_range[1] else None,
+            )
+        rows = method(filters)
         return {
             "report_id": match["id"],
             "report_type": match["title"],

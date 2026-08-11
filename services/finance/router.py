@@ -635,30 +635,16 @@ def create_payment(body: PaymentWrite) -> dict[str, Any]:
                 voucher_date=v_date,
             )
         else:
-            # Generic expense payment via journal-like vendor payment when expense set
             if not body.expense_account_id:
                 raise ValueError("expense_account_id is required")
-            expense = svc.get_account(body.expense_account_id)
-            paying = svc.get_account(body.paying_account_id)
-            if not expense or not paying:
-                raise ValueError("Accounts not found")
-            v = svc.create_fy_system_journal(
+            v = svc.create_payment(
+                expense_account_id=body.expense_account_id,
+                paying_account_id=body.paying_account_id,
+                amount=body.amount,
                 description=body.description or "Payment",
-                lines=[
-                    {
-                        "account_id": expense.id,
-                        "account_name": expense.account_name,
-                        "debit_amount": body.amount,
-                        "credit_amount": 0,
-                    },
-                    {
-                        "account_id": paying.id,
-                        "account_name": paying.account_name,
-                        "debit_amount": 0,
-                        "credit_amount": body.amount,
-                    },
-                ],
                 voucher_date=v_date,
+                location_id=body.location_id or "default",
+                location_name=body.location_name,
             )
         return _voucher_dict(v)
     except Exception as exc:

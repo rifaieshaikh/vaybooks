@@ -3,6 +3,7 @@ export {
   ProductionRecipesPage,
   ProductionBatchesListPage,
   ProductionBatchDetailPage,
+  ProductionProfitabilityPage,
   ProductionDayBookPage,
   ProductionMarginsPage,
   ProductionYieldPage,

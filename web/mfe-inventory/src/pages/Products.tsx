@@ -10,6 +10,8 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
+  ChipsMultiPicker,
+  DataTable,
   EntityDetailBack,
   EntityDetailForm,
   EntityDetailHero,
@@ -30,8 +32,11 @@ import {
   ErrorText,
   FormRow,
   Modal,
+  ModalForm,
+  ModalFormActions,
   PAGE_SIZE,
   PaginationBar,
+  SearchableSelect,
   StatusPill,
   TextInput,
   displayName,
@@ -41,9 +46,11 @@ import {
   sortRows,
   type EntityListColumn,
   type FilterFieldDef,
+  type SearchableSelectOption,
   type SortCriterion,
   type StatusPillTone,
 } from '@vaybooks/ui-kit';
+import { toCategoryOptions, toLocationOptions, withNoneOption } from '../pickerOptions';
 
 type ProductDetailTab = 'details' | 'pricing' | 'stock';
 
@@ -148,8 +155,8 @@ function ProductFormFields({
 }: {
   values: ProductFormValues;
   onChange: (n: keyof ProductFormValues, v: string | boolean | string[]) => void;
-  categoryOptions: { id: string; name: string }[];
-  locationOptions: { id: string; name: string }[];
+  categoryOptions: SearchableSelectOption[];
+  locationOptions: SearchableSelectOption[];
 }) {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
@@ -162,27 +169,13 @@ function ProductFormFields({
         </FormRow>
       </div>
       <FormRow label="Categories">
-        {categoryOptions.length === 0 ? (
-          <div style={{ fontSize: 13, color: '#667' }}>No categories yet.</div>
-        ) : (
-          <select
-            multiple
-            value={values.category_ids}
-            onChange={(e) =>
-              onChange(
-                'category_ids',
-                Array.from(e.target.selectedOptions).map((o) => o.value),
-              )
-            }
-            style={{ minHeight: 84, padding: 6, borderRadius: 4, border: '1px solid #ccc' }}
-          >
-            {categoryOptions.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        )}
+        <ChipsMultiPicker
+          options={categoryOptions}
+          value={values.category_ids}
+          onChange={(next) => onChange('category_ids', next)}
+          placeholder="Add category"
+          emptyMessage="No categories yet."
+        />
       </FormRow>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <FormRow label="Unit code">
@@ -208,18 +201,12 @@ function ProductFormFields({
           <TextInput type="number" value={values.opening_qty} onChange={(e) => onChange('opening_qty', e.target.value)} />
         </FormRow>
         <FormRow label="Opening location">
-          <select
+          <SearchableSelect
+            options={withNoneOption(locationOptions, '— Default location —')}
             value={values.location_id}
-            onChange={(e) => onChange('location_id', e.target.value)}
-            style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-          >
-            <option value="">— Default location —</option>
-            {locationOptions.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+            placeholder="Select location"
+            onChange={(next) => onChange('location_id', next)}
+          />
         </FormRow>
       </div>
       <FormRow label="Status">
@@ -255,16 +242,16 @@ export function ProductsListPage() {
   const [formError, setFormError] = useState('');
 
   const categoryOptions = useMemo(
-    () => categories.map((c) => ({ id: String(c.id), name: String(c.name || c.id) })),
+    () => toCategoryOptions(categories as Record<string, unknown>[]),
     [categories],
   );
   const locationOptions = useMemo(
-    () => locations.map((l) => ({ id: String(l.id), name: String(l.name || l.id) })),
+    () => toLocationOptions(locations as Record<string, unknown>[]),
     [locations],
   );
   const categoryNameById = useMemo(() => {
     const map = new Map<string, string>();
-    categoryOptions.forEach((c) => map.set(c.id, c.name));
+    categoryOptions.forEach((c) => map.set(c.value, c.label));
     return map;
   }, [categoryOptions]);
 
@@ -505,34 +492,28 @@ export function ProductsListPage() {
         title={dialog === 'edit' ? 'Edit Product' : 'Add Product'}
         open={dialog !== null}
         onClose={() => setDialog(null)}
-        footer={
-          <>
-            <Button
-              type="button"
-              onClick={() => void submitForm()}
-              disabled={createState.isLoading || updateState.isLoading}
-            >
-              {dialog === 'edit' ? 'Save Changes' : 'Create Product'}
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setDialog(null)}>
-              Cancel
-            </Button>
-          </>
-        }
       >
-        {formError ? <ErrorText>{formError}</ErrorText> : null}
-        <ProductFormFields
-          values={values}
-          onChange={setField}
-          categoryOptions={categoryOptions}
-          locationOptions={locationOptions}
-        />
+        <ModalForm onSubmit={() => void submitForm()}>
+          {formError ? <ErrorText>{formError}</ErrorText> : null}
+          <ProductFormFields
+            values={values}
+            onChange={setField}
+            categoryOptions={categoryOptions}
+            locationOptions={locationOptions}
+          />
+          <ModalFormActions
+            busy={createState.isLoading || updateState.isLoading}
+            submitLabel={dialog === 'edit' ? 'Save Changes' : 'Create Product'}
+            busyLabel="Saving…"
+            onCancel={() => setDialog(null)}
+          />
+        </ModalForm>
       </Modal>
     </EntityListPage>
   );
 }
 
-/** Streamlit parity: product detail — full field dump plus edit modal. */
+/** Product detail — tabbed Details / Pricing / Stock with searchable pickers. */
 export function ProductDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
@@ -545,13 +526,50 @@ export function ProductDetailPage() {
   const [formError, setFormError] = useState('');
 
   const categoryOptions = useMemo(
-    () => categories.map((c) => ({ id: String(c.id), name: String(c.name || c.id) })),
+    () => toCategoryOptions(categories as Record<string, unknown>[]),
     [categories],
   );
   const locationOptions = useMemo(
-    () => locations.map((l) => ({ id: String(l.id), name: String(l.name || l.id) })),
+    () => toLocationOptions(locations as Record<string, unknown>[]),
     [locations],
   );
+  const locationNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    locationOptions.forEach((l) => map.set(l.value, l.label));
+    return map;
+  }, [locationOptions]);
+
+  const balanceRows = useMemo(() => {
+    const raw = Array.isArray(data?.balances) ? (data.balances as Record<string, unknown>[]) : [];
+    return raw.map((b, i) => ({
+      id: String(b.id || `${b.location_id}-${i}`),
+      location: locationNameById.get(String(b.location_id || '')) || String(b.location_id || '—'),
+      qty: Number(b.qty ?? 0),
+    }));
+  }, [data, locationNameById]);
+
+  const rateHistoryRows = useMemo(() => {
+    const history = (data?.rate_history || {}) as Record<string, unknown>;
+    const types: Array<{ key: string; label: string }> = [
+      { key: 'selling', label: 'Selling' },
+      { key: 'mrp', label: 'MRP' },
+      { key: 'gst', label: 'GST' },
+    ];
+    const rows: Array<{ id: string; type: string; value: number; start_date: string; end_date: string }> = [];
+    for (const t of types) {
+      const periods = Array.isArray(history[t.key]) ? (history[t.key] as Record<string, unknown>[]) : [];
+      periods.forEach((p, i) => {
+        rows.push({
+          id: String(p.id || `${t.key}-${i}`),
+          type: t.label,
+          value: Number(p.value ?? 0),
+          start_date: String(p.start_date || '—'),
+          end_date: p.end_date ? String(p.end_date) : '—',
+        });
+      });
+    }
+    return rows;
+  }, [data]);
 
   useEffect(() => {
     if (!data) return;
@@ -669,33 +687,20 @@ export function ProductDetailPage() {
               </FormRow>
             </div>
             <FormRow label="Categories">
-              {categoryOptions.length === 0 ? (
-                <p className="ed-panel-note">No categories yet.</p>
-              ) : (
-                <select
-                  multiple
-                  value={values.category_ids}
-                  onChange={(e) =>
-                    setField(
-                      'category_ids',
-                      Array.from(e.target.selectedOptions).map((o) => o.value),
-                    )
-                  }
-                >
-                  {categoryOptions.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              )}
+              <ChipsMultiPicker
+                options={categoryOptions}
+                value={values.category_ids}
+                onChange={(next) => setField('category_ids', next)}
+                placeholder="Add category"
+                emptyMessage="No categories yet."
+              />
             </FormRow>
           </EntityDetailForm>
         </EntityDetailPanel>
       ) : null}
 
       {tab === 'pricing' ? (
-        <EntityDetailPanel title="Pricing" note="Selling rate, MRP, and GST.">
+        <EntityDetailPanel title="Pricing" note="Selling rate, MRP, GST, and rate history.">
           <EntityDetailForm>
             <div className="ed-grid ed-grid-3">
               <FormRow label="Selling rate">
@@ -717,11 +722,28 @@ export function ProductDetailPage() {
               </FormRow>
             </div>
           </EntityDetailForm>
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 650, marginBottom: 8 }}>Rate history</div>
+            {rateHistoryRows.length === 0 ? (
+              <p className="ed-panel-note">No rate history.</p>
+            ) : (
+              <DataTable
+                columns={[
+                  { key: 'type', header: 'Type' },
+                  { key: 'value', header: 'Value' },
+                  { key: 'start_date', header: 'Start' },
+                  { key: 'end_date', header: 'End' },
+                ]}
+                data={rateHistoryRows}
+                rowKey={(row) => row.id}
+              />
+            )}
+          </div>
         </EntityDetailPanel>
       ) : null}
 
       {tab === 'stock' ? (
-        <EntityDetailPanel title="Stock" note="On-hand quantity and opening stock fields.">
+        <EntityDetailPanel title="Stock" note="On-hand quantity, opening stock, and per-location balances.">
           <EntityDetailForm>
             <div className="ed-grid ed-grid-2">
               <FormRow label="Qty on hand">
@@ -738,17 +760,30 @@ export function ProductDetailPage() {
                 />
               </FormRow>
               <FormRow label="Opening location">
-                <select value={values.location_id} onChange={(e) => setField('location_id', e.target.value)}>
-                  <option value="">— Default location —</option>
-                  {locationOptions.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  options={withNoneOption(locationOptions, '— Default location —')}
+                  value={values.location_id}
+                  placeholder="Select location"
+                  onChange={(next) => setField('location_id', next)}
+                />
               </FormRow>
             </div>
           </EntityDetailForm>
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 650, marginBottom: 8 }}>Balances by location</div>
+            {balanceRows.length === 0 ? (
+              <p className="ed-panel-note">No per-location balances.</p>
+            ) : (
+              <DataTable
+                columns={[
+                  { key: 'location', header: 'Location' },
+                  { key: 'qty', header: 'Qty' },
+                ]}
+                data={balanceRows}
+                rowKey={(row) => row.id}
+              />
+            )}
+          </div>
         </EntityDetailPanel>
       ) : null}
 

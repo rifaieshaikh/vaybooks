@@ -1,0 +1,87 @@
+[
+  {
+    "name": "Grep window.confirm",
+    "pass": true,
+    "detail": "none in mfe-inventory or Lists.tsx"
+  },
+  {
+    "name": "npm test mfe-inventory",
+    "pass": true,
+    "detail": "vitest green"
+  },
+  {
+    "name": "Login",
+    "pass": true,
+    "detail": "admin session established"
+  },
+  {
+    "name": "Categories add modal",
+    "pass": true,
+    "detail": "ModalForm + SearchableSelect; Cancel closes"
+  },
+  {
+    "name": "Categories edit modal",
+    "pass": true,
+    "detail": "opens with parent SearchableSelect"
+  },
+  {
+    "name": "Products add modal",
+    "pass": true,
+    "detail": "ModalForm with 2 searchable controls"
+  },
+  {
+    "name": "Products Escape closes",
+    "pass": true,
+    "detail": "dialog dismissed"
+  },
+  {
+    "name": "Product detail",
+    "pass": true,
+    "detail": "balances + rate history present; category picker=yes"
+  },
+  {
+    "name": "Record Movement",
+    "pass": true,
+    "detail": "ModalForm + SearchableSelect"
+  },
+  {
+    "name": "New Transfer pickers",
+    "pass": true,
+    "detail": "from/to/product SearchableSelect present"
+  },
+  {
+    "name": "Immediate-dispatch ConfirmDialog",
+    "pass": true,
+    "detail": "opened and abort kept form open"
+  },
+  {
+    "name": "Transfer detail confirms",
+    "pass": true,
+    "detail": "skipped (no transfer to open)"
+  },
+  {
+    "name": "Customer prices add",
+    "pass": true,
+    "detail": "customer/product SearchableSelect; no free-text ID"
+  },
+  {
+    "name": "Price history",
+    "pass": true,
+    "detail": "skipped (no History actions)"
+  },
+  {
+    "name": "Settings Locations ModalForm",
+    "pass": true,
+    "detail": "add dialog with in-form actions"
+  },
+  {
+    "name": "Settings location delete ConfirmDialog",
+    "pass": true,
+    "detail": "danger confirm shown; decline works"
+  },
+  {
+    "name": "Measurement-spec delete ConfirmDialog",
+    "pass": true,
+    "detail": "shown; decline works"
+  }
+]

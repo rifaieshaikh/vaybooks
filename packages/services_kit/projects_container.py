@@ -30,6 +30,9 @@ class ProjectsContainer:
     reports: Any
     quality: Any
     offline: Any
+    quotations: Any
+    recognition: Any
+    audit: Any
 
 
 def _mongo_uri() -> str:
@@ -62,6 +65,7 @@ def _build_mongo(uri: str) -> ProjectsContainer:
     from vaybooks.bms.application.projects.activity_config.service import (
         ProjectActivityConfigAppService,
     )
+    from vaybooks.bms.application.projects.audit.service import ProjectAuditAppService
     from vaybooks.bms.application.projects.billing.service import ProjectBillingAppService
     from vaybooks.bms.application.projects.boq.service import ProjectBoqAppService
     from vaybooks.bms.application.projects.budget.service import ProjectBudgetAppService
@@ -81,6 +85,12 @@ def _build_mongo(uri: str) -> ProjectsContainer:
     from vaybooks.bms.application.projects.quality.service import (
         ProjectQualityConfigAppService,
     )
+    from vaybooks.bms.application.projects.quotations.service import (
+        ProjectQuotationAppService,
+    )
+    from vaybooks.bms.application.projects.recognition.service import (
+        ProjectRecognitionAppService,
+    )
     from vaybooks.bms.application.finance.reports.services.project_report_service import (
         ProjectReportService,
     )
@@ -96,6 +106,9 @@ def _build_mongo(uri: str) -> ProjectsContainer:
     )
     from vaybooks.bms.infrastructure.repositories.projects.mongo_project_activity_config_repository import (
         MongoProjectActivityConfigRepository,
+    )
+    from vaybooks.bms.infrastructure.repositories.projects.mongo_project_audit_repository import (
+        MongoProjectAuditRepository,
     )
     from vaybooks.bms.infrastructure.repositories.projects.mongo_project_boq_repository import (
         MongoProjectBoqRepository,
@@ -135,6 +148,9 @@ def _build_mongo(uri: str) -> ProjectsContainer:
     )
     from vaybooks.bms.infrastructure.repositories.projects.mongo_project_quotation_repository import (
         MongoProjectQuotationRepository,
+    )
+    from vaybooks.bms.infrastructure.repositories.projects.mongo_project_recognition_repository import (
+        MongoProjectRecognitionRepository,
     )
     from vaybooks.bms.infrastructure.repositories.projects.mongo_project_ra_repository import (
         MongoProjectRABillRepository,
@@ -224,6 +240,8 @@ def _build_mongo(uri: str) -> ProjectsContainer:
     quality_repo = MongoProjectQualityConfigRepository(db)
     offline_repo = MongoProjectOfflineDraftRepository(db)
     quotation_repo = MongoProjectQuotationRepository(db)
+    recognition_repo = MongoProjectRecognitionRepository(db)
+    audit_repo = MongoProjectAuditRepository(db)
 
     projects = ProjectAppService(
         project_repo,
@@ -248,6 +266,16 @@ def _build_mongo(uri: str) -> ProjectsContainer:
         cash_flow_repo=cash_flow_repo,
     )
     expenses._budget_service = budget
+    quotations = ProjectQuotationAppService(
+        quotation_repo,
+        project_repo,
+        counter_repo,
+        document_service=documents,
+        work_order_repo=work_order_repo,
+        boq_repo=boq_repo,
+        boq_service=boq,
+        enquiry_service=enquiries,
+    )
     measurements = ProjectMeasurementAppService(
         measurement_repo, boq_repo, project_repo, ra_repo=ra_repo
     )
@@ -275,6 +303,13 @@ def _build_mongo(uri: str) -> ProjectsContainer:
         measurement_service=measurements,
     )
     budget._billing_service = billing
+    recognition = ProjectRecognitionAppService(
+        recognition_repo,
+        project_repo,
+        accounting_service=finance.accounting,
+        expense_repo=expense_repo,
+    )
+    audit = ProjectAuditAppService(audit_repo)
     dpr = ProjectDprAppService(dpr_repo, project_repo)
     portal = ProjectPortalAppService(portal_repo, project_repo)
     activity_configs = ProjectActivityConfigAppService(activity_config_repo)
@@ -317,6 +352,9 @@ def _build_mongo(uri: str) -> ProjectsContainer:
         reports=reports,
         quality=quality,
         offline=offline,
+        quotations=quotations,
+        recognition=recognition,
+        audit=audit,
     )
 
 

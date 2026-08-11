@@ -12,6 +12,7 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
+  ConfirmDialog,
   EntityDetailBack,
   EntityDetailHero,
   EntityDetailPage,
@@ -31,8 +32,11 @@ import {
   ErrorText,
   FormRow,
   Modal,
+  ModalForm,
+  ModalFormActions,
   PAGE_SIZE,
   PaginationBar,
+  SearchableSelect,
   StatusPill,
   TextInput,
   matchesRegex,
@@ -44,6 +48,11 @@ import {
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
+import { toLocationOptions, toProductOptions } from '../pickerOptions';
+import {
+  getTransferConfirm,
+  type TransferConfirmAction,
+} from '../transferConfirm';
 
 type TransferDetailTab = 'overview' | 'lines';
 
@@ -53,14 +62,6 @@ const TRANSFER_STATUSES = ['Draft', 'In Transit', 'Received', 'Cancelled'];
 
 function statusLabel(status: unknown): string {
   return String(status || 'Unknown');
-}
-
-function statusTone(status: unknown): string | undefined {
-  const s = String(status || '');
-  if (s === 'Received') return 'el-advance';
-  if (s === 'Cancelled') return 'el-due';
-  if (s === 'Draft' || s === 'In Transit') return 'el-muted';
-  return undefined;
 }
 
 function extractError(e: unknown): string {
@@ -73,7 +74,7 @@ function extractError(e: unknown): string {
 const DEFAULT_TRANSFER_FILTERS = { transfer_number: '', status: '' };
 const DEFAULT_TRANSFER_SORT: SortCriterion[] = [{ key: 'created_at', desc: true }];
 
-/** Streamlit parity: stock transfer list with status badges + new-transfer wizard modal. */
+/** Stock transfer list with status badges + new-transfer modal. */
 export function TransfersListPage() {
   const navigate = useNavigate();
   const { data = [], isLoading, error, refetch } = useListInventoryTransfersQuery();
@@ -91,13 +92,14 @@ export function TransfersListPage() {
   const [sendInTransit, setSendInTransit] = useState(false);
   const [notes, setNotes] = useState('');
   const [formError, setFormError] = useState('');
+  const [pendingConfirm, setPendingConfirm] = useState<TransferConfirmAction | null>(null);
 
   const locationOptions = useMemo(
-    () => locations.map((l) => ({ id: String(l.id), name: String(l.name || l.id) })),
+    () => toLocationOptions(locations as Record<string, unknown>[]),
     [locations],
   );
   const productOptions = useMemo(
-    () => products.map((p) => ({ id: String(p.id), label: `${String(p.sku || '')} — ${String(p.name || p.id)}` })),
+    () => toProductOptions(products as Record<string, unknown>[]),
     [products],
   );
 
@@ -132,11 +134,12 @@ export function TransfersListPage() {
 
   function openNew() {
     setFormError('');
-    setFromLocationId(locationOptions[0]?.id || '');
-    setToLocationId(locationOptions[1]?.id || locationOptions[0]?.id || '');
-    setLines([{ product_id: productOptions[0]?.id || '', qty: '1' }]);
+    setFromLocationId(locationOptions[0]?.value || '');
+    setToLocationId(locationOptions[1]?.value || locationOptions[0]?.value || '');
+    setLines([{ product_id: productOptions[0]?.value || '', qty: '1' }]);
     setSendInTransit(false);
     setNotes('');
+    setPendingConfirm(null);
     setDialogOpen(true);
   }
 
@@ -145,30 +148,35 @@ export function TransfersListPage() {
   }
 
   function addLine() {
-    setLines((prev) => [...prev, { product_id: productOptions[0]?.id || '', qty: '1' }]);
+    setLines((prev) => [...prev, { product_id: productOptions[0]?.value || '', qty: '1' }]);
   }
 
   function removeLine(index: number) {
     setLines((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
   }
 
-  async function submitTransfer() {
+  function validateTransfer(): boolean {
     setFormError('');
     if (!fromLocationId || !toLocationId) {
       setFormError('Choose both source and destination locations');
-      return;
+      return false;
     }
     if (fromLocationId === toLocationId) {
       setFormError('Source and destination must be different');
-      return;
+      return false;
     }
+    const cleanLines = lines.filter((ln) => ln.product_id && Number(ln.qty) > 0);
+    if (cleanLines.length === 0) {
+      setFormError('Add at least one line with a product and quantity');
+      return false;
+    }
+    return true;
+  }
+
+  async function createNow() {
     const cleanLines = lines
       .filter((ln) => ln.product_id && Number(ln.qty) > 0)
       .map((ln) => ({ product_id: ln.product_id, qty: Number(ln.qty) }));
-    if (cleanLines.length === 0) {
-      setFormError('Add at least one line with a product and quantity');
-      return;
-    }
     try {
       await createTransfer({
         from_location_id: fromLocationId,
@@ -177,12 +185,25 @@ export function TransfersListPage() {
         notes,
         send_in_transit: sendInTransit,
       }).unwrap();
+      setPendingConfirm(null);
       setDialogOpen(false);
       refetch();
     } catch (e: unknown) {
       setFormError(extractError(e));
+      setPendingConfirm(null);
     }
   }
+
+  async function submitTransfer() {
+    if (!validateTransfer()) return;
+    if (sendInTransit) {
+      setPendingConfirm('create-dispatch');
+      return;
+    }
+    await createNow();
+  }
+
+  const createConfirm = pendingConfirm ? getTransferConfirm(pendingConfirm) : null;
 
   const columns: EntityListColumn<TransferRow>[] = useMemo(
     () => [
@@ -218,7 +239,10 @@ export function TransfersListPage() {
       {
         id: 'status',
         header: 'Status',
-        render: (row) => <span className={statusTone(row.status)}>{statusLabel(row.status)}</span>,
+        render: (row) => {
+          const s = statusLabel(row.status);
+          return <StatusPill status={s} tone={statusPillTone(s)} />;
+        },
       },
     ],
     [],
@@ -228,7 +252,7 @@ export function TransfersListPage() {
     <EntityListPage>
       <EntityListHero
         kicker="Inventory"
-        title="Stock Transfers"
+        title="Transfers"
         count={`${filtered.length} ${filtered.length === 1 ? 'transfer' : 'transfers'}`}
         actions={
           <Button type="button" onClick={openNew}>
@@ -304,113 +328,111 @@ export function TransfersListPage() {
         </EntityListFoot>
       ) : null}
 
-      <Modal
-        title="New Transfer"
-        open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
-        footer={
-          <>
-            <Button type="button" onClick={() => void submitTransfer()} disabled={createState.isLoading}>
-              Create Transfer
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-          </>
-        }
-      >
-        {formError ? <ErrorText>{formError}</ErrorText> : null}
-        <div style={{ display: 'grid', gap: 10 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <FormRow label="From location *">
-              <select
-                value={fromLocationId}
-                onChange={(e) => setFromLocationId(e.target.value)}
-                style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-              >
-                <option value="">— Choose —</option>
-                {locationOptions.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="To location *">
-              <select
-                value={toLocationId}
-                onChange={(e) => setToLocationId(e.target.value)}
-                style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-              >
-                <option value="">— Choose —</option>
-                {locationOptions.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-          </div>
+      <Modal title="New Transfer" open={dialogOpen} onClose={() => setDialogOpen(false)}>
+        <ModalForm onSubmit={() => void submitTransfer()}>
+          {formError ? <ErrorText>{formError}</ErrorText> : null}
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <FormRow label="From location *">
+                <SearchableSelect
+                  options={locationOptions}
+                  value={fromLocationId}
+                  placeholder="Choose source"
+                  onChange={setFromLocationId}
+                />
+              </FormRow>
+              <FormRow label="To location *">
+                <SearchableSelect
+                  options={locationOptions}
+                  value={toLocationId}
+                  placeholder="Choose destination"
+                  onChange={setToLocationId}
+                />
+              </FormRow>
+            </div>
 
-          <div style={{ fontWeight: 650 }}>Lines</div>
-          <div style={{ display: 'grid', gap: 8 }}>
-            {lines.map((line, i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 110px auto', gap: 8, alignItems: 'end' }}>
-                <FormRow label={i === 0 ? 'Product' : ''}>
-                  <select
-                    value={line.product_id}
-                    onChange={(e) => updateLine(i, { product_id: e.target.value })}
-                    style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-                  >
-                    <option value="">— Choose —</option>
-                    {productOptions.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </FormRow>
-                <FormRow label={i === 0 ? 'Qty' : ''}>
-                  <TextInput type="number" value={line.qty} onChange={(e) => updateLine(i, { qty: e.target.value })} />
-                </FormRow>
-                <button
-                  type="button"
-                  onClick={() => removeLine(i)}
-                  disabled={lines.length <= 1}
-                  title="Remove line"
-                  style={{
-                    height: 34,
-                    marginBottom: 2,
-                    border: '1px solid #c5d4ce',
-                    borderRadius: 6,
-                    background: '#fff',
-                    cursor: lines.length <= 1 ? 'not-allowed' : 'pointer',
-                  }}
+            <div style={{ fontWeight: 650 }}>Lines</div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {lines.map((line, i) => (
+                <div
+                  key={i}
+                  style={{ display: 'grid', gridTemplateColumns: '1fr 110px auto', gap: 8, alignItems: 'end' }}
                 >
-                  ✕
-                </button>
-              </div>
-            ))}
-            <Button type="button" variant="ghost" onClick={addLine}>
-              Add line
-            </Button>
+                  <FormRow label={i === 0 ? 'Product' : ''}>
+                    <SearchableSelect
+                      options={productOptions}
+                      value={line.product_id}
+                      placeholder="Choose product"
+                      onChange={(next) => updateLine(i, { product_id: next })}
+                    />
+                  </FormRow>
+                  <FormRow label={i === 0 ? 'Qty' : ''}>
+                    <TextInput
+                      type="number"
+                      value={line.qty}
+                      onChange={(e) => updateLine(i, { qty: e.target.value })}
+                    />
+                  </FormRow>
+                  <button
+                    type="button"
+                    onClick={() => removeLine(i)}
+                    disabled={lines.length <= 1}
+                    title="Remove line"
+                    style={{
+                      height: 34,
+                      marginBottom: 2,
+                      border: '1px solid #c5d4ce',
+                      borderRadius: 6,
+                      background: '#fff',
+                      cursor: lines.length <= 1 ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <Button type="button" variant="ghost" onClick={addLine}>
+                Add line
+              </Button>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+              <input
+                type="checkbox"
+                checked={sendInTransit}
+                onChange={(e) => setSendInTransit(e.target.checked)}
+              />
+              Dispatch immediately (mark In Transit)
+            </label>
+
+            <FormRow label="Notes">
+              <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </FormRow>
           </div>
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
-            <input type="checkbox" checked={sendInTransit} onChange={(e) => setSendInTransit(e.target.checked)} />
-            Dispatch immediately (mark In Transit)
-          </label>
-
-          <FormRow label="Notes">
-            <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </FormRow>
-        </div>
+          <ModalFormActions
+            busy={createState.isLoading}
+            submitLabel="Create Transfer"
+            busyLabel="Creating…"
+            onCancel={() => setDialogOpen(false)}
+          />
+        </ModalForm>
       </Modal>
+
+      <ConfirmDialog
+        open={pendingConfirm === 'create-dispatch'}
+        title={createConfirm?.title || ''}
+        message={createConfirm?.message || ''}
+        confirmLabel={createConfirm?.confirmLabel || 'Confirm'}
+        danger={createConfirm?.danger}
+        busy={createState.isLoading}
+        onCancel={() => setPendingConfirm(null)}
+        onConfirm={() => void createNow()}
+      />
     </EntityListPage>
   );
 }
 
-/** Streamlit parity: transfer detail with lifecycle actions (dispatch / receive / cancel). */
+/** Transfer detail with lifecycle actions (dispatch / receive / cancel). */
 export function TransferDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
@@ -420,14 +442,17 @@ export function TransferDetailPage() {
   const [cancelTransfer, cancelState] = useCancelInventoryTransferMutation();
   const [actionError, setActionError] = useState('');
   const [tab, setTab] = useState<TransferDetailTab>('overview');
+  const [pendingAction, setPendingAction] = useState<TransferConfirmAction | null>(null);
 
   async function run(action: () => Promise<unknown>) {
     setActionError('');
     try {
       await action();
+      setPendingAction(null);
       refetch();
     } catch (e: unknown) {
       setActionError(extractError(e));
+      setPendingAction(null);
     }
   }
 
@@ -453,6 +478,7 @@ export function TransferDetailPage() {
   const fromLabel = String(data.from_location_name || data.from_location_id || '—');
   const toLabel = String(data.to_location_name || data.to_location_id || '—');
   const busy = dispatchState.isLoading || receiveState.isLoading || cancelState.isLoading;
+  const confirmCfg = pendingAction ? getTransferConfirm(pendingAction) : null;
 
   const heroActions = (
     <>
@@ -460,30 +486,17 @@ export function TransferDetailPage() {
         Refresh
       </Button>
       {status === 'Draft' ? (
-        <Button
-          type="button"
-          disabled={dispatchState.isLoading}
-          onClick={() => void run(() => dispatchTransfer(id).unwrap())}
-        >
+        <Button type="button" disabled={dispatchState.isLoading} onClick={() => setPendingAction('dispatch')}>
           Dispatch
         </Button>
       ) : null}
       {status === 'In Transit' || status === 'Draft' ? (
-        <Button
-          type="button"
-          disabled={receiveState.isLoading}
-          onClick={() => void run(() => receiveTransfer(id).unwrap())}
-        >
+        <Button type="button" disabled={receiveState.isLoading} onClick={() => setPendingAction('receive')}>
           Receive
         </Button>
       ) : null}
       {status !== 'Received' && status !== 'Cancelled' ? (
-        <Button
-          type="button"
-          variant="ghost"
-          disabled={cancelState.isLoading}
-          onClick={() => void run(() => cancelTransfer(id).unwrap())}
-        >
+        <Button type="button" variant="ghost" disabled={cancelState.isLoading} onClick={() => setPendingAction('cancel')}>
           Cancel
         </Button>
       ) : null}
@@ -592,6 +605,21 @@ export function TransferDetailPage() {
           </Button>
         }
         end={heroActions}
+      />
+
+      <ConfirmDialog
+        open={pendingAction !== null}
+        title={confirmCfg?.title || ''}
+        message={confirmCfg?.message || ''}
+        confirmLabel={confirmCfg?.confirmLabel || 'Confirm'}
+        danger={confirmCfg?.danger}
+        busy={busy}
+        onCancel={() => setPendingAction(null)}
+        onConfirm={() => {
+          if (pendingAction === 'dispatch') void run(() => dispatchTransfer(id).unwrap());
+          else if (pendingAction === 'receive') void run(() => receiveTransfer(id).unwrap());
+          else if (pendingAction === 'cancel') void run(() => cancelTransfer(id).unwrap());
+        }}
       />
     </EntityDetailPage>
   );

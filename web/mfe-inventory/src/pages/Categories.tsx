@@ -19,8 +19,11 @@ import {
   ErrorText,
   FormRow,
   Modal,
+  ModalForm,
+  ModalFormActions,
   PAGE_SIZE,
   PaginationBar,
+  SearchableSelect,
   TextInput,
   displayName,
   matchesRegex,
@@ -29,8 +32,10 @@ import {
   sortRows,
   type EntityListColumn,
   type FilterFieldDef,
+  type SearchableSelectOption,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
+import { excludeOption, toCategoryOptions, withNoneOption } from '../pickerOptions';
 
 type CategoryFormValues = {
   name: string;
@@ -78,7 +83,7 @@ function CategoryFormFields({
 }: {
   values: CategoryFormValues;
   onChange: (n: keyof CategoryFormValues, v: string | boolean) => void;
-  parentOptions: { id: string; name: string }[];
+  parentOptions: SearchableSelectOption[];
 }) {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
@@ -89,18 +94,12 @@ function CategoryFormFields({
         <TextInput value={values.description} onChange={(e) => onChange('description', e.target.value)} />
       </FormRow>
       <FormRow label="Parent category">
-        <select
+        <SearchableSelect
+          options={withNoneOption(parentOptions, '— None (top level) —')}
           value={values.parent_id}
-          onChange={(e) => onChange('parent_id', e.target.value)}
-          style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-        >
-          <option value="">— None (top level) —</option>
-          {parentOptions.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.name}
-            </option>
-          ))}
-        </select>
+          placeholder="Select parent"
+          onChange={(next) => onChange('parent_id', next)}
+        />
       </FormRow>
       <FormRow label="Status">
         <select
@@ -163,10 +162,7 @@ export function CategoriesListPage() {
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
 
   const parentOptions = useMemo(
-    () =>
-      data
-        .filter((row) => String(row.id) !== editId)
-        .map((row) => ({ id: String(row.id), name: String(row.name || row.id) })),
+    () => excludeOption(toCategoryOptions(data as Record<string, unknown>[]), editId),
     [data, editId],
   );
 
@@ -339,23 +335,17 @@ export function CategoriesListPage() {
         title={dialog === 'edit' ? 'Edit Category' : 'Add Category'}
         open={dialog !== null}
         onClose={() => setDialog(null)}
-        footer={
-          <>
-            <Button
-              type="button"
-              onClick={() => void submitForm()}
-              disabled={createState.isLoading || updateState.isLoading}
-            >
-              {dialog === 'edit' ? 'Save Changes' : 'Create Category'}
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setDialog(null)}>
-              Cancel
-            </Button>
-          </>
-        }
       >
-        {formError ? <ErrorText>{formError}</ErrorText> : null}
-        <CategoryFormFields values={values} onChange={setField} parentOptions={parentOptions} />
+        <ModalForm onSubmit={() => void submitForm()}>
+          {formError ? <ErrorText>{formError}</ErrorText> : null}
+          <CategoryFormFields values={values} onChange={setField} parentOptions={parentOptions} />
+          <ModalFormActions
+            busy={createState.isLoading || updateState.isLoading}
+            submitLabel={dialog === 'edit' ? 'Save Changes' : 'Create Category'}
+            busyLabel="Saving…"
+            onCancel={() => setDialog(null)}
+          />
+        </ModalForm>
       </Modal>
     </EntityListPage>
   );

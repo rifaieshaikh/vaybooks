@@ -2826,6 +2826,303 @@ export const baseApi = createApi({
       query: (id) => ({ url: `/projects/enquiries/${id}/mark-won`, method: 'POST' }),
       invalidatesTags: ['ProjectEnquiry'],
     }),
+    listProjectActivities: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/activities`,
+      providesTags: ['Project'],
+    }),
+    createProjectActivity: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/activities`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    updateProjectActivity: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; activityId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, activityId, body }) => ({
+        url: `/projects/${projectId}/activities/${activityId}`,
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    getProjectCosts: build.query<Record<string, unknown>, string>({
+      query: (id) => `/projects/${id}/costs`,
+      providesTags: ['Project'],
+    }),
+    listProjectExpenses: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/expenses`,
+      providesTags: ['Project'],
+    }),
+    getProjectClosureBlockers: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/closure-blockers`,
+      providesTags: ['Project'],
+    }),
+    getProjectProfitability: build.query<Record<string, unknown>, string>({
+      query: (id) => `/projects/${id}/profitability`,
+      providesTags: ['Project'],
+    }),
+    getProjectAccountingSummary: build.query<Record<string, unknown>, string>({
+      query: (id) => `/projects/${id}/accounting-summary`,
+      providesTags: ['Project'],
+    }),
+    listProjectQuotations: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/quotations`,
+      providesTags: ['Project'],
+    }),
+    createProjectQuotation: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/quotations`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    sendProjectQuotation: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; quotationId: string }
+    >({
+      query: ({ projectId, quotationId }) => ({
+        url: `/projects/${projectId}/quotations/${quotationId}/send`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    reviseProjectQuotation: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; quotationId: string }
+    >({
+      query: ({ projectId, quotationId }) => ({
+        url: `/projects/${projectId}/quotations/${quotationId}/revise`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    acceptProjectQuotation: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; quotationId: string }
+    >({
+      query: ({ projectId, quotationId }) => ({
+        url: `/projects/${projectId}/quotations/${quotationId}/accept`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listProjectWorkOrders: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/work-orders`,
+      providesTags: ['Project'],
+    }),
+    createProjectWorkOrder: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/work-orders`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    verifyProjectMeasurement: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; measurementId: string; body?: Record<string, unknown> }
+    >({
+      query: ({ projectId, measurementId, body }) => ({
+        url: `/projects/${projectId}/measurements/${measurementId}/verify`,
+        method: 'POST',
+        body: body || {},
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    certifyProjectRaBill: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; raId: string }
+    >({
+      query: ({ projectId, raId }) => ({
+        url: `/projects/${projectId}/ra-bills/${raId}/certify`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    approveProjectRaBill: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; raId: string }
+    >({
+      query: ({ projectId, raId }) => ({
+        url: `/projects/${projectId}/ra-bills/${raId}/approve`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    convertProjectRaToInvoice: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; raId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, raId, body }) => ({
+        url: `/projects/${projectId}/ra-bills/${raId}/convert-invoice`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listProjectInvoices: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/invoices`,
+      providesTags: ['Project'],
+    }),
+    listProjectProformas: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/proformas`,
+      providesTags: ['Project'],
+    }),
+    createProjectProforma: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/proformas`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listProjectVariations: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/variations`,
+      providesTags: ['Project'],
+    }),
+    createProjectVariation: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/variations`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    approveProjectVariation: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; variationId: string }
+    >({
+      query: ({ projectId, variationId }) => ({
+        url: `/projects/${projectId}/variations/${variationId}/approve`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listProjectVouchers: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/vouchers`,
+      providesTags: ['Project'],
+    }),
+    createProjectReceipt: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/receipts`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    createProjectVendorPayment: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/vendor-payments`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listProjectRetentions: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/retentions`,
+      providesTags: ['Project'],
+    }),
+    releaseProjectRetention: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; retentionId: string; body?: Record<string, unknown> }
+    >({
+      query: ({ projectId, retentionId, body }) => ({
+        url: `/projects/${projectId}/retentions/${retentionId}/release`,
+        method: 'POST',
+        body: body || {},
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listProjectRecognition: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/recognition`,
+      providesTags: ['Project'],
+    }),
+    draftProjectRecognition: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/recognition`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    postProjectRecognition: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; entryId: string }
+    >({
+      query: ({ projectId, entryId }) => ({
+        url: `/projects/${projectId}/recognition/${entryId}/post`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    approveProjectRecognition: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; entryId: string }
+    >({
+      query: ({ projectId, entryId }) => ({
+        url: `/projects/${projectId}/recognition/${entryId}/approve`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listProjectReconciliations: build.query<Record<string, unknown>[], string>({
+      query: (id) => `/projects/${id}/reconciliations`,
+      providesTags: ['Project'],
+    }),
+    createProjectReconciliation: build.mutation<
+      Record<string, unknown>,
+      { projectId: string; body: Record<string, unknown> }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/reconciliations`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Project'],
+    }),
+    listProjectHistory: build.query<
+      Record<string, unknown>[],
+      string | { id: string; limit?: number }
+    >({
+      query: (arg) => {
+        const id = typeof arg === 'string' ? arg : arg.id;
+        const limit = typeof arg === 'string' ? undefined : arg.limit;
+        return {
+          url: `/projects/${id}/history`,
+          params: limit ? { limit } : undefined,
+        };
+      },
+      providesTags: ['Project'],
+    }),
 
     // Production
     productionHealth: build.query<Record<string, unknown>, void>({
@@ -2871,6 +3168,26 @@ export const baseApi = createApi({
       query: (body) => ({ url: '/production/batches', method: 'POST', body }),
       invalidatesTags: ['Batch', 'Production'],
     }),
+    updateBatch: build.mutation<
+      Record<string, unknown>,
+      {
+        id: string;
+        body: {
+          issues?: { id: string; qty?: number; location_id?: string }[];
+          outputs?: {
+            id: string;
+            qty?: number;
+            location_id?: string;
+            nrv_rate?: number;
+            allocation_pct?: number;
+          }[];
+          notes?: string;
+        };
+      }
+    >({
+      query: ({ id, body }) => ({ url: `/production/batches/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Batch', 'Production'],
+    }),
     completeBatch: build.mutation<
       Record<string, unknown>,
       { id: string; body?: Record<string, unknown> }
@@ -2893,6 +3210,10 @@ export const baseApi = createApi({
       }),
       invalidatesTags: ['Batch', 'Production'],
     }),
+    unpostBatch: build.mutation<Record<string, unknown>, string>({
+      query: (id) => ({ url: `/production/batches/${id}/unpost`, method: 'POST' }),
+      invalidatesTags: ['Batch', 'Production'],
+    }),
     cancelBatch: build.mutation<Record<string, unknown>, string>({
       query: (id) => ({ url: `/production/batches/${id}/cancel`, method: 'POST' }),
       invalidatesTags: ['Batch', 'Production'],
@@ -2912,7 +3233,13 @@ export const baseApi = createApi({
       Record<string, unknown>,
       {
         batchId: string;
-        body: { cost_type: string; amount: number; activity_id?: string; account_id?: string; description?: string };
+        body: {
+          cost_type: string;
+          amount: number;
+          activity_id?: string;
+          account_id?: string;
+          description?: string;
+        };
       }
     >({
       query: ({ batchId, body }) => ({
@@ -2936,12 +3263,133 @@ export const baseApi = createApi({
       query: (args) => ({ url: '/production/day-book', params: args || undefined }),
       providesTags: ['Production', 'Batch'],
     }),
-    productionMargins: build.query<Record<string, unknown>[], void>({
-      query: () => '/production/margins',
+    productionMargins: build.query<
+      Record<string, unknown>[],
+      {
+        start_date?: string;
+        end_date?: string;
+        recipe_id?: string;
+        location_id?: string;
+      } | void
+    >({
+      query: (args) => ({ url: '/production/margins', params: args || undefined }),
       providesTags: ['Production', 'Batch'],
     }),
-    productionYield: build.query<Record<string, unknown>[], void>({
-      query: () => '/production/yield',
+    productionYield: build.query<
+      Record<string, unknown>[],
+      {
+        start_date?: string;
+        end_date?: string;
+        recipe_id?: string;
+        location_id?: string;
+      } | void
+    >({
+      query: (args) => ({ url: '/production/yield', params: args || undefined }),
+      providesTags: ['Production', 'Batch'],
+    }),
+    productionProfitabilitySummary: build.query<
+      Record<string, unknown>,
+      {
+        start_date?: string;
+        end_date?: string;
+        recipe_id?: string;
+        location_id?: string;
+      } | void
+    >({
+      query: (args) => ({
+        url: '/production/profitability/summary',
+        params: args || undefined,
+      }),
+      providesTags: ['Production', 'Batch'],
+    }),
+    productionRecipeScorecards: build.query<
+      Record<string, unknown>[],
+      {
+        start_date?: string;
+        end_date?: string;
+        recipe_id?: string;
+        location_id?: string;
+      } | void
+    >({
+      query: (args) => ({
+        url: '/production/profitability/recipes',
+        params: args || undefined,
+      }),
+      providesTags: ['Production', 'Batch', 'Recipe'],
+    }),
+    productionMaterialVariance: build.query<
+      Record<string, unknown>[],
+      {
+        start_date?: string;
+        end_date?: string;
+        recipe_id?: string;
+        location_id?: string;
+      } | void
+    >({
+      query: (args) => ({
+        url: '/production/profitability/material-variance',
+        params: args || undefined,
+      }),
+      providesTags: ['Production', 'Batch'],
+    }),
+    productionProductProfitability: build.query<
+      Record<string, unknown>[],
+      {
+        start_date?: string;
+        end_date?: string;
+        recipe_id?: string;
+        location_id?: string;
+      } | void
+    >({
+      query: (args) => ({
+        url: '/production/profitability/products',
+        params: args || undefined,
+      }),
+      providesTags: ['Production', 'Batch'],
+    }),
+    productionCostTrend: build.query<
+      Record<string, unknown>[],
+      {
+        start_date?: string;
+        end_date?: string;
+        recipe_id?: string;
+        location_id?: string;
+      } | void
+    >({
+      query: (args) => ({
+        url: '/production/profitability/cost-trend',
+        params: args || undefined,
+      }),
+      providesTags: ['Production', 'Batch'],
+    }),
+    productionRmConsumption: build.query<
+      Record<string, unknown>[],
+      {
+        start_date?: string;
+        end_date?: string;
+        recipe_id?: string;
+        location_id?: string;
+      } | void
+    >({
+      query: (args) => ({
+        url: '/production/profitability/rm-consumption',
+        params: args || undefined,
+      }),
+      providesTags: ['Production', 'Batch'],
+    }),
+    productionWipAging: build.query<
+      Record<string, unknown>[],
+      {
+        start_date?: string;
+        end_date?: string;
+        recipe_id?: string;
+        location_id?: string;
+      } | void
+    >({
+      query: (args) => ({
+        url: '/production/profitability/wip',
+        params: args || undefined,
+      }),
       providesTags: ['Production', 'Batch'],
     }),
     productionReportsCatalog: build.query<
@@ -3593,6 +4041,43 @@ export const {
   useUpdateProjectEnquiryStatusMutation,
   useStartProjectEnquiryEstimationMutation,
   useMarkProjectEnquiryWonMutation,
+  useListProjectActivitiesQuery,
+  useCreateProjectActivityMutation,
+  useUpdateProjectActivityMutation,
+  useGetProjectCostsQuery,
+  useListProjectExpensesQuery,
+  useGetProjectClosureBlockersQuery,
+  useGetProjectProfitabilityQuery,
+  useGetProjectAccountingSummaryQuery,
+  useListProjectQuotationsQuery,
+  useCreateProjectQuotationMutation,
+  useSendProjectQuotationMutation,
+  useReviseProjectQuotationMutation,
+  useAcceptProjectQuotationMutation,
+  useListProjectWorkOrdersQuery,
+  useCreateProjectWorkOrderMutation,
+  useVerifyProjectMeasurementMutation,
+  useCertifyProjectRaBillMutation,
+  useApproveProjectRaBillMutation,
+  useConvertProjectRaToInvoiceMutation,
+  useListProjectInvoicesQuery,
+  useListProjectProformasQuery,
+  useCreateProjectProformaMutation,
+  useListProjectVariationsQuery,
+  useCreateProjectVariationMutation,
+  useApproveProjectVariationMutation,
+  useListProjectVouchersQuery,
+  useCreateProjectReceiptMutation,
+  useCreateProjectVendorPaymentMutation,
+  useListProjectRetentionsQuery,
+  useReleaseProjectRetentionMutation,
+  useListProjectRecognitionQuery,
+  useDraftProjectRecognitionMutation,
+  usePostProjectRecognitionMutation,
+  useApproveProjectRecognitionMutation,
+  useListProjectReconciliationsQuery,
+  useCreateProjectReconciliationMutation,
+  useListProjectHistoryQuery,
   useProductionHealthQuery,
   useProductionOverviewQuery,
   useListRecipesQuery,
@@ -3603,8 +4088,10 @@ export const {
   useListBatchesQuery,
   useGetBatchQuery,
   useCreateBatchMutation,
+  useUpdateBatchMutation,
   useCompleteBatchMutation,
   usePostBatchMutation,
+  useUnpostBatchMutation,
   useCancelBatchMutation,
   useCompleteBatchStageMutation,
   useAddBatchCostMutation,
@@ -3612,6 +4099,13 @@ export const {
   useProductionDayBookQuery,
   useProductionMarginsQuery,
   useProductionYieldQuery,
+  useProductionProfitabilitySummaryQuery,
+  useProductionRecipeScorecardsQuery,
+  useProductionMaterialVarianceQuery,
+  useProductionProductProfitabilityQuery,
+  useProductionCostTrendQuery,
+  useProductionRmConsumptionQuery,
+  useProductionWipAgingQuery,
   useProductionReportsCatalogQuery,
   useRunProductionReportMutation,
   useGetProductionSettingsQuery,

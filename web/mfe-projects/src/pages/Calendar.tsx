@@ -10,7 +10,7 @@ import {
   type CalendarEventTone,
   type CalendarViewMode,
 } from '@vaybooks/ui-kit';
-import { asCaption } from '../utils';
+import { asCaption, formatDateInput } from '../utils';
 
 function statusTone(status: string): CalendarEventTone {
   if (status === 'Active') return 'ok';
@@ -19,10 +19,19 @@ function statusTone(status: string): CalendarEventTone {
   return 'primary';
 }
 
+const STATUS_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'Active', label: 'Active' },
+  { id: 'On Hold', label: 'On Hold' },
+  { id: 'Planned', label: 'Planned' },
+  { id: 'Draft', label: 'Draft' },
+] as const;
+
 export function ProjectsCalendarPage() {
   const navigate = useNavigate();
   const { data = [], isLoading, error, refetch } = useListProjectsQuery();
   const [view, setView] = useState<CalendarViewMode>('month');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -40,15 +49,20 @@ export function ProjectsCalendarPage() {
     { id: 'end', label: 'Expected end', tone: 'warn' },
   ];
 
+  const filtered = useMemo(() => {
+    if (statusFilter === 'all') return data;
+    return data.filter((row) => asCaption(row.status) === statusFilter);
+  }, [data, statusFilter]);
+
   const events: CalendarEvent[] = useMemo(() => {
     const out: CalendarEvent[] = [];
-    for (const row of data) {
+    for (const row of filtered) {
       const id = String(row.id);
       const name = asCaption(row.project_name) || asCaption(row.name) || 'Project';
       const status = asCaption(row.status) || 'Draft';
       const customer = asCaption(row.customer_name);
-      const start = asCaption(row.start_date).slice(0, 10);
-      const end = asCaption(row.expected_end_date).slice(0, 10);
+      const start = formatDateInput(row.start_date);
+      const end = formatDateInput(row.expected_end_date);
       const tone = statusTone(status);
       const meta = [customer, status].filter(Boolean).join(' · ');
 
@@ -91,13 +105,13 @@ export function ProjectsCalendarPage() {
       }
     }
     return out;
-  }, [data]);
+  }, [filtered]);
 
   return (
     <CalendarView
       kicker="Projects"
       title="Calendar"
-      count={`${data.length} projects · ${events.length} markers`}
+      count={`${filtered.length} projects · ${events.length} markers`}
       events={events}
       view={view}
       onViewChange={setView}
@@ -108,9 +122,21 @@ export function ProjectsCalendarPage() {
       onCategoriesChange={setSelectedCategories}
       loading={isLoading}
       error={error ? <ErrorText>Failed to load projects calendar.</ErrorText> : null}
-      emptyLabel="No project start or end dates yet. Set them on each project workspace."
+      emptyLabel="No project start or end dates yet. Set them when creating a project or on the Overview tab."
       actions={
         <>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginRight: 8 }}>
+            {STATUS_FILTERS.map((chip) => (
+              <Button
+                key={chip.id}
+                type="button"
+                variant={statusFilter === chip.id ? undefined : 'ghost'}
+                onClick={() => setStatusFilter(chip.id)}
+              >
+                {chip.label}
+              </Button>
+            ))}
+          </div>
           <Button type="button" variant="ghost" onClick={() => void refetch()}>
             Refresh
           </Button>
@@ -123,7 +149,12 @@ export function ProjectsCalendarPage() {
         const row = ev.payload as Record<string, unknown> | undefined;
         if (row?.id != null) navigate(`/projects/list/${String(row.id)}`);
       }}
-      onSlotClick={() => navigate('/projects/list?new=1')}
+      onSlotClick={(day) => {
+        const y = day.getFullYear();
+        const m = String(day.getMonth() + 1).padStart(2, '0');
+        const d = String(day.getDate()).padStart(2, '0');
+        navigate(`/projects/list?new=1&start_date=${y}-${m}-${d}`);
+      }}
     />
   );
 }

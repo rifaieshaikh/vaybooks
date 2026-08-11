@@ -33,6 +33,7 @@ export function Modal({
   footer,
   wide,
   compact,
+  zIndex,
 }: {
   title: string;
   open: boolean;
@@ -42,6 +43,8 @@ export function Modal({
   wide?: boolean;
   /** Narrower panel for filters/sort sheets */
   compact?: boolean;
+  /** Overlay stacking (ConfirmDialog uses 1100 over form modals at 1000) */
+  zIndex?: number;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -66,7 +69,7 @@ export function Modal({
 
   const node = (
     <div
-      style={overlay}
+      style={{ ...overlay, zIndex: zIndex ?? overlay.zIndex }}
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();

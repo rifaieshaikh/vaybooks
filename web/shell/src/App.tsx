@@ -71,6 +71,7 @@ import {
   ProductionDayBookPage,
   ProductionMarginsPage,
   ProductionOverviewPage,
+  ProductionProfitabilityPage,
   ProductionRecipesPage,
   ProductionReportsPage,
   ProductionScheduledReportsPage,
@@ -160,6 +161,7 @@ import {
   PaymentsListPage,
   ReceiptsListPage,
   TrialBalancePage,
+  VoucherDetailPage,
   VouchersListPage,
 } from '../../mfe-finance/src';
 import {
@@ -246,9 +248,7 @@ export default function App() {
   }
 
   return (
-    <ShellListKeyboardProvider
-      enabled={Boolean(accessToken) && licenseStatus !== 'expired'}
-    >
+    <ShellListKeyboardProvider enabled={Boolean(accessToken)}>
       <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<HomeDashboardPage />} />
@@ -409,6 +409,7 @@ export default function App() {
           <Route path="production/batches" element={<ProductionBatchesListPage />} />
           <Route path="production/batches/:id" element={<ProductionBatchDetailPage />} />
           <Route path="production/calendar" element={<ProductionCalendarPage />} />
+          <Route path="production/profitability" element={<ProductionProfitabilityPage />} />
           <Route path="production/day-book" element={<ProductionDayBookPage />} />
           <Route path="production/margins" element={<ProductionMarginsPage />} />
           <Route path="production/yield" element={<ProductionYieldPage />} />
@@ -423,6 +424,7 @@ export default function App() {
           <Route path="finance/accounts" element={<AccountsListPage />} />
           <Route path="finance/accounts/:id" element={<AccountDetailPage />} />
           <Route path="finance/vouchers" element={<VouchersListPage />} />
+          <Route path="finance/vouchers/:id" element={<VoucherDetailPage />} />
           <Route path="finance/receipts" element={<ReceiptsListPage />} />
           <Route path="finance/payments" element={<PaymentsListPage />} />
           <Route path="finance/credit-notes" element={<CreditNotesListPage />} />

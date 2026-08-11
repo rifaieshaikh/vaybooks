@@ -52,6 +52,15 @@ import {
 import { StatusBanner } from '@vaybooks/ui-kit';
 import { CreateForm, ResourcePage } from '../components/ResourcePage';
 
+/** Normalize RTK list payloads that may be a bare array or `{ items }` page. */
+function asListRows(data: unknown): Record<string, unknown>[] {
+  if (Array.isArray(data)) return data as Record<string, unknown>[];
+  if (data && typeof data === 'object' && Array.isArray((data as { items?: unknown }).items)) {
+    return (data as { items: Record<string, unknown>[] }).items;
+  }
+  return [];
+}
+
 export function HomePage() {
   const { data, isLoading, error, refetch } = useHomeDashboardQuery();
   const metrics = (data?.metrics as Record<string, unknown>) || {};
@@ -72,9 +81,10 @@ export function HomePage() {
 
 export function SalesPage() {
   const customersQ = useListCustomersQuery();
-  const { data = [], isLoading, error, refetch } = useListSalesInvoicesQuery();
+  const { data, isLoading, error, refetch } = useListSalesInvoicesQuery();
   const [createInvoice] = useCreateSalesInvoiceMutation();
-  const customers = customersQ.data || [];
+  const customers = asListRows(customersQ.data);
+  const rows = asListRows(data);
   return (
     <ResourcePage
       title="Sales invoices"
@@ -86,7 +96,7 @@ export function SalesPage() {
         { key: 'posting_status', header: 'Posting' },
         { key: 'degraded_pending', header: 'Degraded' },
       ]}
-      rows={data}
+      rows={rows}
       isLoading={isLoading}
       error={error}
       onRefresh={refetch}
@@ -111,10 +121,11 @@ export function SalesPage() {
 }
 
 export function PurchasesPage() {
-  const { data: orders = [], isLoading, error, refetch } = useListPurchaseOrdersQuery();
+  const { data: ordersData, isLoading, error, refetch } = useListPurchaseOrdersQuery();
   const bills = useListPurchaseBillsQuery();
   const [createPo] = useCreatePurchaseOrderMutation();
   const [createBill] = useCreatePurchaseBillMutation();
+  const orders = asListRows(ordersData);
   return (
     <div>
       <ResourcePage
@@ -148,7 +159,7 @@ export function PurchasesPage() {
           { key: 'total', header: 'Total' },
           { key: 'degraded_pending', header: 'Degraded' },
         ]}
-        rows={bills.data || []}
+        rows={asListRows(bills.data)}
         isLoading={bills.isLoading}
         error={bills.error}
         onRefresh={bills.refetch}
@@ -364,7 +375,7 @@ export function CrmPage() {
           { key: 'name', header: 'Name' },
           { key: 'status', header: 'Status' },
         ]}
-        rows={leads.data || []}
+        rows={asListRows(leads.data)}
         isLoading={leads.isLoading}
         error={leads.error}
         onRefresh={leads.refetch}
@@ -384,13 +395,13 @@ export function CrmPage() {
           { key: 'subject', header: 'Subject' },
           { key: 'lead_id', header: 'Lead' },
         ]}
-        rows={enquiries.data || []}
+        rows={asListRows(enquiries.data)}
         isLoading={enquiries.isLoading}
         error={enquiries.error}
         onRefresh={enquiries.refetch}
         form={
           <CreateForm
-fields={[
+            fields={[
               { name: 'subject', label: 'Subject' },
               { name: 'lead_id', label: 'Lead id (optional)', required: false },
             ]}
@@ -408,7 +419,7 @@ fields={[
           { key: 'lead_id', header: 'Lead' },
           { key: 'notes', header: 'Notes' },
         ]}
-        rows={activities.data || []}
+        rows={asListRows(activities.data)}
         isLoading={activities.isLoading}
         error={activities.error}
         onRefresh={activities.refetch}

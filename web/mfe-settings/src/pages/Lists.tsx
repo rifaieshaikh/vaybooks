@@ -28,6 +28,7 @@ import {
 } from '@vaybooks/store';
 import {
   Button,
+  ConfirmDialog,
   DataTable,
   EntityListActions,
   EntityListEmpty,
@@ -41,6 +42,8 @@ import {
   ErrorText,
   FormRow,
   Modal,
+  ModalForm,
+  ModalFormActions,
   PAGE_SIZE,
   PaginationBar,
   TextInput,
@@ -457,6 +460,8 @@ export function MeasurementSpecsPage() {
   const [editId, setEditId] = useState('');
   const [form, setForm] = useState<SpecForm>(emptySpecForm);
   const [formError, setFormError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const filtered = useMemo(() => {
     let rows = (data as Record<string, unknown>[]).filter((row) => {
@@ -508,13 +513,19 @@ export function MeasurementSpecsPage() {
     }
   }
 
-  async function onDelete(id: string) {
-    if (!window.confirm('Delete this measurement spec?')) return;
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    setFormError('');
     try {
-      await remove(id).unwrap();
+      await remove(deleteTarget.id).unwrap();
+      setDeleteTarget(null);
       refetch();
     } catch (e) {
       setFormError(extractError(e));
+      setDeleteTarget(null);
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -620,7 +631,12 @@ export function MeasurementSpecsPage() {
           actions={(row) => (
             <EntityListActions
               onEdit={() => openEdit(row)}
-              onDelete={() => void onDelete(String(row.id))}
+              onDelete={() =>
+                setDeleteTarget({
+                  id: String(row.id),
+                  label: displayName(row, ['label', 'key'], 'this measurement spec'),
+                })
+              }
             />
           )}
         />
@@ -737,6 +753,21 @@ export function MeasurementSpecsPage() {
           </label>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete measurement spec?"
+        message={
+          deleteTarget
+            ? `Delete “${deleteTarget.label}”? This cannot be undone.`
+            : 'Delete this measurement spec?'
+        }
+        confirmLabel="Delete"
+        danger
+        busy={deleteBusy}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </EntityListPage>
   );
 }
@@ -969,6 +1000,8 @@ export function SettingsLocationsPage() {
   const [locationType, setLocationType] = useState('Warehouse');
   const [isActive, setIsActive] = useState(true);
   const [formError, setFormError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const filtered = useMemo(() => {
     let rows = (data as Record<string, unknown>[]).filter((row) => {
@@ -1036,13 +1069,19 @@ export function SettingsLocationsPage() {
     }
   }
 
-  async function onDelete(id: string) {
-    if (!window.confirm('Delete this location?')) return;
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    setFormError('');
     try {
-      await deleteLoc(id).unwrap();
+      await deleteLoc(deleteTarget.id).unwrap();
+      setDeleteTarget(null);
       refetch();
     } catch (e) {
       setFormError(extractError(e));
+      setDeleteTarget(null);
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -1147,7 +1186,12 @@ export function SettingsLocationsPage() {
           actions={(row) => (
             <EntityListActions
               onEdit={() => openEdit(row)}
-              onDelete={() => void onDelete(String(row.id))}
+              onDelete={() =>
+                setDeleteTarget({
+                  id: String(row.id),
+                  name: displayName(row, ['name'], 'this location'),
+                })
+              }
             />
           )}
         />
@@ -1165,47 +1209,57 @@ export function SettingsLocationsPage() {
         title={dialog === 'edit' ? 'Edit location' : 'Add location'}
         open={dialog !== null}
         onClose={() => setDialog(null)}
-        footer={
-          <>
-            <Button
-              type="button"
-              onClick={() => void onSubmit()}
-              disabled={!name || !code || createState.isLoading || updateState.isLoading}
-            >
-              {dialog === 'edit' ? 'Save changes' : 'Create'}
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setDialog(null)}>
-              Cancel
-            </Button>
-          </>
-        }
       >
-        {formError ? <ErrorText>{formError}</ErrorText> : null}
-        <div style={{ display: 'grid', gap: 10 }}>
-          <FormRow label="Name *">
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} required />
-          </FormRow>
-          <FormRow label="Code *">
-            <TextInput value={code} onChange={(e) => setCode(e.target.value)} required />
-          </FormRow>
-          <FormRow label="Address">
-            <TextInput value={address} onChange={(e) => setAddress(e.target.value)} />
-          </FormRow>
-          <FormRow label="Type">
-            <Select value={locationType} onChange={(e) => setLocationType(e.target.value)}>
-              {['Warehouse', 'Retail Store'].map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </Select>
-          </FormRow>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-            Active
-          </label>
-        </div>
+        <ModalForm onSubmit={() => void onSubmit()}>
+          {formError ? <ErrorText>{formError}</ErrorText> : null}
+          <div style={{ display: 'grid', gap: 10 }}>
+            <FormRow label="Name *">
+              <TextInput value={name} onChange={(e) => setName(e.target.value)} required />
+            </FormRow>
+            <FormRow label="Code *">
+              <TextInput value={code} onChange={(e) => setCode(e.target.value)} required />
+            </FormRow>
+            <FormRow label="Address">
+              <TextInput value={address} onChange={(e) => setAddress(e.target.value)} />
+            </FormRow>
+            <FormRow label="Type">
+              <Select value={locationType} onChange={(e) => setLocationType(e.target.value)}>
+                {['Warehouse', 'Retail Store'].map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </FormRow>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+              Active
+            </label>
+          </div>
+          <ModalFormActions
+            busy={createState.isLoading || updateState.isLoading}
+            submitLabel={dialog === 'edit' ? 'Save changes' : 'Create'}
+            busyLabel="Saving…"
+            onCancel={() => setDialog(null)}
+            submitDisabled={!name || !code}
+          />
+        </ModalForm>
       </Modal>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete location?"
+        message={
+          deleteTarget
+            ? `Delete “${deleteTarget.name}”? This cannot be undone.`
+            : 'Delete this location?'
+        }
+        confirmLabel="Delete"
+        danger
+        busy={deleteBusy}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </EntityListPage>
   );
 }

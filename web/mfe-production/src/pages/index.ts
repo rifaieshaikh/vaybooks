@@ -1,6 +1,7 @@
 export { ProductionOverviewPage } from './Overview';
 export { ProductionRecipesPage } from './Recipes';
 export { ProductionBatchesListPage, ProductionBatchDetailPage } from './Batches';
+export { ProductionProfitabilityPage } from './Profitability';
 export {
   ProductionDayBookPage,
   ProductionMarginsPage,

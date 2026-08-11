@@ -3,6 +3,7 @@ export {
   AccountsListPage,
   AccountDetailPage,
   VouchersListPage,
+  VoucherDetailPage,
   ReceiptsListPage,
   PaymentsListPage,
   CreditNotesListPage,

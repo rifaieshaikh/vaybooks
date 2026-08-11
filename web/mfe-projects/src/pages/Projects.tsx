@@ -1,42 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  useAddProjectBudgetLineMutation,
-  useCertifyProjectMeasurementMutation,
-  useCreateProjectBoqItemMutation,
-  useCreateProjectDprMutation,
-  useCreateProjectExpenseMutation,
-  useCreateProjectMeasurementMutation,
   useCreateProjectMutation,
   useCreateProjectPortalTokenMutation,
-  useCreateProjectRaBillMutation,
-  useGetProjectBudgetQuery,
   useGetProjectQuery,
   useGetProjectSiteMobileQuery,
-  useGetProjectWorkspaceQuery,
   useListCustomersQuery,
-  useListProjectBoqQuery,
-  useListProjectDocumentsQuery,
-  useListProjectDprQuery,
-  useListProjectMeasurementsQuery,
   useListProjectPortalTokensQuery,
-  useListProjectRaBillsQuery,
-  useListProjectTimeQuery,
   useListProjectsQuery,
-  useSubmitProjectMeasurementMutation,
-  useSubmitProjectRaBillMutation,
-  useUploadProjectDocumentMutation,
 } from '@vaybooks/store';
 import {
   Button,
   EntityDetailBack,
   EntityDetailHero,
   EntityDetailPage,
-  EntityDetailPanel,
   EntityDetailSnapshot,
   EntityDetailStickyActions,
-  EntityDetailTabs,
-  EntityListActions,
   EntityListEmpty,
   EntityListFoot,
   EntityListHero,
@@ -56,22 +35,8 @@ import {
   useDetailKeyboardBack,
   type EntityListColumn,
 } from '@vaybooks/ui-kit';
-import { asCaption, extractError } from '../utils';
-
-const PROJECT_WORKSPACE_TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'boq', label: 'BOQ' },
-  { id: 'budget', label: 'Budget' },
-  { id: 'measurements', label: 'Measurements' },
-  { id: 'billing', label: 'Billing' },
-  { id: 'time', label: 'Time' },
-  { id: 'expenses', label: 'Expenses' },
-  { id: 'documents', label: 'Documents' },
-  { id: 'dpr', label: 'DPR' },
-  { id: 'portal', label: 'Portal' },
-  { id: 'site', label: 'Site' },
-] as const;
-type ProjectWorkspaceTab = (typeof PROJECT_WORKSPACE_TABS)[number]['id'];
+import { ProjectWorkspace } from '../workspace/ProjectWorkspace';
+import { asCaption, extractError, formatDateInput, formatMoney } from '../utils';
 
 const PROJECT_STATUS_CHIPS = [
   { id: 'all', label: 'All' },
@@ -96,6 +61,8 @@ export function ProjectsListPage() {
   const [customerId, setCustomerId] = useState(() => params.get('customer_id') || '');
   const [contractValue, setContractValue] = useState('0');
   const [locationId, setLocationId] = useState('loc-main');
+  const [startDate, setStartDate] = useState('');
+  const [expectedEndDate, setExpectedEndDate] = useState('');
   const [formError, setFormError] = useState('');
 
   type ProjectRow = (typeof data)[number];
@@ -108,9 +75,13 @@ export function ProjectsListPage() {
     setName('');
     setContractValue('0');
     setLocationId('loc-main');
+    setStartDate(formatDateInput(params.get('start_date')));
+    setExpectedEndDate(formatDateInput(params.get('expected_end_date')));
     setOpen(true);
     const next = new URLSearchParams(params);
     next.delete('new');
+    next.delete('start_date');
+    next.delete('expected_end_date');
     setSearchParams(next, { replace: true });
   }, [params, setSearchParams]);
 
@@ -160,14 +131,25 @@ export function ProjectsListPage() {
         },
       },
       {
+        id: 'dates',
+        header: 'Dates',
+        render: (row) => {
+          const start = formatDateInput(row.start_date);
+          const end = formatDateInput(row.expected_end_date);
+          if (!start && !end) return <span className="el-muted">—</span>;
+          return [start || '…', end || '…'].join(' → ');
+        },
+      },
+      {
         id: 'contract',
         header: 'Contract',
         className: 'el-num',
         headerClassName: 'el-col-num',
         render: (row) => {
-          const value = row.contract_value;
-          if (value == null || value === '') return <span className="el-muted">—</span>;
-          return asCaption(value);
+          if (row.contract_value == null || row.contract_value === '') {
+            return <span className="el-muted">—</span>;
+          }
+          return formatMoney(row.contract_value);
         },
       },
       {
@@ -185,6 +167,8 @@ export function ProjectsListPage() {
     setCustomerId(params.get('customer_id') || customerId || '');
     setContractValue('0');
     setLocationId('loc-main');
+    setStartDate('');
+    setExpectedEndDate('');
     setOpen(true);
   }
 
@@ -196,9 +180,11 @@ export function ProjectsListPage() {
         customer_id: customerId,
         contract_value: Number(contractValue) || 0,
         location_id: locationId,
+        ...(startDate ? { start_date: startDate } : {}),
+        ...(expectedEndDate ? { expected_end_date: expectedEndDate } : {}),
       }).unwrap();
       setOpen(false);
-      navigate(`/projects/list/${row.id}`);
+      navigate(`/projects/list/${String(row.id)}`);
     } catch (e) {
       setFormError(extractError(e));
     }
@@ -212,9 +198,9 @@ export function ProjectsListPage() {
         count={`${filtered.length} ${filtered.length === 1 ? 'project' : 'projects'}`}
         actions={
           <>
-            <button type="button" className="el-btn-ghost" onClick={() => void refetch()}>
+            <Button type="button" variant="ghost" onClick={() => void refetch()}>
               Refresh
-            </button>
+            </Button>
             <Button type="button" onClick={openCreate}>
               New project
             </Button>
@@ -228,8 +214,7 @@ export function ProjectsListPage() {
               setSearch(e.target.value);
               setPage(1);
             }}
-            placeholder="Search name, customer, status…"
-            aria-label="Search projects"
+            placeholder="Search projects…"
           />
         }
         chips={
@@ -249,9 +234,10 @@ export function ProjectsListPage() {
       {error ? <ErrorText>Failed to load projects.</ErrorText> : null}
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>
-            {search.trim() || filterCustomerId || filters.status ? 'No matching projects' : 'No projects yet'}
-          </strong>
+          <strong>{search.trim() || filters.status ? 'No matching projects' : 'No projects yet'}</strong>
+          <Button type="button" onClick={openCreate}>
+            New project
+          </Button>
         </EntityListEmpty>
       ) : null}
 
@@ -260,12 +246,8 @@ export function ProjectsListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          onActivateRow={(row) => navigate(`/projects/list/${String(row.id)}`)}
           keyboardNav
-          onActivateRow={(row) => navigate(`/projects/list/${row.id}`)}
-          onNew={openCreate}
-          actions={(row) => (
-            <EntityListActions onOpen={() => navigate(`/projects/list/${row.id}`)} />
-          )}
         />
       ) : null}
 
@@ -288,15 +270,15 @@ export function ProjectsListPage() {
             </Button>
             <Button
               type="button"
+              disabled={!name.trim() || !customerId || createState.isLoading}
               onClick={() => void onCreate()}
-              disabled={!name || !customerId || createState.isLoading}
             >
-              {createState.isLoading ? 'Saving…' : 'Create'}
+              Create
             </Button>
           </>
         }
       >
-        <div style={{ display: 'grid', gap: 10 }}>
+        <div style={{ display: 'grid', gap: 12 }}>
           {formError ? <ErrorText>{formError}</ErrorText> : null}
           <FormRow label="Name">
             <input value={name} onChange={(e) => setName(e.target.value)} />
@@ -318,380 +300,22 @@ export function ProjectsListPage() {
           <FormRow label="Contract value">
             <input value={contractValue} onChange={(e) => setContractValue(e.target.value)} />
           </FormRow>
+          <FormRow label="Start date">
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </FormRow>
+          <FormRow label="Expected end">
+            <input
+              type="date"
+              value={expectedEndDate}
+              onChange={(e) => setExpectedEndDate(e.target.value)}
+            />
+          </FormRow>
           <FormRow label="Location">
             <input value={locationId} onChange={(e) => setLocationId(e.target.value)} />
           </FormRow>
         </div>
       </Modal>
     </EntityListPage>
-  );
-}
-
-function ProjectWorkspaceSection({ projectId }: { projectId: string }) {
-  const [tab, setTab] = useState<ProjectWorkspaceTab>('overview');
-  const [msg, setMsg] = useState('');
-  const { data: workspace } = useGetProjectWorkspaceQuery(projectId);
-  const { data: boq = [] } = useListProjectBoqQuery(projectId);
-  const { data: measurements = [] } = useListProjectMeasurementsQuery(projectId);
-  const { data: budget } = useGetProjectBudgetQuery(projectId);
-  const { data: ra = [] } = useListProjectRaBillsQuery(projectId);
-  const { data: time = [] } = useListProjectTimeQuery(projectId);
-  const { data: docs = [] } = useListProjectDocumentsQuery(projectId);
-  const { data: dprs = [] } = useListProjectDprQuery(projectId);
-  const { data: tokens = [] } = useListProjectPortalTokensQuery(projectId);
-  const { data: site } = useGetProjectSiteMobileQuery(projectId);
-  const [createBoq] = useCreateProjectBoqItemMutation();
-  const [createMeas] = useCreateProjectMeasurementMutation();
-  const [submitMeas] = useSubmitProjectMeasurementMutation();
-  const [certifyMeas] = useCertifyProjectMeasurementMutation();
-  const [createRa] = useCreateProjectRaBillMutation();
-  const [submitRa] = useSubmitProjectRaBillMutation();
-  const [addBudget] = useAddProjectBudgetLineMutation();
-  const [createExpense] = useCreateProjectExpenseMutation();
-  const [createDpr] = useCreateProjectDprMutation();
-  const [createPortal] = useCreateProjectPortalTokenMutation();
-  const [uploadDoc] = useUploadProjectDocumentMutation();
-  const [budgetAmt, setBudgetAmt] = useState('1000');
-  const [expenseAmt, setExpenseAmt] = useState('100');
-
-  async function run(label: string, fn: () => Promise<unknown>) {
-    setMsg('');
-    try {
-      await fn();
-      setMsg(label);
-    } catch (e) {
-      setMsg(extractError(e));
-    }
-  }
-
-  const budgetLines = Array.isArray(budget?.lines) ? (budget!.lines as Record<string, unknown>[]) : [];
-  const activeTab = PROJECT_WORKSPACE_TABS.some((t) => t.id === tab) ? tab : 'overview';
-
-  return (
-    <>
-      <EntityDetailTabs
-        value={activeTab}
-        ariaLabel="Project workspace sections"
-        onChange={(next) => setTab(next as ProjectWorkspaceTab)}
-        options={[...PROJECT_WORKSPACE_TABS]}
-      />
-
-      {msg ? <p>{msg}</p> : null}
-
-      {activeTab === 'overview' ? (
-        <EntityDetailPanel key="overview" title="Overview">
-          <p style={{ margin: 0 }}>
-            Progress: {asCaption(workspace?.progress)} · BOQ {boq.length} · Measurements {measurements.length} ·
-            RA {ra.length} · Docs {docs.length}
-          </p>
-        </EntityDetailPanel>
-      ) : null}
-
-      {activeTab === 'boq' ? (
-        <EntityDetailPanel key="boq" title="BOQ">
-          <div style={{ display: 'grid', gap: 8 }}>
-            <Button
-              type="button"
-              onClick={() =>
-                run('BOQ item added', () =>
-                  createBoq({
-                    projectId,
-                    body: { code: `B${boq.length + 1}`, description: 'Work item', qty: 1, rate: 100 },
-                  }).unwrap(),
-                )
-              }
-            >
-              Add BOQ item
-            </Button>
-            <ul>
-              {boq.map((row) => (
-                <li key={String(row.id)}>
-                  {asCaption(row.code)} · {asCaption(row.description)} · qty{' '}
-                  {asCaption(row.estimated_qty || row.qty)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </EntityDetailPanel>
-      ) : null}
-
-      {activeTab === 'budget' ? (
-        <EntityDetailPanel key="budget" title="Budget">
-          <div style={{ display: 'grid', gap: 8, maxWidth: 420 }}>
-            <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
-              {JSON.stringify(budget?.summary || {}, null, 2)}
-            </pre>
-            <FormRow label="Amount">
-              <input value={budgetAmt} onChange={(e) => setBudgetAmt(e.target.value)} />
-            </FormRow>
-            <Button
-              type="button"
-              onClick={() =>
-                run('Budget line added', () =>
-                  addBudget({
-                    projectId,
-                    body: { cost_category: 'General', amount: Number(budgetAmt) || 0 },
-                  }).unwrap(),
-                )
-              }
-            >
-              Add budget line
-            </Button>
-            <ul>
-              {budgetLines.map((line) => (
-                <li key={String(line.id)}>
-                  {asCaption(line.cost_category)} · {asCaption(line.amount)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </EntityDetailPanel>
-      ) : null}
-
-      {activeTab === 'measurements' ? (
-        <EntityDetailPanel key="measurements" title="Measurements">
-          <div style={{ display: 'grid', gap: 8 }}>
-            <Button
-              type="button"
-              disabled={!boq[0]}
-              onClick={() =>
-                run('Measurement created', () =>
-                  createMeas({
-                    projectId,
-                    body: { boq_item_id: String(boq[0].id), quantity: 1 },
-                  }).unwrap(),
-                )
-              }
-            >
-              Add measurement from first BOQ
-            </Button>
-            <ul>
-              {measurements.map((m) => (
-                <li
-                  key={String(m.id)}
-                  style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}
-                >
-                  <span>
-                    {asCaption(m.id).slice(0, 8)} · qty {asCaption(m.quantity)} · {asCaption(m.status)}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() =>
-                      run('Submitted', () =>
-                        submitMeas({ projectId, measurementId: String(m.id) }).unwrap(),
-                      )
-                    }
-                  >
-                    Submit
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() =>
-                      run('Certified', () =>
-                        certifyMeas({
-                          projectId,
-                          measurementId: String(m.id),
-                          body: { actor: 'web' },
-                        }).unwrap(),
-                      )
-                    }
-                  >
-                    Certify
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </EntityDetailPanel>
-      ) : null}
-
-      {activeTab === 'billing' ? (
-        <EntityDetailPanel key="billing" title="Billing">
-          <div style={{ display: 'grid', gap: 8 }}>
-            <Button
-              type="button"
-              onClick={() =>
-                run('RA created', () =>
-                  createRa({
-                    projectId,
-                    body: {
-                      claim_amount: 1000,
-                      description: 'RA claim',
-                      measurement_ids: measurements
-                        .filter((m) => /certif/i.test(String(m.status || '')))
-                        .map((m) => String(m.id)),
-                    },
-                  }).unwrap(),
-                )
-              }
-            >
-              Create RA (from certified if any)
-            </Button>
-            <ul>
-              {ra.map((bill) => (
-                <li key={String(bill.id)} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span>
-                    {asCaption(bill.ra_number || bill.id)} · {asCaption(bill.status)} ·{' '}
-                    {asCaption(bill.claim_amount || bill.amount)}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() =>
-                      run('RA submitted', () =>
-                        submitRa({ projectId, raId: String(bill.id) }).unwrap(),
-                      )
-                    }
-                  >
-                    Submit
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </EntityDetailPanel>
-      ) : null}
-
-      {activeTab === 'time' ? (
-        <EntityDetailPanel key="time" title="Time">
-          <ul>
-            {time.map((row) => (
-              <li key={String(row.id)}>
-                {asCaption(row.work_date)} · {asCaption(row.hours)}h · {asCaption(row.worker_id)}
-              </li>
-            ))}
-            {!time.length ? <p style={{ color: '#667' }}>No time entries.</p> : null}
-          </ul>
-        </EntityDetailPanel>
-      ) : null}
-
-      {activeTab === 'expenses' ? (
-        <EntityDetailPanel key="expenses" title="Expenses">
-          <div style={{ display: 'grid', gap: 8, maxWidth: 360 }}>
-            <FormRow label="Amount">
-              <input value={expenseAmt} onChange={(e) => setExpenseAmt(e.target.value)} />
-            </FormRow>
-            <Button
-              type="button"
-              onClick={() =>
-                run('Expense added', () =>
-                  createExpense({
-                    projectId,
-                    body: {
-                      amount: Number(expenseAmt) || 0,
-                      category: 'Material',
-                      description: 'Site cost',
-                    },
-                  }).unwrap(),
-                )
-              }
-            >
-              Add expense
-            </Button>
-          </div>
-        </EntityDetailPanel>
-      ) : null}
-
-      {activeTab === 'documents' ? (
-        <EntityDetailPanel key="documents" title="Documents">
-          <div style={{ display: 'grid', gap: 8 }}>
-            <Button
-              type="button"
-              onClick={() =>
-                run('Document uploaded', () =>
-                  uploadDoc({
-                    projectId,
-                    body: {
-                      name: `note-${Date.now()}.txt`,
-                      category: 'Other',
-                      content_type: 'text/plain',
-                      data_base64: btoa('workspace upload'),
-                    },
-                  }).unwrap(),
-                )
-              }
-            >
-              Upload sample note
-            </Button>
-            <ul>
-              {docs.map((d) => (
-                <li key={String(d.id)}>
-                  {asCaption(d.name)} · {asCaption(d.category)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </EntityDetailPanel>
-      ) : null}
-
-      {activeTab === 'dpr' ? (
-        <EntityDetailPanel key="dpr" title="DPR">
-          <div style={{ display: 'grid', gap: 8 }}>
-            <Button
-              type="button"
-              onClick={() =>
-                run('DPR created', () =>
-                  createDpr({ projectId, body: { notes: 'Site progress' } }).unwrap(),
-                )
-              }
-            >
-              Create DPR
-            </Button>
-            <ul>
-              {dprs.map((d) => (
-                <li key={String(d.id)}>
-                  {asCaption(d.report_date)} · {asCaption(d.notes)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </EntityDetailPanel>
-      ) : null}
-
-      {activeTab === 'portal' ? (
-        <EntityDetailPanel key="portal" title="Portal">
-          <div style={{ display: 'grid', gap: 8 }}>
-            <Button
-              type="button"
-              onClick={() =>
-                run('Token created', () =>
-                  createPortal({ projectId, body: { label: 'Client portal' } }).unwrap(),
-                )
-              }
-            >
-              Create portal token
-            </Button>
-            <ul>
-              {tokens.map((t) => (
-                <li key={String(t.id)}>
-                  {asCaption(t.label || t.token)} · {asCaption(t.scope)}
-                </li>
-              ))}
-            </ul>
-            <p style={{ margin: 0 }}>
-              <Link to={`/projects/portal/${projectId}`}>Open dedicated portal page</Link>
-            </p>
-          </div>
-        </EntityDetailPanel>
-      ) : null}
-
-      {activeTab === 'site' ? (
-        <EntityDetailPanel key="site" title="Site">
-          <div style={{ display: 'grid', gap: 8 }}>
-            <p style={{ margin: 0 }}>
-              Site measurements: {Array.isArray(site?.measurements) ? site!.measurements.length : 0} ·
-              DPRs: {Array.isArray(site?.dprs) ? site!.dprs.length : 0} · Time:{' '}
-              {Array.isArray(site?.time_entries) ? site!.time_entries.length : 0}
-            </p>
-            <p style={{ margin: 0 }}>
-              <Link to={`/projects/site-mobile/${projectId}`}>Open dedicated site-mobile page</Link>
-            </p>
-          </div>
-        </EntityDetailPanel>
-      ) : null}
-    </>
   );
 }
 
@@ -719,6 +343,9 @@ export function ProjectDetailPage() {
 
   const heroActions = (
     <>
+      <Button type="button" variant="ghost" onClick={() => navigate('/projects/calendar')}>
+        Calendar
+      </Button>
       <Button type="button" variant="ghost" onClick={() => navigate(`/projects/portal/${id}`)}>
         Portal
       </Button>
@@ -758,12 +385,20 @@ export function ProjectDetailPage() {
             value:
               data.contract_value == null || data.contract_value === ''
                 ? '—'
-                : asCaption(data.contract_value),
+                : formatMoney(data.contract_value),
+          },
+          {
+            label: 'Start',
+            value: formatDateInput(data.start_date) || '—',
+          },
+          {
+            label: 'Expected end',
+            value: formatDateInput(data.expected_end_date) || '—',
           },
         ]}
       />
 
-      <ProjectWorkspaceSection projectId={id} />
+      <ProjectWorkspace projectId={id} />
 
       <EntityDetailStickyActions
         start={

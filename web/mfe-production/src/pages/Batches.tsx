@@ -1,27 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  useAddBatchCostMutation,
-  useCancelBatchMutation,
-  useCompleteBatchMutation,
-  useCompleteBatchStageMutation,
   useCreateBatchMutation,
-  useGetBatchQuery,
+  useGetWorkingLocationQuery,
   useListBatchesQuery,
   useListInventoryLocationsQuery,
+  useListInventoryStockQuery,
   useListRecipesQuery,
-  usePostBatchMutation,
-  useRemoveBatchCostMutation,
 } from '@vaybooks/store';
 import {
   Button,
-  EntityDetailBack,
-  EntityDetailHero,
-  EntityDetailPage,
-  EntityDetailPanel,
-  EntityDetailSnapshot,
-  EntityDetailStickyActions,
-  EntityDetailTabs,
   EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
@@ -30,12 +18,14 @@ import {
   EntityListLoading,
   EntityListPage,
   EntityListQuickFilters,
+  EntityListRefreshing,
   EntityListTable,
   ErrorText,
   FormRow,
   Modal,
   PAGE_SIZE,
   PaginationBar,
+  SearchableSelect,
   StatusPill,
   TextInput,
   displayName,
@@ -43,16 +33,14 @@ import {
   pageCount,
   paginate,
   sortRows,
-  statusPillTone,
   type EntityListColumn,
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
+import { BATCH_STATUSES, batchStatusTone, isoToday } from '../status';
 import { asCaption, extractError, formatMoney } from '../utils';
 
-type BatchDetailTab = 'stages' | 'costs';
-
-const BATCH_STATUSES = ['Draft', 'In Progress', 'Posted', 'Cancelled'] as const;
+export { ProductionBatchDetailPage } from './BatchDetailPage';
 
 const DEFAULT_FILTERS = { batch_number: '', recipe_name: '', status: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'batch_date', desc: true }];
@@ -69,43 +57,53 @@ const FILTER_FIELDS: FilterFieldDef[] = [
 
 export function ProductionBatchesListPage() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { data = [], isLoading, error, refetch } = useListBatchesQuery();
+  const { data = [], isLoading, error, refetch, isFetching } = useListBatchesQuery();
   const { data: recipes = [] } = useListRecipesQuery({ active_only: true });
   const { data: locations = [] } = useListInventoryLocationsQuery();
+  const { data: workingLoc } = useGetWorkingLocationQuery();
+  const { data: stockRows = [] } = useListInventoryStockQuery();
   const [createBatch, createState] = useCreateBatchMutation();
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
+  const [quick, setQuick] = useState('');
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [formError, setFormError] = useState('');
   const [recipeId, setRecipeId] = useState('');
   const [locationId, setLocationId] = useState('');
   const [planned, setPlanned] = useState('1');
-  const [batchDate, setBatchDate] = useState('');
+  const [batchDate, setBatchDate] = useState(isoToday());
+  const [batchNumber, setBatchNumber] = useState('');
+  const [notes, setNotes] = useState('');
 
-  useEffect(() => {
-    if (searchParams.get('new') !== '1') return;
-    setFormError('');
-    setOpen(true);
-    const next = new URLSearchParams(searchParams);
-    next.delete('new');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+  const workingLocationId = String(workingLoc?.working_location_id || '').trim();
 
   const filtered = useMemo(() => {
+    const today = isoToday();
     const rows = data.filter((row) => {
+      if (search.trim()) {
+        const hay = `${row.batch_number || ''} ${row.recipe_name || ''}`.toLowerCase();
+        if (!hay.includes(search.trim().toLowerCase())) return false;
+      }
       if (!matchesRegex(row.batch_number, filters.batch_number)) return false;
       if (!matchesRegex(row.recipe_name, filters.recipe_name)) return false;
       if (filters.status && String(row.status || '') !== filters.status) return false;
+      if (quick === 'today' && String(row.batch_date || '').slice(0, 10) !== today) return false;
+      if (
+        quick === 'open' &&
+        !['Draft', 'In Progress'].includes(String(row.status || ''))
+      ) {
+        return false;
+      }
+      if (quick === 'ready' && String(row.status || '') !== 'In Progress') return false;
       return true;
     });
     return sortRows(rows, sort);
-  }, [data, filters, sort]);
+  }, [data, filters, sort, search, quick]);
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
-
   type BatchRow = (typeof data)[number];
 
   const columns: EntityListColumn<BatchRow>[] = useMemo(
@@ -113,20 +111,21 @@ export function ProductionBatchesListPage() {
       {
         id: 'batch_number',
         header: 'Batch',
-        render: (row) => displayName(row, ['batch_number'], 'Unnamed'),
+        render: (row) => (
+          <span className="el-doc-link">{displayName(row, ['batch_number'], 'Unnamed')}</span>
+        ),
       },
       {
         id: 'recipe_name',
         header: 'Recipe',
-        render: (row) => {
-          const recipe = String(row.recipe_name || '').trim();
-          return <span className={recipe ? undefined : 'el-muted'}>{recipe || '—'}</span>;
-        },
+        render: (row) => asCaption(row.recipe_name) || '—',
       },
       {
         id: 'status',
         header: 'Status',
-        render: (row) => asCaption(row.status) || '—',
+        render: (row) => (
+          <StatusPill status={asCaption(row.status) || '—'} tone={batchStatusTone(String(row.status || ''))} />
+        ),
       },
       {
         id: 'batch_date',
@@ -140,9 +139,61 @@ export function ProductionBatchesListPage() {
         headerClassName: 'el-col-num',
         render: (row) => formatMoney(Number(row.total_cost ?? 0)),
       },
+      {
+        id: 'batch_margin',
+        header: 'Margin',
+        className: 'el-num',
+        headerClassName: 'el-col-num',
+        render: (row) => formatMoney(Number(row.batch_margin ?? 0)),
+      },
     ],
     [],
   );
+
+  const recipeOptions = useMemo(
+    () => recipes.map((r) => ({ value: String(r.id), label: String(r.name || r.id) })),
+    [recipes],
+  );
+  const locationOptions = useMemo(
+    () => locations.map((l) => ({ value: String(l.id), label: String(l.name || l.id) })),
+    [locations],
+  );
+
+  const selectedRecipe = recipes.find((r) => String(r.id) === recipeId);
+  const materialPreview = useMemo(() => {
+    if (!selectedRecipe) return [];
+    const scale = (Number(planned) || 1) / (Number(selectedRecipe.base_quantity) || 1);
+    const inputs = Array.isArray(selectedRecipe.inputs)
+      ? (selectedRecipe.inputs as Record<string, unknown>[])
+      : [];
+    return inputs.map((line) => {
+      const qty =
+        Number(line.qty || 0) *
+        scale *
+        (1 + Math.max(0, Number(line.scrap_pct || 0)) / 100);
+      const productId = String(line.product_id || '');
+      const available = (stockRows as Record<string, unknown>[])
+        .filter((s) => String(s.product_id || '') === productId)
+        .reduce((sum, s) => sum + Number(s.qty ?? s.quantity ?? s.balance ?? 0), 0);
+      return {
+        name: String(line.product_name || productId),
+        qty: Math.round(qty * 10000) / 10000,
+        available,
+        short: available + 0.001 < qty,
+      };
+    });
+  }, [selectedRecipe, planned, stockRows]);
+
+  function openCreate() {
+    setFormError('');
+    setRecipeId('');
+    setLocationId(workingLocationId || String(locations[0]?.id || ''));
+    setPlanned('1');
+    setBatchDate(isoToday());
+    setBatchNumber('');
+    setNotes('');
+    setOpen(true);
+  }
 
   async function onCreate() {
     setFormError('');
@@ -155,10 +206,11 @@ export function ProductionBatchesListPage() {
         recipe_id: recipeId,
         location_id: locationId,
         planned_quantity: Number(planned) || 1,
-        batch_date: batchDate || undefined,
+        batch_date: batchDate || isoToday(),
+        batch_number: batchNumber.trim() || undefined,
+        notes: notes.trim() || undefined,
       }).unwrap();
       setOpen(false);
-      refetch();
       navigate(`/production/batches/${String(created.id)}`);
     } catch (e) {
       setFormError(extractError(e));
@@ -166,33 +218,44 @@ export function ProductionBatchesListPage() {
   }
 
   return (
-    <EntityListPage>
+    <EntityListPage className="el-page--production">
       <EntityListHero
         kicker="Production"
-        title="Production Batches"
-        count={`${filtered.length} ${filtered.length === 1 ? 'batch' : 'batches'}`}
-        actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setFormError('');
-              setOpen(true);
+        title="Batches"
+        count={`${filtered.length} batch${filtered.length === 1 ? '' : 'es'}`}
+        search={
+          <input
+            className="vb-control"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
             }}
-          >
-            New batch
-          </Button>
+            placeholder="Search batches…"
+          />
+        }
+        actions={
+          <>
+            <Button type="button" variant="ghost" onClick={() => refetch()}>
+              Refresh
+            </Button>
+            <Button type="button" onClick={openCreate}>
+              New batch
+            </Button>
+          </>
         }
         chips={
           <EntityListQuickFilters
-            ariaLabel="Status"
-            value={filters.status || 'all'}
-            onChange={(id) => {
-              setFilters((prev) => ({ ...prev, status: id === 'all' ? '' : id }));
+            value={quick}
+            onChange={(value) => {
+              setQuick(value);
               setPage(1);
             }}
             options={[
-              { id: 'all', label: 'All' },
-              ...BATCH_STATUSES.map((status) => ({ id: status, label: status })),
+              { id: '', label: 'All' },
+              { id: 'today', label: 'Today' },
+              { id: 'open', label: 'Open' },
+              { id: 'ready', label: 'Ready to post' },
             ]}
           />
         }
@@ -201,7 +264,6 @@ export function ProductionBatchesListPage() {
             filterFields={FILTER_FIELDS}
             filters={filters}
             defaultFilters={DEFAULT_FILTERS}
-            excludeKeys={['status']}
             onFiltersChange={(next) => {
               setFilters(next as typeof DEFAULT_FILTERS);
               setPage(1);
@@ -210,22 +272,31 @@ export function ProductionBatchesListPage() {
             defaultSort={DEFAULT_SORT}
             sortOptions={[
               { value: 'batch_date', label: 'Date' },
-              { value: 'batch_number', label: 'Number' },
+              { value: 'batch_number', label: 'Batch #' },
+              { value: 'total_cost', label: 'Cost' },
               { value: 'status', label: 'Status' },
             ]}
-            onSortChange={(next) => {
-              setSort(next);
-              setPage(1);
-            }}
+            onSortChange={setSort}
           />
         }
       />
 
+      {isFetching && !isLoading ? <EntityListRefreshing /> : null}
       {isLoading ? <EntityListLoading>Loading batches…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load batches.</ErrorText> : null}
+
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
           <strong>No batches found.</strong>
+          <p>Start a batch from an active recipe to issue materials and receive finished goods.</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button type="button" onClick={openCreate}>
+              New batch
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => navigate('/production/recipes')}>
+              Create recipe
+            </Button>
+          </div>
         </EntityListEmpty>
       ) : null}
 
@@ -236,12 +307,11 @@ export function ProductionBatchesListPage() {
           rowKey={(row) => String(row.id)}
           keyboardNav
           onActivateRow={(row) => navigate(`/production/batches/${String(row.id)}`)}
-          onNew={() => {
-            setFormError('');
-            setOpen(true);
-          }}
+          onNew={openCreate}
           actions={(row) => (
-            <EntityListActions onOpen={() => navigate(`/production/batches/${String(row.id)}`)} />
+            <EntityListActions
+              onOpen={() => navigate(`/production/batches/${String(row.id)}`)}
+            />
           )}
         />
       ) : null}
@@ -264,7 +334,7 @@ export function ProductionBatchesListPage() {
               Cancel
             </Button>
             <Button type="button" onClick={() => void onCreate()} disabled={createState.isLoading}>
-              {createState.isLoading ? 'Saving…' : 'Create'}
+              {createState.isLoading ? 'Creating…' : 'Create batch'}
             </Button>
           </>
         }
@@ -272,32 +342,20 @@ export function ProductionBatchesListPage() {
         <div style={{ display: 'grid', gap: 10 }}>
           {formError ? <ErrorText>{formError}</ErrorText> : null}
           <FormRow label="Recipe *">
-            <select
+            <SearchableSelect
+              options={recipeOptions}
               value={recipeId}
-              onChange={(e) => setRecipeId(e.target.value)}
-              style={{ padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select…</option>
-              {recipes.map((r) => (
-                <option key={String(r.id)} value={String(r.id)}>
-                  {asCaption(r.name)}
-                </option>
-              ))}
-            </select>
+              onChange={setRecipeId}
+              placeholder="Select recipe…"
+            />
           </FormRow>
           <FormRow label="Location *">
-            <select
+            <SearchableSelect
+              options={locationOptions}
               value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              style={{ padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select…</option>
-              {locations.map((l) => (
-                <option key={String(l.id)} value={String(l.id)}>
-                  {asCaption(l.name)}
-                </option>
-              ))}
-            </select>
+              onChange={setLocationId}
+              placeholder="Select location…"
+            />
           </FormRow>
           <FormRow label="Planned qty">
             <TextInput value={planned} onChange={(e) => setPlanned(e.target.value)} />
@@ -305,275 +363,31 @@ export function ProductionBatchesListPage() {
           <FormRow label="Batch date">
             <TextInput type="date" value={batchDate} onChange={(e) => setBatchDate(e.target.value)} />
           </FormRow>
+          <FormRow label="Batch number">
+            <TextInput
+              value={batchNumber}
+              onChange={(e) => setBatchNumber(e.target.value)}
+              placeholder="Auto if blank"
+            />
+          </FormRow>
+          <FormRow label="Notes">
+            <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </FormRow>
+          {materialPreview.length ? (
+            <div>
+              <strong>Material preview</strong>
+              <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                {materialPreview.map((line) => (
+                  <li key={line.name} style={{ color: line.short ? 'var(--vb-color-danger, #b42318)' : undefined }}>
+                    {line.name}: {line.qty} (stock {line.available}
+                    {line.short ? ' — short' : ''})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       </Modal>
     </EntityListPage>
-  );
-}
-
-export function ProductionBatchDetailPage() {
-  const { id = '' } = useParams();
-  const navigate = useNavigate();
-  const { data, isLoading, error, refetch } = useGetBatchQuery(id, { skip: !id });
-  const [completeBatch, completeState] = useCompleteBatchMutation();
-  const [completeStage, completeStageState] = useCompleteBatchStageMutation();
-  const [postBatch, postState] = usePostBatchMutation();
-  const [cancelBatch, cancelState] = useCancelBatchMutation();
-  const [addCost, addCostState] = useAddBatchCostMutation();
-  const [removeCost, removeCostState] = useRemoveBatchCostMutation();
-  const [actionError, setActionError] = useState('');
-  const [tab, setTab] = useState<BatchDetailTab>('stages');
-  const [costOpen, setCostOpen] = useState(false);
-  const [costType, setCostType] = useState('');
-  const [costAmount, setCostAmount] = useState('');
-  const [costDescription, setCostDescription] = useState('');
-
-  async function run(action: 'complete' | 'post' | 'cancel') {
-    setActionError('');
-    try {
-      if (action === 'complete') await completeBatch({ id }).unwrap();
-      if (action === 'post') await postBatch({ id }).unwrap();
-      if (action === 'cancel') await cancelBatch(id).unwrap();
-      refetch();
-    } catch (e) {
-      setActionError(extractError(e));
-    }
-  }
-
-  async function onCompleteStage(stageId: string) {
-    setActionError('');
-    try {
-      await completeStage({ batchId: id, stage_id: stageId }).unwrap();
-      refetch();
-    } catch (e) {
-      setActionError(extractError(e));
-    }
-  }
-
-  async function onAddCost() {
-    setActionError('');
-    if (!costType.trim() || Number(costAmount) < 0 || !costAmount.trim()) {
-      setActionError('Cost type and a valid amount are required');
-      return;
-    }
-    try {
-      await addCost({
-        batchId: id,
-        body: {
-          cost_type: costType.trim(),
-          amount: Number(costAmount),
-          description: costDescription.trim() || undefined,
-        },
-      }).unwrap();
-      setCostOpen(false);
-      setCostType('');
-      setCostAmount('');
-      setCostDescription('');
-      refetch();
-    } catch (e) {
-      setActionError(extractError(e));
-    }
-  }
-
-  async function onRemoveCost(costId: string) {
-    setActionError('');
-    try {
-      await removeCost({ batchId: id, costId }).unwrap();
-      refetch();
-    } catch (e) {
-      setActionError(extractError(e));
-    }
-  }
-
-  if (isLoading) {
-    return (
-      <EntityDetailPage>
-        <EntityListLoading>Loading batch…</EntityListLoading>
-      </EntityDetailPage>
-    );
-  }
-  if (error || !data) {
-    return (
-      <EntityDetailPage>
-        <EntityDetailBack to="/production/batches" label="Batches" />
-        <ErrorText>Batch not found.</ErrorText>
-      </EntityDetailPage>
-    );
-  }
-
-  const stages = Array.isArray(data.stages) ? (data.stages as Record<string, unknown>[]) : [];
-  const costs = Array.isArray(data.costs) ? (data.costs as Record<string, unknown>[]) : [];
-  const busy =
-    completeState.isLoading ||
-    completeStageState.isLoading ||
-    postState.isLoading ||
-    cancelState.isLoading ||
-    addCostState.isLoading ||
-    removeCostState.isLoading;
-  const status = asCaption(data.status) || '—';
-
-  const heroActions = (
-    <>
-      <Button type="button" variant="ghost" onClick={() => void refetch()} disabled={busy}>
-        Refresh
-      </Button>
-      <Button type="button" onClick={() => void run('complete')} disabled={busy}>
-        Complete
-      </Button>
-      <Button type="button" onClick={() => void run('post')} disabled={busy}>
-        Post
-      </Button>
-      <Button type="button" variant="ghost" onClick={() => void run('cancel')} disabled={busy}>
-        Cancel
-      </Button>
-    </>
-  );
-
-  return (
-    <EntityDetailPage>
-      <EntityDetailBack to="/production/batches" label="Batches" />
-
-      <EntityDetailHero
-        kicker="Production · Batch"
-        title={asCaption(data.batch_number) || id}
-        lead={
-          <>
-            <StatusPill status={status} tone={statusPillTone(status)} />
-            <span className="ed-lead-sep"> · {asCaption(data.recipe_name) || '—'}</span>
-            <span className="ed-lead-sep"> · {String(data.batch_date || '').slice(0, 10) || '—'}</span>
-          </>
-        }
-        actions={heroActions}
-      />
-
-      <EntityDetailSnapshot
-        ariaLabel="Batch facts"
-        items={[
-          { label: 'Status', value: status },
-          { label: 'Recipe', value: asCaption(data.recipe_name) || '—' },
-          { label: 'Total cost', value: formatMoney(Number(data.total_cost ?? 0)) },
-          { label: 'Expected sales', value: formatMoney(Number(data.expected_sales_value ?? 0)) },
-          { label: 'Margin', value: formatMoney(Number(data.batch_margin ?? 0)) },
-        ]}
-      />
-
-      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
-
-      <EntityDetailTabs
-        value={tab}
-        ariaLabel="Batch sections"
-        onChange={(next) => setTab(next as BatchDetailTab)}
-        options={[
-          { id: 'stages', label: `Stages (${stages.length})` },
-          { id: 'costs', label: `Costs (${costs.length})` },
-        ]}
-      />
-
-      {tab === 'stages' ? (
-        <EntityDetailPanel title="Stages" note="Mark production stages complete as work finishes.">
-          {stages.length === 0 ? (
-            <p className="ed-panel-note">No stages on this batch.</p>
-          ) : (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {stages.map((s) => (
-                <li
-                  key={String(s.id)}
-                  style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}
-                >
-                  <span>
-                    {asCaption(s.name)} — {s.completed ? 'Done' : 'Open'}
-                  </span>
-                  {!s.completed ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => void onCompleteStage(String(s.id))}
-                      disabled={busy}
-                    >
-                      Complete stage
-                    </Button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </EntityDetailPanel>
-      ) : null}
-
-      {tab === 'costs' ? (
-        <EntityDetailPanel
-          title="Costs"
-          note="Additional costs applied to this batch."
-          headerEnd={
-            <Button type="button" variant="ghost" onClick={() => setCostOpen(true)} disabled={busy}>
-              Add cost
-            </Button>
-          }
-        >
-          {costs.length === 0 ? (
-            <p className="ed-panel-note">No additional costs recorded.</p>
-          ) : (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {costs.map((cost) => (
-                <li
-                  key={String(cost.id)}
-                  style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}
-                >
-                  <span>
-                    {asCaption(cost.cost_type)} — {formatMoney(Number(cost.amount ?? 0))}
-                    {cost.description ? ` · ${asCaption(cost.description)}` : ''}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => void onRemoveCost(String(cost.id))}
-                    disabled={busy}
-                  >
-                    Remove
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </EntityDetailPanel>
-      ) : null}
-
-      <EntityDetailStickyActions
-        start={
-          <Button type="button" variant="ghost" onClick={() => navigate('/production/batches')}>
-            Back to list
-          </Button>
-        }
-        end={heroActions}
-      />
-
-      <Modal
-        open={costOpen}
-        title="Add batch cost"
-        onClose={() => setCostOpen(false)}
-        footer={
-          <>
-            <Button type="button" variant="ghost" onClick={() => setCostOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={() => void onAddCost()} disabled={busy}>
-              {addCostState.isLoading ? 'Saving…' : 'Add cost'}
-            </Button>
-          </>
-        }
-      >
-        <div style={{ display: 'grid', gap: 10 }}>
-          <FormRow label="Cost type *">
-            <TextInput value={costType} onChange={(e) => setCostType(e.target.value)} />
-          </FormRow>
-          <FormRow label="Amount *">
-            <TextInput type="number" min="0" value={costAmount} onChange={(e) => setCostAmount(e.target.value)} />
-          </FormRow>
-          <FormRow label="Description">
-            <TextInput value={costDescription} onChange={(e) => setCostDescription(e.target.value)} />
-          </FormRow>
-        </div>
-      </Modal>
-    </EntityDetailPage>
   );
 }

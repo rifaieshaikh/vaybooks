@@ -3,6 +3,7 @@ import {
   useCreateCustomerPriceMutation,
   useListCustomerPriceHistoryQuery,
   useListCustomerPricesQuery,
+  useListCustomersQuery,
   useListInventoryProductsQuery,
 } from '@vaybooks/store';
 import {
@@ -20,8 +21,11 @@ import {
   ErrorText,
   FormRow,
   Modal,
+  ModalForm,
+  ModalFormActions,
   PAGE_SIZE,
   PaginationBar,
+  SearchableSelect,
   TextInput,
   matchesRegex,
   pageCount,
@@ -31,6 +35,7 @@ import {
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
+import { customerDisplayName, toCustomerOptions, toProductOptions } from '../pickerOptions';
 
 const DEFAULT_PRICE_FILTERS = { customer_name: '', product_name: '', sku: '', rate_diff: '' };
 const DEFAULT_SORT: SortCriterion[] = [{ key: 'created_at', desc: true }];
@@ -42,10 +47,11 @@ function extractError(e: unknown): string {
   return 'Save failed';
 }
 
-/** Streamlit parity: customer-specific price list, add-price modal, per-row history modal. */
+/** Customer-specific price list, add-price modal, per-row history modal. */
 export function CustomerPricesPage() {
   const { data = [], isLoading, error, refetch } = useListCustomerPricesQuery();
   const { data: products = [] } = useListInventoryProductsQuery({ active_only: true });
+  const { data: customers = [] } = useListCustomersQuery();
   const [createPrice, createState] = useCreateCustomerPriceMutation();
 
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
@@ -53,7 +59,6 @@ export function CustomerPricesPage() {
   const [filters, setFilters] = useState({ ...DEFAULT_PRICE_FILTERS });
   const [addOpen, setAddOpen] = useState(false);
   const [customerId, setCustomerId] = useState('');
-  const [customerName, setCustomerName] = useState('');
   const [productId, setProductId] = useState('');
   const [rate, setRate] = useState('0');
   const [formError, setFormError] = useState('');
@@ -61,9 +66,22 @@ export function CustomerPricesPage() {
   const [historyRow, setHistoryRow] = useState<Record<string, unknown> | null>(null);
 
   const productOptions = useMemo(
-    () => products.map((p) => ({ id: String(p.id), label: `${String(p.sku || '')} — ${String(p.name || p.id)}` })),
+    () => toProductOptions(products as Record<string, unknown>[]),
     [products],
   );
+  const customerOptions = useMemo(
+    () => toCustomerOptions(customers as Record<string, unknown>[]),
+    [customers],
+  );
+  const customerById = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>>();
+    for (const c of customers as Record<string, unknown>[]) {
+      map.set(String(c.id), c);
+    }
+    return map;
+  }, [customers]);
+
+  const selectedCustomerName = customerDisplayName(customerById.get(customerId));
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
@@ -115,22 +133,21 @@ export function CustomerPricesPage() {
   function openAdd() {
     setFormError('');
     setCustomerId('');
-    setCustomerName('');
-    setProductId(productOptions[0]?.id || '');
+    setProductId(productOptions[0]?.value || '');
     setRate('0');
     setAddOpen(true);
   }
 
   async function submitAdd() {
     setFormError('');
-    if (!customerId.trim() || !productId) {
+    if (!customerId || !productId) {
       setFormError('Customer and product are required');
       return;
     }
     try {
       await createPrice({
-        customer_id: customerId.trim(),
-        customer_name: customerName.trim(),
+        customer_id: customerId,
+        customer_name: selectedCustomerName,
         product_id: productId,
         rate: Number(rate) || 0,
       }).unwrap();
@@ -273,53 +290,48 @@ export function CustomerPricesPage() {
         </EntityListFoot>
       ) : null}
 
-      <Modal
-        title="Add Customer Price"
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        footer={
-          <>
-            <Button type="button" onClick={() => void submitAdd()} disabled={createState.isLoading}>
-              Save Price
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setAddOpen(false)}>
-              Cancel
-            </Button>
-          </>
-        }
-      >
-        {formError ? <ErrorText>{formError}</ErrorText> : null}
-        <div style={{ display: 'grid', gap: 10 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <FormRow label="Customer ID *">
-              <TextInput value={customerId} onChange={(e) => setCustomerId(e.target.value)} required />
+      <Modal title="Add Customer Price" open={addOpen} onClose={() => setAddOpen(false)}>
+        <ModalForm onSubmit={() => void submitAdd()}>
+          {formError ? <ErrorText>{formError}</ErrorText> : null}
+          <div style={{ display: 'grid', gap: 10 }}>
+            <FormRow label="Customer *">
+              <SearchableSelect
+                options={customerOptions}
+                value={customerId}
+                placeholder="Select customer"
+                onChange={setCustomerId}
+              />
+              {customerId && selectedCustomerName ? (
+                <div style={{ fontSize: 13, color: '#5c736a', marginTop: 4 }}>{selectedCustomerName}</div>
+              ) : null}
             </FormRow>
-            <FormRow label="Customer name">
-              <TextInput value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+            <FormRow label="Product *">
+              <SearchableSelect
+                options={productOptions}
+                value={productId}
+                placeholder="Select product"
+                onChange={setProductId}
+              />
+            </FormRow>
+            <FormRow label="Rate *">
+              <TextInput type="number" value={rate} onChange={(e) => setRate(e.target.value)} required />
             </FormRow>
           </div>
-          <FormRow label="Product *">
-            <select
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-            >
-              <option value="">— Choose —</option>
-              {productOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Rate *">
-            <TextInput type="number" value={rate} onChange={(e) => setRate(e.target.value)} required />
-          </FormRow>
-        </div>
+          <ModalFormActions
+            busy={createState.isLoading}
+            submitLabel="Save Price"
+            busyLabel="Saving…"
+            onCancel={() => setAddOpen(false)}
+          />
+        </ModalForm>
       </Modal>
 
       <Modal
-        title={historyRow ? `Price History — ${String(historyRow.customer_name || historyRow.customer_id || '')}` : 'Price History'}
+        title={
+          historyRow
+            ? `Price History — ${String(historyRow.customer_name || historyRow.customer_id || '')}`
+            : 'Price History'
+        }
         open={historyRow !== null}
         onClose={() => setHistoryRow(null)}
         footer={
@@ -330,7 +342,9 @@ export function CustomerPricesPage() {
       >
         {historyQuery.isLoading && <p>Loading…</p>}
         {historyQuery.error ? <ErrorText>Failed to load price history.</ErrorText> : null}
-        {!historyQuery.isLoading && (historyQuery.data || []).length === 0 && <p>No price history for this customer / product.</p>}
+        {!historyQuery.isLoading && (historyQuery.data || []).length === 0 && (
+          <p>No price history for this customer / product.</p>
+        )}
         {(historyQuery.data || []).length > 0 && (
           <DataTable
             columns={[

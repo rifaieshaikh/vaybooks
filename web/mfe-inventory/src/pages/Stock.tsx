@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   useCreateInventoryMovementMutation,
   useListInventoryLocationsQuery,
@@ -22,8 +22,11 @@ import {
   ErrorText,
   FormRow,
   Modal,
+  ModalForm,
+  ModalFormActions,
   PAGE_SIZE,
   PaginationBar,
+  SearchableSelect,
   TextInput,
   displayName,
   matchesRegex,
@@ -34,6 +37,7 @@ import {
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
+import { toLocationOptions, toProductOptions, withNoneOption } from '../pickerOptions';
 
 function stockStatusLabel(status: unknown): string {
   const s = String(status || '');
@@ -413,6 +417,8 @@ export function StockLedgerPage() {
 
 /** Streamlit parity: movement history + "Record Movement" action modal. */
 export function MovementsListPage() {
+  const [searchParams] = useSearchParams();
+  const focusId = (searchParams.get('id') || '').trim();
   const { data = [], isLoading, error, refetch } = useListInventoryMovementsQuery();
   const { data: products = [] } = useListInventoryProductsQuery({ active_only: true });
   const { data: locations = [] } = useListInventoryLocationsQuery({ active_only: true });
@@ -431,34 +437,35 @@ export function MovementsListPage() {
   const columns = useLedgerColumns();
 
   const productOptions = useMemo(
-    () => products.map((p) => ({ id: String(p.id), label: `${String(p.sku || '')} — ${String(p.name || p.id)}` })),
+    () => toProductOptions(products as Record<string, unknown>[]),
     [products],
   );
   const locationOptions = useMemo(
-    () => locations.map((l) => ({ id: String(l.id), name: String(l.name || l.id) })),
+    () => toLocationOptions(locations as Record<string, unknown>[]),
     [locations],
   );
 
   const filtered = useMemo(() => {
     let rows = data.filter((row) => {
+      if (focusId && String(row.id) !== focusId) return false;
       if (!matchesRegex(row.product_name, filters.product_name)) return false;
       if (!matchesMovementDirection(row, filters.movement_type)) return false;
       return true;
     });
     rows = sortRows(rows, sort);
     return rows;
-  }, [data, filters, sort]);
+  }, [data, filters, focusId, sort]);
 
   const pages = pageCount(filtered.length, LEDGER_PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), LEDGER_PAGE_SIZE);
 
   function openRecord() {
     setFormError('');
-    setProductId(productOptions[0]?.id || '');
+    setProductId(productOptions[0]?.value || '');
     setMovementType(MOVEMENT_TYPES[0]);
     setQty('1');
     setNotes('');
-    setLocationId(locationOptions[0]?.id || '');
+    setLocationId(locationOptions[0]?.value || '');
     setDialogOpen(true);
   }
 
@@ -497,7 +504,11 @@ export function MovementsListPage() {
       <EntityListHero
         kicker="Inventory"
         title="Movements"
-        count={`${filtered.length} ${filtered.length === 1 ? 'movement' : 'movements'}`}
+        count={
+          focusId
+            ? `Focused on ${focusId}`
+            : `${filtered.length} ${filtered.length === 1 ? 'movement' : 'movements'}`
+        }
         actions={
           <Button type="button" onClick={openRecord}>
             Record Movement
@@ -568,73 +579,55 @@ export function MovementsListPage() {
         </EntityListFoot>
       ) : null}
 
-      <Modal
-        title="Record Movement"
-        open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
-        footer={
-          <>
-            <Button type="button" onClick={() => void submitMovement()} disabled={recordState.isLoading}>
-              Record Movement
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-          </>
-        }
-      >
-        {formError ? <ErrorText>{formError}</ErrorText> : null}
-        <div style={{ display: 'grid', gap: 10 }}>
-          <FormRow label="Product *">
-            <select
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-            >
-              <option value="">— Choose a product —</option>
-              {productOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <FormRow label="Movement type">
-              <select
-                value={movementType}
-                onChange={(e) => setMovementType(e.target.value)}
-                style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-              >
-                {MOVEMENT_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+      <Modal title="Record Movement" open={dialogOpen} onClose={() => setDialogOpen(false)}>
+        <ModalForm onSubmit={() => void submitMovement()}>
+          {formError ? <ErrorText>{formError}</ErrorText> : null}
+          <div style={{ display: 'grid', gap: 10 }}>
+            <FormRow label="Product *">
+              <SearchableSelect
+                options={productOptions}
+                value={productId}
+                placeholder="Choose a product"
+                onChange={setProductId}
+              />
             </FormRow>
-            <FormRow label="Quantity *">
-              <TextInput type="number" value={qty} onChange={(e) => setQty(e.target.value)} required />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <FormRow label="Movement type">
+                <select
+                  value={movementType}
+                  onChange={(e) => setMovementType(e.target.value)}
+                  style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
+                >
+                  {MOVEMENT_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </FormRow>
+              <FormRow label="Quantity *">
+                <TextInput type="number" value={qty} onChange={(e) => setQty(e.target.value)} required />
+              </FormRow>
+            </div>
+            <FormRow label="Location">
+              <SearchableSelect
+                options={withNoneOption(locationOptions, '— Default location —')}
+                value={locationId}
+                placeholder="Select location"
+                onChange={setLocationId}
+              />
+            </FormRow>
+            <FormRow label="Notes">
+              <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
             </FormRow>
           </div>
-          <FormRow label="Location">
-            <select
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-            >
-              <option value="">— Default location —</option>
-              {locationOptions.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Notes">
-            <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </FormRow>
-        </div>
+          <ModalFormActions
+            busy={recordState.isLoading}
+            submitLabel="Record Movement"
+            busyLabel="Recording…"
+            onCancel={() => setDialogOpen(false)}
+          />
+        </ModalForm>
       </Modal>
     </EntityListPage>
   );

@@ -30,6 +30,7 @@ def test_seed_flags_from_mapping_defaults():
     assert flags["seed_categories"] is False
     assert flags["seed_products"] is False
     assert flags["seed_profile"] == "none"
+    assert flags["seed_finance"] is True
     assert flags["seed_customer_count"] == 100
     assert flags["seed_business_registration"] == "Unregistered"
     assert flags["seed_business_state"] == "27"
@@ -48,6 +49,7 @@ def test_seed_flags_from_mapping_overrides():
             "SEED_CATEGORIES": "true",
             "SEED_PRODUCTS": "true",
             "SEED_PROFILE": "pharma,hardware",
+            "SEED_FINANCE": "false",
             "SEED_CUSTOMER_COUNT": 50,
             "SEED_BUSINESS_REGISTRATION": "Composition",
             "SEED_BUSINESS_STATE": "29",
@@ -64,6 +66,7 @@ def test_seed_flags_from_mapping_overrides():
     assert flags["seed_categories"] is True
     assert flags["seed_products"] is True
     assert flags["seed_profile"] == "pharma,hardware"
+    assert flags["seed_finance"] is False
     assert flags["seed_customer_count"] == 50
     assert flags["seed_business_registration"] == "Composition"
     assert flags["seed_business_state"] == "29"

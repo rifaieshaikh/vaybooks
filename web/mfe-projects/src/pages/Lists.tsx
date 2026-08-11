@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
+  useConvertProjectRaToInvoiceMutation,
   useGetProjectsSettingsQuery,
   useListAllProjectMeasurementsQuery,
   useListAllProjectRaBillsQuery,
+  useListFinanceAccountsQuery,
   useProjectsReportsCatalogQuery,
   useRunProjectsReportMutation,
 } from '@vaybooks/store';
@@ -172,10 +174,15 @@ export function ProjectMeasurementsPage() {
 }
 
 export function ProjectRaBillsPage() {
+  const navigate = useNavigate();
   const { data = [], isLoading, error, refetch } = useListAllProjectRaBillsQuery();
+  const { data: accounts = [] } = useListFinanceAccountsQuery();
+  const [convertRa] = useConvertProjectRaToInvoiceMutation();
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState({ status: '' });
   const [page, setPage] = useState(1);
+  const [storeAccountId, setStoreAccountId] = useState('');
+  const [actionMsg, setActionMsg] = useState('');
 
   type RaBillRow = (typeof data)[number];
 
@@ -202,10 +209,17 @@ export function ProjectRaBillsPage() {
         render: (row) => {
           const project = asCaption(row.project_name);
           const description = String(row.description || '').trim();
+          const projectId = String(row.project_id || '');
           return (
             <div className="el-customer">
               <div className="el-customer-meta">
-                <span className="el-customer-name">{project}</span>
+                <span className="el-customer-name">
+                  {projectId ? (
+                    <Link to={`/projects/list/${projectId}`}>{project}</Link>
+                  ) : (
+                    project
+                  )}
+                </span>
                 <span className="el-customer-sub">{description || 'No description'}</span>
               </div>
             </div>
@@ -228,8 +242,42 @@ export function ProjectRaBillsPage() {
         header: 'Status',
         render: (row) => asCaption(row.status),
       },
+      {
+        id: 'actions',
+        header: 'Actions',
+        render: (row) => {
+          const status = String(row.status || '');
+          const canConvert = status === 'Certified' || status === 'Partially Certified';
+          if (!canConvert) return <span className="el-muted">—</span>;
+          return (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={!storeAccountId}
+              onClick={() => {
+                void (async () => {
+                  setActionMsg('');
+                  try {
+                    await convertRa({
+                      projectId: String(row.project_id),
+                      raId: String(row.id),
+                      body: { store_account_id: storeAccountId },
+                    }).unwrap();
+                    setActionMsg('Converted to invoice');
+                    refetch();
+                  } catch (e) {
+                    setActionMsg(extractError(e));
+                  }
+                })();
+              }}
+            >
+              Convert to invoice
+            </Button>
+          );
+        },
+      },
     ],
-    [],
+    [convertRa, refetch, storeAccountId],
   );
 
   return (
@@ -266,6 +314,24 @@ export function ProjectRaBillsPage() {
             options={[...RA_BILL_STATUS_CHIPS]}
           />
         }
+        summary={
+          <div style={{ display: 'grid', gap: 8 }}>
+            <FormRow label="Store account for convert">
+              <select
+                value={storeAccountId}
+                onChange={(e) => setStoreAccountId(e.target.value)}
+              >
+                <option value="">Select…</option>
+                {accounts.map((a) => (
+                  <option key={String(a.id)} value={String(a.id)}>
+                    {asCaption(a.account_name || a.name)}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+            {actionMsg ? <p style={{ margin: 0 }}>{actionMsg}</p> : null}
+          </div>
+        }
       />
 
       {isLoading ? <EntityListLoading>Loading RA bills…</EntityListLoading> : null}
@@ -281,6 +347,9 @@ export function ProjectRaBillsPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          onActivateRow={(row) => {
+            if (row.project_id) navigate(`/projects/list/${String(row.project_id)}`);
+          }}
           keyboardNav
         />
       ) : null}

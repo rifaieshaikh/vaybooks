@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useListFinanceVouchersQuery } from '@vaybooks/store';
 import {
   EntityListEmpty,
@@ -36,10 +37,19 @@ const VOUCHER_TYPE_CHIPS = [
 ] as const;
 
 export function VouchersListPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const focusId = (searchParams.get('id') || '').trim();
   const { data = [], isLoading, error } = useListFinanceVouchersQuery();
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    if (focusId) {
+      navigate(`/finance/vouchers/${encodeURIComponent(focusId)}`, { replace: true });
+    }
+  }, [focusId, navigate]);
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
@@ -184,6 +194,7 @@ export function VouchersListPage() {
           columns={columns}
           rows={pageRows}
           rowKey={(row) => String(row.id)}
+          onActivateRow={(row) => navigate(`/finance/vouchers/${String(row.id)}`)}
           keyboardNav
         />
       ) : null}

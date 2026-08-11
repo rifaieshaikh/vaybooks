@@ -31,6 +31,7 @@ _SEED_FLAG_KEYS = (
     "SEED_CATEGORIES",
     "SEED_PRODUCTS",
     "SEED_PROFILE",
+    "SEED_FINANCE",
     "SEED_CUSTOMER_COUNT",
     "SEED_VENDOR_COUNT",
     "SEED_CATEGORY_COUNT",
@@ -65,6 +66,7 @@ _SEED_FIELD_DEFAULTS: dict[str, Any] = {
     "SEED_CATEGORIES": False,
     "SEED_PRODUCTS": False,
     "SEED_PROFILE": "none",
+    "SEED_FINANCE": True,
     "SEED_CUSTOMER_COUNT": 100,
     "SEED_VENDOR_COUNT": 100,
     "SEED_CATEGORY_COUNT": 100,
@@ -142,6 +144,7 @@ def _seed_flags_from_mapping(raw: dict[str, Any]) -> dict[str, Any]:
         "seed_categories": _coerce_bool(raw.get("SEED_CATEGORIES"), False),
         "seed_products": _coerce_bool(raw.get("SEED_PRODUCTS"), False),
         "seed_profile": _coerce_str(raw.get("SEED_PROFILE"), "none"),
+        "seed_finance": _coerce_bool(raw.get("SEED_FINANCE"), True),
         "seed_customer_count": _coerce_int_clamped(raw.get("SEED_CUSTOMER_COUNT"), 100),
         "seed_vendor_count": _coerce_int_clamped(raw.get("SEED_VENDOR_COUNT"), 100),
         "seed_category_count": _coerce_int_clamped(raw.get("SEED_CATEGORY_COUNT"), 100),
@@ -365,6 +368,7 @@ class AppSettings:
     seed_categories: bool = False
     seed_products: bool = False
     seed_profile: str = "none"
+    seed_finance: bool = True
     seed_customer_count: int = 100
     seed_vendor_count: int = 100
     seed_category_count: int = 100
@@ -615,6 +619,7 @@ def save_settings(settings: AppSettings, encrypt_uri: bool = True) -> None:
         "SEED_CATEGORIES": settings.seed_categories,
         "SEED_PRODUCTS": settings.seed_products,
         "SEED_PROFILE": settings.seed_profile,
+        "SEED_FINANCE": settings.seed_finance,
         "SEED_CUSTOMER_COUNT": settings.seed_customer_count,
         "SEED_VENDOR_COUNT": settings.seed_vendor_count,
         "SEED_CATEGORY_COUNT": settings.seed_category_count,

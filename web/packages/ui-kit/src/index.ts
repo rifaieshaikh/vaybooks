@@ -13,6 +13,12 @@ export {
 export type { ButtonProps, DataTableColumn, DataTableProps } from './controls';
 
 export { Modal, ModalForm } from './Modal';
+export { ConfirmDialog } from './ConfirmDialog';
+export type { ConfirmDialogProps } from './ConfirmDialog';
+export { ModalFormActions } from './ModalFormActions';
+export type { ModalFormActionsProps } from './ModalFormActions';
+export { ChipsMultiPicker } from './ChipsMultiPicker';
+export type { ChipsMultiPickerProps } from './ChipsMultiPicker';
 export { Drawer, DrawerForm } from './Drawer';
 export type { DrawerSize } from './Drawer';
 export {

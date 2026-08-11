@@ -95,6 +95,8 @@ class Voucher:
             VoucherType.SALARY_PAYMENT,
             VoucherType.COMMISSION_PAYMENT,
             VoucherType.PURCHASE_BILL,
+            VoucherType.PURCHASE_EXPENSE,
+            VoucherType.PAYMENT,
         )
         if self.voucher_type == VoucherType.PURCHASE_BILL:
             for line in self.lines:

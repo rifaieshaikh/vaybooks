@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useMemo, useState } from 'react';
 import {
-  useCreateRecipeMutation,
-  useListInventoryProductsQuery,
+  useDeleteRecipeMutation,
   useListRecipesQuery,
+  useUpdateRecipeMutation,
 } from '@vaybooks/store';
 import {
   Button,
+  EntityListActions,
   EntityListEmpty,
   EntityListFilterSort,
   EntityListFoot,
@@ -14,13 +14,12 @@ import {
   EntityListLoading,
   EntityListPage,
   EntityListQuickFilters,
+  EntityListRefreshing,
   EntityListTable,
   ErrorText,
-  FormRow,
-  Modal,
   PAGE_SIZE,
   PaginationBar,
-  TextInput,
+  StatusPill,
   displayName,
   matchesRegex,
   pageCount,
@@ -30,6 +29,9 @@ import {
   type FilterFieldDef,
   type SortCriterion,
 } from '@vaybooks/ui-kit';
+import { ConfirmModal } from '../components/ConfirmModal';
+import { RecipeEditorModal } from '../components/RecipeEditorModal';
+import { recipeActiveTone } from '../status';
 import { asCaption, extractError } from '../utils';
 
 const DEFAULT_FILTERS = { name: '', code: '', active: '' };
@@ -49,22 +51,24 @@ const FILTER_FIELDS: FilterFieldDef[] = [
 ];
 
 export function ProductionRecipesPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { data = [], isLoading, error, refetch } = useListRecipesQuery();
-  const { data: products = [] } = useListInventoryProductsQuery();
-  const [createRecipe, createState] = useCreateRecipeMutation();
+  const { data = [], isLoading, error, refetch, isFetching } = useListRecipesQuery();
+  const [updateRecipe] = useUpdateRecipeMutation();
+  const [deleteRecipe, deleteState] = useDeleteRecipeMutation();
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [name, setName] = useState('');
-  const [code, setCode] = useState('');
-  const [inputId, setInputId] = useState('');
-  const [outputId, setOutputId] = useState('');
+  const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Record<string, unknown> | null>(null);
+  const [actionError, setActionError] = useState('');
 
   const filtered = useMemo(() => {
     const rows = data.filter((row) => {
+      if (search.trim()) {
+        const hay = `${row.name || ''} ${row.code || ''}`.toLowerCase();
+        if (!hay.includes(search.trim().toLowerCase())) return false;
+      }
       if (!matchesRegex(row.name, filters.name)) return false;
       if (!matchesRegex(row.code, filters.code)) return false;
       if (filters.active === 'yes' && row.is_active === false) return false;
@@ -72,11 +76,10 @@ export function ProductionRecipesPage() {
       return true;
     });
     return sortRows(rows, sort);
-  }, [data, filters, sort]);
+  }, [data, filters, sort, search]);
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
-
   type RecipeRow = (typeof data)[number];
 
   const columns: EntityListColumn<RecipeRow>[] = useMemo(
@@ -84,7 +87,7 @@ export function ProductionRecipesPage() {
       {
         id: 'name',
         header: 'Recipe',
-        render: (row) => displayName(row, ['name'], 'Unnamed'),
+        render: (row) => <span className="el-doc-link">{displayName(row, ['name'], 'Unnamed')}</span>,
       },
       {
         id: 'code',
@@ -102,75 +105,105 @@ export function ProductionRecipesPage() {
         render: (row) => Number(row.base_quantity ?? 1),
       },
       {
-        id: 'status',
+        id: 'lines',
+        header: 'BOM',
+        render: (row) => {
+          const inputs = Array.isArray(row.inputs) ? row.inputs.length : 0;
+          const outputs = Array.isArray(row.outputs) ? row.outputs.length : 0;
+          return `${inputs} in · ${outputs} out`;
+        },
+      },
+      {
+        id: 'active',
         header: 'Status',
         render: (row) => (
-          <span className={row.is_active === false ? 'el-muted' : 'el-advance'}>
-            {row.is_active === false ? 'Inactive' : 'Active'}
-          </span>
+          <StatusPill
+            status={row.is_active === false ? 'Inactive' : 'Active'}
+            tone={recipeActiveTone(row.is_active !== false)}
+          />
         ),
       },
     ],
     [],
   );
 
-  function openCreate() {
-    setFormError('');
+  async function toggleActive(row: RecipeRow) {
+    setActionError('');
+    try {
+      await updateRecipe({
+        id: String(row.id),
+        body: { is_active: row.is_active === false },
+      }).unwrap();
+      refetch();
+    } catch (e) {
+      setActionError(extractError(e));
+    }
+  }
+
+  async function onDelete() {
+    if (!deleteTarget?.id) return;
+    setActionError('');
+    try {
+      await deleteRecipe(String(deleteTarget.id)).unwrap();
+      setDeleteTarget(null);
+      refetch();
+    } catch (e) {
+      setActionError(extractError(e));
+    }
+  }
+
+  function openDuplicate(row: RecipeRow) {
+    setEditing({
+      ...row,
+      id: undefined,
+      name: `${asCaption(row.name)} (copy)`,
+      code: '',
+    });
     setOpen(true);
   }
 
-  useEffect(() => {
-    if (searchParams.get('new') !== '1') return;
-    openCreate();
-    const next = new URLSearchParams(searchParams);
-    next.delete('new');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
-
-  async function onCreate() {
-    setFormError('');
-    if (!name.trim() || !inputId || !outputId) {
-      setFormError('Name, input product, and output product are required');
-      return;
-    }
-    try {
-      await createRecipe({
-        name: name.trim(),
-        code: code.trim(),
-        base_quantity: 1,
-        inputs: [{ product_id: inputId, qty: 1 }],
-        outputs: [{ product_id: outputId, expected_qty: 1, role: 'Main' }],
-      }).unwrap();
-      setOpen(false);
-      setName('');
-      setCode('');
-      refetch();
-    } catch (e) {
-      setFormError(extractError(e));
-    }
-  }
-
   return (
-    <EntityListPage>
+    <EntityListPage className="el-page--production">
       <EntityListHero
         kicker="Production"
         title="Recipes"
-        count={`${filtered.length} ${filtered.length === 1 ? 'recipe' : 'recipes'}`}
+        count={`${filtered.length} recipe${filtered.length === 1 ? '' : 's'}`}
+        search={
+          <input
+            className="vb-control"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search recipes…"
+          />
+        }
         actions={
-          <Button type="button" onClick={openCreate}>
-            New recipe
-          </Button>
+          <>
+            <Button type="button" variant="ghost" onClick={() => refetch()}>
+              Refresh
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setEditing(null);
+                setOpen(true);
+              }}
+            >
+              New recipe
+            </Button>
+          </>
         }
         chips={
           <EntityListQuickFilters
-            ariaLabel="Status"
-            value={filters.active || 'all'}
-            onChange={(id) => {
-              setFilters((prev) => ({ ...prev, active: id === 'all' ? '' : id }));
+            value={filters.active}
+            onChange={(value) => {
+              setFilters((f) => ({ ...f, active: value }));
               setPage(1);
             }}
             options={[
-              { id: 'all', label: 'All' },
+              { id: '', label: 'All' },
               { id: 'yes', label: 'Active' },
               { id: 'no', label: 'Inactive' },
             ]}
@@ -181,7 +214,6 @@ export function ProductionRecipesPage() {
             filterFields={FILTER_FIELDS}
             filters={filters}
             defaultFilters={DEFAULT_FILTERS}
-            excludeKeys={['active']}
             onFiltersChange={(next) => {
               setFilters(next as typeof DEFAULT_FILTERS);
               setPage(1);
@@ -191,20 +223,31 @@ export function ProductionRecipesPage() {
             sortOptions={[
               { value: 'name', label: 'Name' },
               { value: 'code', label: 'Code' },
+              { value: 'base_quantity', label: 'Base qty' },
             ]}
-            onSortChange={(next) => {
-              setSort(next);
-              setPage(1);
-            }}
+            onSortChange={setSort}
           />
         }
       />
 
+      {isFetching && !isLoading ? <EntityListRefreshing /> : null}
       {isLoading ? <EntityListLoading>Loading recipes…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load recipes.</ErrorText> : null}
+      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
+
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>No recipes found.</strong>
+          <strong>No recipes yet.</strong>
+          <p>Recipes are your formula (BOM). Start with one finished good.</p>
+          <Button
+            type="button"
+            onClick={() => {
+              setEditing(null);
+              setOpen(true);
+            }}
+          >
+            Create recipe
+          </Button>
         </EntityListEmpty>
       ) : null}
 
@@ -214,7 +257,36 @@ export function ProductionRecipesPage() {
           rows={pageRows}
           rowKey={(row) => String(row.id)}
           keyboardNav
-          onNew={openCreate}
+          onActivateRow={(row) => {
+            setEditing(row);
+            setOpen(true);
+          }}
+          onNew={() => {
+            setEditing(null);
+            setOpen(true);
+          }}
+          actions={(row) => (
+            <div className="el-actions">
+              <EntityListActions
+                onOpen={() => {
+                  setEditing(row);
+                  setOpen(true);
+                }}
+                onEdit={() => {
+                  setEditing(row);
+                  setOpen(true);
+                }}
+                onDelete={() => setDeleteTarget(row)}
+                primary={{
+                  label: row.is_active === false ? 'Activate' : 'Deactivate',
+                  onClick: () => void toggleActive(row),
+                }}
+              />
+              <button type="button" className="el-action-btn" onClick={() => openDuplicate(row)}>
+                Duplicate
+              </button>
+            </div>
+          )}
         />
       ) : null}
 
@@ -226,59 +298,27 @@ export function ProductionRecipesPage() {
         </EntityListFoot>
       ) : null}
 
-      <Modal
+      <RecipeEditorModal
         open={open}
-        title="New recipe"
+        recipe={editing}
         onClose={() => setOpen(false)}
-        footer={
-          <>
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={() => void onCreate()} disabled={createState.isLoading}>
-              {createState.isLoading ? 'Saving…' : 'Create'}
-            </Button>
-          </>
-        }
+        onSaved={() => refetch()}
+      />
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        title="Delete recipe?"
+        danger
+        busy={deleteState.isLoading}
+        confirmLabel="Delete"
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => void onDelete()}
       >
-        <div style={{ display: 'grid', gap: 10 }}>
-          {formError ? <ErrorText>{formError}</ErrorText> : null}
-          <FormRow label="Name *">
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} />
-          </FormRow>
-          <FormRow label="Code">
-            <TextInput value={code} onChange={(e) => setCode(e.target.value)} />
-          </FormRow>
-          <FormRow label="Input product *">
-            <select
-              value={inputId}
-              onChange={(e) => setInputId(e.target.value)}
-              style={{ padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select…</option>
-              {products.map((p) => (
-                <option key={String(p.id)} value={String(p.id)}>
-                  {asCaption(p.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Output product *">
-            <select
-              value={outputId}
-              onChange={(e) => setOutputId(e.target.value)}
-              style={{ padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            >
-              <option value="">Select…</option>
-              {products.map((p) => (
-                <option key={String(p.id)} value={String(p.id)}>
-                  {asCaption(p.name)}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-        </div>
-      </Modal>
+        <p style={{ margin: 0 }}>
+          Delete <strong>{asCaption(deleteTarget?.name)}</strong>? Recipes used by batches cannot be
+          deleted.
+        </p>
+      </ConfirmModal>
     </EntityListPage>
   );
 }
