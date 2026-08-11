@@ -108,6 +108,29 @@ class MongoPurchaseOrderRepository:
         query = merge_mongo_filters(location_filter or {})
         return [self._from_doc(d) for d in self._collection.find(query)]
 
+    def query_page(
+        self,
+        query: dict | None = None,
+        *,
+        sort_by: str = "",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> dict:
+        from packages.services_kit.paging import query_mongo_page
+
+        q = merge_mongo_filters(query or {}, location_filter or {})
+        return query_mongo_page(
+            self._collection,
+            q,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+            map_doc=self._from_doc,
+        )
+
     def count_by_vendor(self, vendor_id: str) -> int:
         if not vendor_id:
             return 0
@@ -266,6 +289,29 @@ class MongoGoodsReceiptRepository:
         query = merge_mongo_filters(location_filter or {})
         return [self._from_doc(d) for d in self._collection.find(query)]
 
+    def query_page(
+        self,
+        query: dict | None = None,
+        *,
+        sort_by: str = "",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> dict:
+        from packages.services_kit.paging import query_mongo_page
+
+        q = merge_mongo_filters(query or {}, location_filter or {})
+        return query_mongo_page(
+            self._collection,
+            q,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+            map_doc=self._from_doc,
+        )
+
     def list_by_po(self, purchase_order_id: str) -> List[GoodsReceipt]:
         docs = self._collection.find({"purchase_order_id": purchase_order_id})
         return [self._from_doc(d) for d in docs]
@@ -356,6 +402,29 @@ class MongoPurchaseReturnRepository:
     def list_all(self, location_filter: dict | None = None) -> List[PurchaseReturn]:
         query = merge_mongo_filters(location_filter or {})
         return [self._from_doc(d) for d in self._collection.find(query)]
+
+    def query_page(
+        self,
+        query: dict | None = None,
+        *,
+        sort_by: str = "",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> dict:
+        from packages.services_kit.paging import query_mongo_page
+
+        q = merge_mongo_filters(query or {}, location_filter or {})
+        return query_mongo_page(
+            self._collection,
+            q,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+            map_doc=self._from_doc,
+        )
 
     def count_by_vendor(self, vendor_id: str) -> int:
         if not vendor_id:

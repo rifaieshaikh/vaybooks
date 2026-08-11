@@ -163,15 +163,35 @@ def ensure_indexes(db):
     _create_index(db.vouchers, "reference_production_batch_id")
     _create_index(db.vouchers, "location_id")
 
-    _create_index(db.product_categories, [("parent_id", 1), ("name", 1)], unique=True)
+    # Global case-insensitive unique category names (replaces legacy parent+name unique).
+    try:
+        for index in db.product_categories.list_indexes():
+            key = _normalize_index_key(index.get("key"))
+            if key == {"parent_id": 1, "name": 1}:
+                db.product_categories.drop_index(index["name"])
+                break
+    except Exception:
+        pass
+    for doc in db.product_categories.find({"$or": [{"name_lower": {"$exists": False}}, {"name_lower": None}, {"name_lower": ""}]}):
+        name = (doc.get("name") or "").strip()
+        if name:
+            db.product_categories.update_one({"_id": doc["_id"]}, {"$set": {"name_lower": name.lower()}})
+    _create_index(db.product_categories, "name_lower", unique=True)
+    _create_index(db.product_categories, "parent_id")
     _create_index(db.product_categories, "name")
     _create_index(db.product_units, "code", unique=True)
     _create_index(db.product_units, "label")
     _create_index(db.product_field_definitions, "key", unique=True)
     _create_index(db.inventory_products, "sku", unique=True)
+    _create_index(db.inventory_products, "catalog_product_id")
+    _create_index(db.inventory_products, "barcode")
     _create_index(db.inventory_products, "category_id")
     _create_index(db.inventory_products, "category_ids")
     _create_index(db.inventory_products, "unit_id")
+    _create_index(db.inventory_catalog_products, "name")
+    _create_index(db.inventory_catalog_products, "category_id")
+    _create_index(db.inventory_catalog_products, "category_ids")
+    _create_index(db.inventory_catalog_products, "unit_id")
     _create_index(db.stock_movements, "product_id")
     _create_index(db.stock_movements, "movement_date")
     _create_index(db.stock_movements, "movement_type")

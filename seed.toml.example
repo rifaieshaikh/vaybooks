@@ -6,6 +6,12 @@ SEED_CONFIG = true
 SEED_QA_FIXTURES = false
 PURGE_BUSINESS_DATA = false
 
+# Demo/test seeds are NOT bootstrapped. Orchestrate from the API backend:
+#   python scripts/seed/seed-data.py
+#   python scripts/seed/seed-data.py --list
+#   python scripts/seed/seed-data.py --run category_analytics --yes
+
+
 # Single control for profile demo seeding:
 #   "none" (or empty)  → disabled
 #   "boutique"         → one vertical (business + catalog + parties)
@@ -20,6 +26,11 @@ SEED_CUSTOMER_COUNT = 100
 SEED_VENDOR_COUNT = 100
 SEED_CATEGORY_COUNT = 100
 SEED_PRODUCT_COUNT = 100
+
+# When SEED_PROFILE is set, also post demo finance vouchers for Finance UI.
+# No-ops if profile is none or no party ledgers exist.
+# Partial [demo-finance] sets self-heal via void_voucher on next run; full purge via PURGE_BUSINESS_DATA.
+SEED_FINANCE = true
 
 # Optional flat business overrides (applied on top of the chosen [business.*] block)
 # SEED_BUSINESS_REGISTRATION = "Registered"

@@ -106,10 +106,19 @@ class MongoBusinessProfileRepository:
         )
 
     def get(self) -> Optional[BusinessProfile]:
-        doc = self._collection.find_one({"_id": BUSINESS_PROFILE_ID})
+        from packages.tenancy.context import DEFAULT_ORG_ID, get_org_id
+
+        oid = get_org_id() or DEFAULT_ORG_ID
+        doc = self._collection.find_one({"_id": oid})
+        if doc is None and oid == DEFAULT_ORG_ID:
+            doc = self._collection.find_one({"_id": BUSINESS_PROFILE_ID})
         return self._from_doc(doc) if doc else None
 
     def save(self, profile: BusinessProfile) -> BusinessProfile:
+        from packages.tenancy.context import DEFAULT_ORG_ID, get_org_id
+
+        oid = (profile.id or get_org_id() or DEFAULT_ORG_ID).strip() or DEFAULT_ORG_ID
+        profile.id = oid
         doc = self._to_doc(profile)
         self._collection.replace_one({"_id": profile.id}, doc, upsert=True)
         return profile

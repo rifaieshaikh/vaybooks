@@ -552,20 +552,21 @@ class AccountingAppService:
             ),
         )
 
-    def list_open_sales_invoices_for_customer(
+    def _list_open_invoices_for_customer(
         self,
         customer_account_id: str,
+        voucher_type: VoucherType,
         *,
         exclude_receipt_id: Optional[str] = None,
     ) -> list:
-        """Open sales invoices for a customer account, oldest first."""
+        """Open invoices of one voucher type for a customer account, oldest first."""
         discount = self.get_discount_account()
         discount_id = discount.id if discount else None
         settlement_map = self.invoice_settlement_map(
             exclude_receipt_id=exclude_receipt_id
         )
         rows = []
-        for voucher in self.list_vouchers_by_type(VoucherType.SALES_INVOICE):
+        for voucher in self.list_vouchers_by_type(voucher_type):
             if not self._voucher_touches_account(voucher, customer_account_id):
                 continue
             row = self.enrich_sales_invoice_row(
@@ -580,6 +581,32 @@ class AccountingAppService:
             key=lambda r: (r.get("sale_date") or date.min, r.get("id") or "")
         )
         return rows
+
+    def list_open_sales_invoices_for_customer(
+        self,
+        customer_account_id: str,
+        *,
+        exclude_receipt_id: Optional[str] = None,
+    ) -> list:
+        """Open trading sales invoices for a customer account, oldest first."""
+        return self._list_open_invoices_for_customer(
+            customer_account_id,
+            VoucherType.SALES_INVOICE,
+            exclude_receipt_id=exclude_receipt_id,
+        )
+
+    def list_open_customization_invoices_for_customer(
+        self,
+        customer_account_id: str,
+        *,
+        exclude_receipt_id: Optional[str] = None,
+    ) -> list:
+        """Open boutique customization invoices for a customer account, oldest first."""
+        return self._list_open_invoices_for_customer(
+            customer_account_id,
+            VoucherType.CUSTOMIZATION_INVOICE,
+            exclude_receipt_id=exclude_receipt_id,
+        )
 
     def _description_with_receipt_allocations(
         self,
@@ -2094,6 +2121,7 @@ class AccountingAppService:
         commission_pay_account_id: Optional[str] = None,
         location_id: str = "",
         location_name: str = "",
+        due_date: Optional[date] = None,
     ) -> Voucher:
         customer = self._account_repo.find_by_id(customer_account_id)
         store = self._account_repo.find_by_id(store_account_id)
@@ -2204,6 +2232,10 @@ class AccountingAppService:
             ),
         )
         voucher.financial_year = (financial_year or "").strip()
+        resolved_due = due_date
+        if resolved_due is None:
+            resolved_due = (voucher_date or date.today())
+        voucher.due_date = resolved_due
         return self._save_voucher(
             voucher,
             financial_year=financial_year,
@@ -2232,6 +2264,7 @@ class AccountingAppService:
         agent_account_id: Optional[str] = None,
         commission_paid: bool = False,
         commission_pay_account_id: Optional[str] = None,
+        due_date: Optional[date] = None,
     ) -> Voucher:
         old = self._voucher_repo.find_by_id(voucher_id)
         if not old or old.voucher_type != VoucherType.SALES_INVOICE:
@@ -2364,6 +2397,10 @@ class AccountingAppService:
         voucher.financial_year = (financial_year or "").strip() or (
             old.financial_year or ""
         )
+        if due_date is not None:
+            voucher.due_date = due_date
+        else:
+            voucher.due_date = getattr(old, "due_date", None)
         return self._update_voucher(voucher)
 
     def create_advance_refund(
@@ -2809,20 +2846,40 @@ class AccountingAppService:
         return self._voucher_repo.list_all(location_filter=location_filter)
 
     def list_vouchers_by_type(
-        self, voucher_type: VoucherType, *, location_filter: dict | None = None
+        self,
+        voucher_type: VoucherType,
+        *,
+        location_filter: dict | None = None,
+        extra_filter: dict | None = None,
     ) -> List[Voucher]:
-        return [
+        list_by_type = getattr(self._voucher_repo, "list_by_type", None)
+        if callable(list_by_type):
+            return list_by_type(
+                voucher_type,
+                location_filter=location_filter,
+                extra_filter=extra_filter,
+            )
+        vouchers = [
             v
             for v in self._voucher_repo.list_all(location_filter=location_filter)
             if v.voucher_type == voucher_type
         ]
+        return vouchers
 
     def list_vouchers_by_types(
         self,
         voucher_types: list[VoucherType],
         *,
         location_filter: dict | None = None,
+        extra_filter: dict | None = None,
     ) -> List[Voucher]:
+        list_by_types = getattr(self._voucher_repo, "list_by_types", None)
+        if callable(list_by_types):
+            return list_by_types(
+                voucher_types,
+                location_filter=location_filter,
+                extra_filter=extra_filter,
+            )
         allowed = set(voucher_types)
         return [
             v
@@ -2848,6 +2905,7 @@ class AccountingAppService:
         landed_cost_lines: Optional[list[dict]] = None,
         stock_reference_id: Optional[str] = None,
         financial_year: str = "",
+        due_date: Optional[date] = None,
     ) -> Voucher:
         from vaybooks.bms.domain.finance.accounting.purchase_parsing import (
             build_purchase_description,
@@ -2919,6 +2977,10 @@ class AccountingAppService:
             gst_input_accounts=gst_input_accounts,
         )
         voucher.financial_year = (financial_year or "").strip()
+        resolved_due = due_date
+        if resolved_due is None:
+            resolved_due = voucher_date or date.today()
+        voucher.due_date = resolved_due
         saved = self._save_voucher(
             voucher,
             financial_year=financial_year,
@@ -2927,6 +2989,78 @@ class AccountingAppService:
             require_location=True,
         )
         return saved
+
+    def create_purchase_expense(
+        self,
+        vendor_account_id: str,
+        expense_account_id: str,
+        amount: float,
+        description: str,
+        voucher_date: Optional[date] = None,
+        location_id: str = "",
+        location_name: str = "",
+    ) -> Voucher:
+        """Unpaid vendor-credit purchase expense for Accounting Invoices chip."""
+        vendor = self._account_repo.find_by_id(vendor_account_id)
+        expense = self._account_repo.find_by_id(expense_account_id)
+        if not vendor:
+            raise ValueError("Vendor account not found")
+        if not expense:
+            raise ValueError("Expense account not found")
+        voucher_number = self._counter_repo.next("voucher_number")
+        v_date = datetime.combine(voucher_date or date.today(), datetime.min.time())
+        voucher = self._domain.build_purchase_expense_voucher(
+            voucher_number=voucher_number,
+            voucher_date=v_date,
+            description=description,
+            vendor_account_id=vendor.id,
+            vendor_account_name=vendor.account_name,
+            expense_account_id=expense.id,
+            expense_account_name=expense.account_name,
+            amount=amount,
+        )
+        return self._save_voucher(
+            voucher,
+            location_id=location_id,
+            location_name=location_name,
+            require_location=True,
+        )
+
+    def create_payment(
+        self,
+        expense_account_id: str,
+        paying_account_id: str,
+        amount: float,
+        description: str,
+        voucher_date: Optional[date] = None,
+        location_id: str = "",
+        location_name: str = "",
+    ) -> Voucher:
+        """Generic expense payment (Payments list Payment chip)."""
+        expense = self._account_repo.find_by_id(expense_account_id)
+        paying = self._account_repo.find_by_id(paying_account_id)
+        if not expense:
+            raise ValueError("Expense account not found")
+        if not paying:
+            raise ValueError("Paying account not found")
+        voucher_number = self._counter_repo.next("voucher_number")
+        v_date = datetime.combine(voucher_date or date.today(), datetime.min.time())
+        voucher = self._domain.build_payment_voucher(
+            voucher_number=voucher_number,
+            voucher_date=v_date,
+            description=description or "Payment",
+            expense_account_id=expense.id,
+            expense_account_name=expense.account_name,
+            paying_account_id=paying.id,
+            paying_account_name=paying.account_name,
+            amount=amount,
+        )
+        return self._save_voucher(
+            voucher,
+            location_id=location_id,
+            location_name=location_name,
+            require_location=True,
+        )
 
     def update_purchase_bill(
         self,
@@ -2939,6 +3073,7 @@ class AccountingAppService:
         voucher_date: Optional[date] = None,
         reference_service_id: Optional[str] = None,
         financial_year: str = "",
+        due_date: Optional[date] = None,
     ) -> Voucher:
         from vaybooks.bms.domain.finance.accounting.purchase_parsing import (
             build_purchase_description,
@@ -3017,6 +3152,10 @@ class AccountingAppService:
         voucher.financial_year = (financial_year or "").strip() or (
             old.financial_year or ""
         )
+        if due_date is not None:
+            voucher.due_date = due_date
+        else:
+            voucher.due_date = getattr(old, "due_date", None)
         return self._update_voucher(voucher)
 
     def delete_purchase_bill(self, voucher_id: str) -> None:

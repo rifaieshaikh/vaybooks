@@ -1,0 +1,13 @@
+from typing import List, Optional, Protocol
+
+from vaybooks.bms.domain.business.tasks.entities import BusinessTask
+
+
+class BusinessTaskRepository(Protocol):
+    def save(self, task: BusinessTask) -> BusinessTask: ...
+
+    def find_by_id(self, task_id: str) -> Optional[BusinessTask]: ...
+
+    def list_all(self) -> List[BusinessTask]: ...
+
+    def delete(self, task_id: str) -> None: ...

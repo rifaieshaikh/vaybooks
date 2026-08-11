@@ -168,6 +168,29 @@ class MongoSalesOrderRepository:
         query = merge_mongo_filters(location_filter or {})
         return [self._from_doc(d) for d in self._collection.find(query)]
 
+    def query_page(
+        self,
+        query: dict | None = None,
+        *,
+        sort_by: str = "",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> dict:
+        from packages.services_kit.paging import query_mongo_page
+
+        q = merge_mongo_filters(query or {}, location_filter or {})
+        return query_mongo_page(
+            self._collection,
+            q,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+            map_doc=self._from_doc,
+        )
+
     def count_by_customer(self, customer_id: str) -> int:
         if not customer_id:
             return 0
@@ -442,6 +465,29 @@ class MongoDeliveryNoteRepository:
         query = merge_mongo_filters(location_filter or {})
         return [self._from_doc(d) for d in self._collection.find(query)]
 
+    def query_page(
+        self,
+        query: dict | None = None,
+        *,
+        sort_by: str = "",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> dict:
+        from packages.services_kit.paging import query_mongo_page
+
+        q = merge_mongo_filters(query or {}, location_filter or {})
+        return query_mongo_page(
+            self._collection,
+            q,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+            map_doc=self._from_doc,
+        )
+
     def count_by_customer(self, customer_id: str) -> int:
         if not customer_id:
             return 0
@@ -567,6 +613,29 @@ class MongoSalesReturnRepository:
     def list_all(self, location_filter: dict | None = None) -> List[SalesReturn]:
         query = merge_mongo_filters(location_filter or {})
         return [self._from_doc(d) for d in self._collection.find(query)]
+
+    def query_page(
+        self,
+        query: dict | None = None,
+        *,
+        sort_by: str = "",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> dict:
+        from packages.services_kit.paging import query_mongo_page
+
+        q = merge_mongo_filters(query or {}, location_filter or {})
+        return query_mongo_page(
+            self._collection,
+            q,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+            map_doc=self._from_doc,
+        )
 
     def count_by_customer(self, customer_id: str) -> int:
         if not customer_id:
@@ -700,6 +769,29 @@ class _MongoPricedDocumentRepository:
     def list_all(self, location_filter: dict | None = None):
         query = merge_mongo_filters(location_filter or {})
         return [self._from_doc(doc) for doc in self._collection.find(query)]
+
+    def query_page(
+        self,
+        query: dict | None = None,
+        *,
+        sort_by: str = "",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> dict:
+        from packages.services_kit.paging import query_mongo_page
+
+        q = merge_mongo_filters(query or {}, location_filter or {})
+        return query_mongo_page(
+            self._collection,
+            q,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+            map_doc=self._from_doc,
+        )
 
     def count_by_customer(self, customer_id: str) -> int:
         if not customer_id:

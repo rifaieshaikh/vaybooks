@@ -12,6 +12,8 @@ MODULE_CORE = "core"
 MODULE_PARTIES = "parties"
 MODULE_CRM = "crm"
 MODULE_BOUTIQUE = "boutique"
+MODULE_STORE = "store"
+MODULE_BUSINESS_OPS = "business_ops"
 MODULE_PROJECTS = "projects"
 MODULE_SALES = "sales"
 MODULE_PURCHASES = "purchases"
@@ -28,6 +30,8 @@ ALL_MODULES: Tuple[str, ...] = (
     MODULE_PARTIES,
     MODULE_CRM,
     MODULE_BOUTIQUE,
+    MODULE_STORE,
+    MODULE_BUSINESS_OPS,
     MODULE_PROJECTS,
     MODULE_SALES,
     MODULE_PURCHASES,
@@ -47,6 +51,8 @@ MODULE_LABELS: Dict[str, str] = {
     MODULE_PARTIES: "Parties",
     MODULE_CRM: "CRM",
     MODULE_BOUTIQUE: "Boutique",
+    MODULE_STORE: "Store",
+    MODULE_BUSINESS_OPS: "Business",
     MODULE_PROJECTS: "Projects",
     MODULE_SALES: "Sales",
     MODULE_PURCHASES: "Purchases",
@@ -84,7 +90,18 @@ PERMISSIONS: Tuple[str, ...] = tuple(
         "core.dashboard.view",
         "core.mtd.view",
         # Parties
-        *_expand("parties.customers", ("view", "create", "edit")),
+        *_expand(
+            "parties.customers",
+            (
+                "view",
+                "create",
+                "edit",
+                "blacklist",
+                "finance.view",
+                "finance.settle",
+                "insights.view",
+            ),
+        ),
         *_expand("parties.vendors", ("view", "create", "edit")),
         *_expand("parties.delivery_partners", ("view", "create", "edit")),
         *_expand("parties.commission_agents", ("view", "create", "edit")),
@@ -126,9 +143,15 @@ PERMISSIONS: Tuple[str, ...] = tuple(
         *_expand("boutique.orders", ("view", "create", "edit")),
         *_expand("boutique.measurements", ("view", "edit")),
         *_expand("boutique.items", ("view", "edit")),
+        "boutique.items.category.edit",
         *_expand("boutique.tasks", ("view", "edit")),
         "boutique.calendar.view",
         "boutique.reports.view",
+        # Business ops
+        "business_ops.overview.view",
+        *_expand("business_ops.activities", ("view", "create", "edit")),
+        *_expand("business_ops.tasks", ("view", "create", "edit", "assign", "complete")),
+        *_expand("business_ops.time", ("view", "create", "edit")),
         # Projects
         "projects.overview.view",
         *_expand("projects.enquiries", ("view", "create", "edit")),
@@ -174,9 +197,25 @@ PERMISSIONS: Tuple[str, ...] = tuple(
         "purchases.reports.view",
         # Inventory
         "inventory.overview.view",
-        *_expand("inventory.categories", ("view", "edit")),
+        *_expand(
+            "inventory.categories",
+            (
+                "view",
+                "create",
+                "edit",
+                "deactivate",
+                "open",
+            ),
+        ),
+        "inventory.categories.overview.view",
+        "inventory.categories.items.view",
+        "inventory.categories.items.add",
+        "inventory.categories.sales.view",
+        "inventory.categories.production.view",
+        "inventory.categories.customization.view",
         *_expand("inventory.warehouses", ("view", "edit")),
         *_expand("inventory.products", ("view", "create", "edit")),
+        *_expand("inventory.skus", ("view", "create", "edit")),
         "inventory.stock.view",
         "inventory.stock_ledger.view",
         *_expand("inventory.movements", ("view", "create")),
@@ -218,6 +257,8 @@ PERMISSIONS: Tuple[str, ...] = tuple(
         *_expand("settings.customization_activities", ("view", "edit")),
         *_expand("settings.project_activities", ("view", "edit")),
         *_expand("settings.store_activities", ("view", "edit")),
+        *_expand("settings.business_activities", ("view", "edit")),
+        *_expand("settings.production_activities", ("view", "edit")),
         *_expand("settings.measurement_specs", ("view", "edit")),
         *_expand("settings.services", ("view", "edit")),
         *_expand("settings.discounts", ("view", "edit")),
@@ -271,6 +312,37 @@ def resolve_permission_patterns(patterns: Iterable[str]) -> FrozenSet[str]:
     return frozenset(resolved)
 
 
+# Pre-granular inventory.categories keys were only view/edit. Expand stored roles that
+# still lack ``open`` so custom roles keep access after the catalog split.
+_CATEGORY_VIEW_EXPANSION: Tuple[str, ...] = (
+    "inventory.categories.view",
+    "inventory.categories.open",
+    "inventory.categories.overview.view",
+    "inventory.categories.items.view",
+)
+_CATEGORY_EDIT_EXPANSION: Tuple[str, ...] = (
+    *_CATEGORY_VIEW_EXPANSION,
+    "inventory.categories.create",
+    "inventory.categories.edit",
+    "inventory.categories.deactivate",
+    "inventory.categories.items.add",
+    "inventory.categories.sales.view",
+    "inventory.categories.production.view",
+    "inventory.categories.customization.view",
+)
+
+
+def expand_legacy_category_permissions(keys: Iterable[str]) -> Set[str]:
+    out: Set[str] = set(keys or [])
+    if "inventory.categories.open" in out:
+        return out
+    if "inventory.categories.edit" in out:
+        out.update(_CATEGORY_EDIT_EXPANSION)
+    elif "inventory.categories.view" in out:
+        out.update(_CATEGORY_VIEW_EXPANSION)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Page → permission
 # ---------------------------------------------------------------------------
@@ -313,6 +385,10 @@ PAGE_PERMISSIONS: Dict[str, str] = {
     "calendar": "boutique.calendar.view",
     "boutique-reports": "boutique.reports.view",
     "boutique-scheduled-reports": "schedulers.view",
+    "business-overview": "business_ops.overview.view",
+    "business-tasks": "business_ops.tasks.view",
+    "business-time": "business_ops.time.view",
+    "business-activities": "business_ops.activities.view",
     "projects-dashboard": "projects.overview.view",
     "project-enquiries": "projects.enquiries.view",
     "project-enquiry-workspace": "projects.enquiries.view",
@@ -355,9 +431,12 @@ PAGE_PERMISSIONS: Dict[str, str] = {
     "purchases-scheduled-reports": "schedulers.view",
     "inventory-overview": "inventory.overview.view",
     "inventory-categories": "inventory.categories.view",
+    "inventory-category-detail": "inventory.categories.open",
     "inventory-warehouses": "inventory.warehouses.view",
     "inventory-products": "inventory.products.view",
     "inventory-product-detail": "inventory.products.view",
+    "inventory-skus": "inventory.skus.view",
+    "inventory-sku-detail": "inventory.skus.view",
     "inventory-stock": "inventory.stock.view",
     "inventory-stock-ledger": "inventory.stock_ledger.view",
     "inventory-movements": "inventory.movements.view",
@@ -408,6 +487,8 @@ PAGE_PERMISSIONS: Dict[str, str] = {
     "customization-activities": "settings.customization_activities.view",
     "project-activities": "settings.project_activities.view",
     "store-activities": "settings.store_activities.view",
+    "business-activities-settings": "settings.business_activities.view",
+    "production-activities": "settings.production_activities.view",
     "measurement-specs": "settings.measurement_specs.view",
     "services": "settings.services.view",
     "users-settings": "settings.users.view",
@@ -562,6 +643,7 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
         "permission_keys": _role_perms(
             "core.*",
             "parties.customers.view",
+            "parties.customers.insights.view",
             "projects.enquiries.*",
             "projects.projects.view",
             "projects.projects.create",
@@ -582,6 +664,7 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
         "permission_keys": _role_perms(
             "core.*",
             "parties.customers.view",
+            "parties.customers.insights.view",
             "projects.enquiries.view",
             "projects.projects.view",
             "projects.ra_bills.view",
@@ -601,6 +684,7 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
         "permission_keys": _role_perms(
             "core.*",
             "parties.customers.view",
+            "parties.customers.insights.view",
             "parties.vendors.view",
             "parties.delivery_partners.view",
             "parties.employees.view",
@@ -624,6 +708,9 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
             "purchases.reports.view",
             "inventory.overview.view",
             "inventory.categories.view",
+            "inventory.categories.open",
+            "inventory.categories.overview.view",
+            "inventory.categories.items.view",
             "inventory.warehouses.view",
             "inventory.products.view",
             "inventory.stock.view",
@@ -775,6 +862,8 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
             "parties.customers.*",
             "parties.employees.view",
             "boutique.*",
+            "boutique.items.category.edit",
+            "inventory.categories.view",
         ),
     },
     ROLE_WAREHOUSE_MANAGER: {
@@ -853,6 +942,8 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
             "parties.customers.view",
             "parties.customers.create",
             "parties.customers.edit",
+            "parties.customers.insights.view",
+            "parties.customers.finance.view",
             "crm.dashboard.view",
             "crm.leads.view",
             "crm.leads.create",
@@ -921,6 +1012,8 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
         "permission_keys": _role_perms(
             "core.dashboard.view",
             "parties.customers.view",
+            "parties.customers.finance.view",
+            "parties.customers.finance.settle",
             "crm.dashboard.view",
             "crm.records.view_all",
             "crm.activities.*",

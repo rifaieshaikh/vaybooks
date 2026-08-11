@@ -36,6 +36,8 @@ class TimeTrackingAppService:
         worker_name: str = "",
         notes: str = "",
         ends_next_day: bool = False,
+        assignee_worker_id: str = "",
+        assignee_name: str = "",
     ) -> TimeEntry:
         missing = []
         if not (start_time or "").strip():
@@ -56,7 +58,33 @@ class TimeTrackingAppService:
                 activity_name = oa.activity_name
                 break
 
-        return self._domain.create_time_entry(
+        duration = calculate_duration_minutes(
+            start_time, end_time, ends_next_day=ends_next_day
+        )
+        resolved_name = (assignee_name or worker_name or "").strip()
+        resolved_worker_id = (assignee_worker_id or "").strip()
+        placeholder = self._domain.find_activity_placeholder(
+            order.id, bill_id, activity_id
+        )
+        if placeholder:
+            placeholder.work_date = work_date
+            placeholder.start_time = start_time
+            placeholder.end_time = end_time
+            placeholder.duration_minutes = duration
+            placeholder.worker_name = resolved_name or placeholder.worker_name
+            if resolved_worker_id:
+                placeholder.assignee_worker_id = resolved_worker_id
+            if resolved_name:
+                placeholder.assignee_name = resolved_name
+            placeholder.notes = notes or placeholder.notes
+            placeholder.status = "Completed"
+            placeholder.bill_number = bill.bill_number
+            placeholder.order_number = order.order_number
+            placeholder.activity_name = activity_name or placeholder.activity_name
+            placeholder.updated_at = utc_now()
+            return self._time_repo.save(placeholder)
+
+        entry = self._domain.create_time_entry(
             order_id=order.id,
             order_number=order.order_number,
             bill_id=bill_id,
@@ -66,11 +94,33 @@ class TimeTrackingAppService:
             work_date=work_date,
             start_time=start_time,
             end_time=end_time,
-            worker_name=worker_name,
+            worker_name=resolved_name,
             notes=notes,
             ends_next_day=ends_next_day,
             task_type=TaskType.ACTIVITY,
         )
+        if resolved_worker_id or resolved_name:
+            entry.assignee_worker_id = resolved_worker_id
+            entry.assignee_name = resolved_name or entry.assignee_name
+            entry.updated_at = utc_now()
+            return self._time_repo.save(entry)
+        return entry
+
+    def assign_time_entry(
+        self,
+        entry_id: str,
+        assignee_worker_id: str = "",
+        assignee_name: str = "",
+    ) -> TimeEntry:
+        entry = self._time_repo.find_by_id(entry_id)
+        if not entry:
+            raise ValidationError("Time entry not found")
+        entry.assignee_worker_id = (assignee_worker_id or "").strip()
+        entry.assignee_name = (assignee_name or "").strip()
+        if entry.assignee_name and not entry.worker_name:
+            entry.worker_name = entry.assignee_name
+        entry.updated_at = utc_now()
+        return self._time_repo.save(entry)
 
     def upsert_etd_task(
         self, order: CustomizationOrder, item: CustomizationItem
@@ -176,6 +226,8 @@ class TimeTrackingAppService:
             entry.activity_id = activity_id
             if activity_name is not None:
                 entry.activity_name = activity_name
+        if start_time and end_time:
+            entry.status = "Completed"
         entry.updated_at = utc_now()
         return self._time_repo.save(entry)
 

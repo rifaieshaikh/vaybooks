@@ -106,7 +106,12 @@ class ProductionDomainService:
                     product_id=line.product_id,
                     product_name=line.product_name,
                     unit=line.unit,
-                    qty=round(float(line.qty) * scale, 4),
+                    qty=round(
+                        float(line.qty)
+                        * scale
+                        * (1.0 + max(0.0, float(line.scrap_pct or 0)) / 100.0),
+                        4,
+                    ),
                     location_id=location_id,
                 )
                 for line in recipe.inputs

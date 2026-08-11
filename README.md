@@ -1,16 +1,38 @@
-# Zahcci Customization Order Management App
+# VayBooks
 
-Internal Streamlit app for Zahcci boutique staff to manage customization orders, measurements, activities, time tracking, expenses, invoicing, and accounting.
+Greenfield migration in progress: **Vite/React MFEs + Redux** and **FastAPI microservices** (combined process for desktop), with Streamlit retained as a reference UX until cutover.
 
-**MongoDB Atlas is the source of truth.** Local files are not used as primary storage. CSV/JSON are only for import, export, and backup.
+**MongoDB Atlas is the source of truth** for business data (per-service DB names on one mongod). CSV/JSON are only for import, export, and backup.
 
-## Architecture
+## Quick start (new stack)
 
-Domain Driven Design with strict layering:
+```powershell
+# API + React shell (from vaybooks/)
+pip install -r requirements-api.txt
+.\restart_vaybooks.ps1 -Mode Dev
+# API only: .\restart_vaybooks.ps1 -Mode Dev -ApiOnly
+```
+
+- UI: http://localhost:5173  
+- API docs: http://localhost:8000/docs  
+- Legacy Streamlit: `.\restart_vaybooks.ps1 -Mode Streamlit`
+
+See [`docs/architecture-phase0.md`](docs/architecture-phase0.md), [`installer/MIGRATION.md`](installer/MIGRATION.md), [`web/README.md`](web/README.md).
+
+## Architecture (target)
 
 ```
-Streamlit UI → Application Services → Domain Services → Repository Interfaces → MongoDB (PyMongo)
+React MFEs + Redux → API Gateway → Auth / module services → per-service Mongo
+                              ↘ outbox / in-process bus (desktop) or Kafka (web)
 ```
+
+Streamlit reference (until cutover):
+
+```
+Streamlit UI → Application Services → Domain → MongoDB (PyMongo)
+```
+
+Domain/application are re-exported from [`packages/reexports`](packages/reexports) (Step A).
 
 ## Setup
 

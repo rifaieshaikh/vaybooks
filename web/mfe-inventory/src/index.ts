@@ -1,0 +1,17 @@
+export {
+  InventoryOverviewPage,
+  CategoriesListPage,
+  CategoryDetailPage,
+  ProductsListPage,
+  ProductDetailPage,
+  SkusListPage,
+  SkuDetailPage,
+  StockListPage,
+  StockLedgerPage,
+  MovementsListPage,
+  TransfersListPage,
+  TransferDetailPage,
+  CustomerPricesPage,
+  InventoryReportsPage,
+  InventoryScheduledReportsPage,
+} from './pages';

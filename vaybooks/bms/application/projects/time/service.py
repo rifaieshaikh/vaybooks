@@ -78,6 +78,11 @@ class ProjectTimeAppService:
     def list_by_activity(self, activity_id: str) -> List[ProjectTimeEntry]:
         return self._time_repo.list_by_activity(activity_id)
 
+    def list_by_worker(self, worker_id: str) -> List[ProjectTimeEntry]:
+        if hasattr(self._time_repo, "list_by_worker"):
+            return self._time_repo.list_by_worker(worker_id)
+        return []
+
     def get_entry(self, entry_id: str) -> Optional[ProjectTimeEntry]:
         return self._time_repo.find_by_id(entry_id)
 

@@ -11,72 +11,132 @@ from vaybooks.bms.ui.keyboard.registry import (
 
 # --- Parents -----------------------------------------------------------------
 
+# Labels match React sidebar/settings nav. Empty default_chord = unbound until assigned.
+# workers_list is the Employees page (nav key kept for Streamlit / stored bindings).
 _PARENTS = [
+    # Home
     ParentShortcut("dashboard", "Dashboard", "Home", "ctrl+h"),
-    ParentShortcut("mtd_dashboard", "Period Dashboard", "Home", "ctrl+shift+h"),
+    ParentShortcut("mtd_dashboard", "MTD", "Home", "ctrl+shift+h"),
+    # Parties
     ParentShortcut("customers_list", "Customers", "Parties", "ctrl+x", locked=True),
     ParentShortcut("vendors_list", "Vendors", "Parties", "ctrl+shift+v"),
+    ParentShortcut("delivery_partners_list", "Delivery Partners", "Parties", "alt+0"),
+    ParentShortcut("commission_agents_list", "Commission Agents", "Parties", "alt+shift+0"),
     ParentShortcut("workers_list", "Employees", "Parties", "ctrl+e"),
     ParentShortcut("segments_list", "Segments", "Parties", "ctrl+shift+g"),
-    ParentShortcut("boutique_overview", "Boutique Overview", "Customization", "alt+shift+b"),
-    ParentShortcut("orders_list", "Customization Orders", "Customization", "ctrl+o"),
-    ParentShortcut("items_list", "Customization Items", "Customization", "ctrl+i"),
-    ParentShortcut("measurements_list", "Measurements", "Customization", "ctrl+alt+5"),
-    ParentShortcut("time_list", "Tasks", "Customization", "ctrl+t"),
-    ParentShortcut("calendar_list", "Calendar", "Customization", "ctrl+shift+c"),
-    ParentShortcut("boutique_reports", "Boutique Reports", "Customization", "alt+shift+t"),
-    ParentShortcut("sales_overview", "Sales Overview", "Sales", "alt+shift+o"),
-    ParentShortcut("sales_orders_list", "Sales Orders", "Sales", "ctrl+shift+o"),
+    # CRM
+    ParentShortcut("crm_dashboard", "Overview", "CRM", "ctrl+alt+6"),
+    ParentShortcut("crm_leads_list", "Leads", "CRM", "ctrl+alt+7"),
+    ParentShortcut("crm_enquiries_list", "Enquiries", "CRM", "ctrl+alt+8"),
+    ParentShortcut("crm_activities_list", "Activities", "CRM", "ctrl+alt+9"),
+    ParentShortcut("crm_calendar", "Calendar", "CRM", "alt+a"),
+    ParentShortcut("crm_reports", "Reports", "CRM", "ctrl+alt+a"),
+    ParentShortcut("crm_scheduled_reports", "Scheduled reports", "CRM", "alt+shift+a"),
+    # Boutique
+    ParentShortcut("boutique_overview", "Overview", "Boutique", "alt+shift+b"),
+    ParentShortcut("orders_list", "Customization Orders", "Boutique", "ctrl+o"),
+    ParentShortcut("items_list", "Customization Items", "Boutique", "ctrl+i"),
+    ParentShortcut("measurements_list", "Measurements", "Boutique", "ctrl+alt+5"),
+    ParentShortcut("time_list", "Tasks", "Boutique", "ctrl+t"),
+    ParentShortcut("time_log", "Time log", "Boutique", "alt+b"),
+    ParentShortcut("calendar_list", "Calendar", "Boutique", "ctrl+shift+c"),
+    ParentShortcut("boutique_reports", "Reports", "Boutique", "alt+shift+t"),
+    ParentShortcut("boutique_scheduled_reports", "Scheduled reports", "Boutique", "alt+c"),
+    # Business ops
+    ParentShortcut("business_ops_overview", "Overview", "Business Ops", "ctrl+alt+c"),
+    ParentShortcut("business_ops_tasks", "Tasks", "Business Ops", "alt+shift+c"),
+    ParentShortcut("store_time_list", "Time log", "Business Ops", "alt+d"),
+    # Projects
+    ParentShortcut("projects_dashboard", "Overview", "Projects", "alt+shift+d"),
+    ParentShortcut("project_enquiries_list", "Enquiries", "Projects", "alt+e"),
+    ParentShortcut("projects_list", "Projects", "Projects", "alt+f"),
+    ParentShortcut("project_measurements_list", "Measurements", "Projects", "alt+g"),
+    ParentShortcut("project_ra_bills_list", "RA Bills", "Projects", "ctrl+alt+g"),
+    ParentShortcut("projects_reports", "Reports", "Projects", "alt+shift+g"),
+    ParentShortcut("projects_scheduled_reports", "Scheduled reports", "Projects", "alt+h"),
+    ParentShortcut("projects_settings", "Settings", "Projects", "ctrl+alt+h"),
+    # Sales
+    ParentShortcut("sales_overview", "Overview", "Sales", "alt+shift+o"),
+    ParentShortcut("estimates_list", "Estimates", "Sales", "alt+shift+s"),
+    ParentShortcut("quotations_list", "Quotations", "Sales", "alt+shift+q"),
+    ParentShortcut("sales_orders_list", "Orders", "Sales", "ctrl+shift+o"),
     ParentShortcut("delivery_notes_list", "Delivery Notes", "Sales", "ctrl+shift+d"),
-    ParentShortcut("sales_invoices_list", "Sales Invoices", "Sales", "ctrl+shift+i"),
-    ParentShortcut("sales_returns_list", "Sales Returns", "Sales", "ctrl+shift+r"),
-    ParentShortcut("sales_reports", "Sales Reports", "Sales", "alt+shift+e"),
-    ParentShortcut("purchases_overview", "Purchases Overview", "Purchases", "alt+shift+p"),
+    ParentShortcut("sales_invoices_list", "Invoices", "Sales", "ctrl+shift+i"),
+    ParentShortcut("sales_returns_list", "Returns", "Sales", "ctrl+shift+r"),
+    ParentShortcut("sales_reports", "Reports", "Sales", "alt+shift+e"),
+    ParentShortcut("sales_scheduled_reports", "Scheduled reports", "Sales", "alt+shift+h"),
+    # Purchases
+    ParentShortcut("purchases_overview", "Overview", "Purchases", "alt+shift+p"),
     ParentShortcut("purchase_orders_list", "Purchase Orders", "Purchases", "alt+p"),
     ParentShortcut("goods_receipt_list", "Goods Receipt", "Purchases", "ctrl+g"),
-    ParentShortcut("purchases_list", "Purchase Bills", "Purchases", "ctrl+b"),
-    ParentShortcut("purchase_returns_list", "Purchase Returns", "Purchases", "ctrl+shift+u"),
-    ParentShortcut("purchases_reports", "Purchases Reports", "Purchases", "alt+shift+r"),
-    ParentShortcut("inventory_overview", "Inventory Overview", "Inventory", "alt+shift+i"),
-    ParentShortcut("inventory_categories_list", "Categories", "Inventory", "ctrl+shift+c"),
+    ParentShortcut("purchases_list", "Bills", "Purchases", "ctrl+b"),
+    ParentShortcut("purchase_returns_list", "Returns", "Purchases", "ctrl+shift+u"),
+    ParentShortcut("purchases_reports", "Reports", "Purchases", "alt+shift+r"),
+    ParentShortcut("purchases_scheduled_reports", "Scheduled reports", "Purchases", "alt+i"),
+    # Inventory
+    ParentShortcut("inventory_overview", "Overview", "Inventory", "alt+shift+i"),
+    ParentShortcut("inventory_categories_list", "Categories", "Inventory", "ctrl+alt+i"),
     ParentShortcut("inventory_products_list", "Products", "Inventory", "ctrl+shift+k"),
-    ParentShortcut("inventory_stock_list", "Stock on Hand", "Inventory", "ctrl+shift+w"),
-    ParentShortcut(
-        "inventory_stock_ledger_list", "Stock Ledger", "Inventory", "ctrl+shift+l"
-    ),
+    ParentShortcut("inventory_stock_list", "Stock", "Inventory", "ctrl+shift+w"),
+    ParentShortcut("inventory_stock_ledger_list", "Stock Ledger", "Inventory", "ctrl+shift+l"),
     ParentShortcut("inventory_movements_list", "Movements", "Inventory", "ctrl+m"),
-    ParentShortcut(
-        "inventory_customer_prices_list",
-        "Customer Prices",
-        "Inventory",
-        "ctrl+shift+y",
-    ),
     ParentShortcut("inventory_transfers_list", "Transfers", "Inventory", "ctrl+alt+t"),
-    ParentShortcut("inventory_reports", "Inventory Reports", "Inventory", "alt+shift+v"),
-    ParentShortcut("production_dashboard", "Production Overview", "Production", "alt+shift+m"),
-    ParentShortcut("production_recipes", "Production Recipes", "Production", "ctrl+alt+r"),
-    ParentShortcut("production_batches", "Production Batches", "Production", "ctrl+alt+b"),
-    ParentShortcut("production_day_book", "Production Day Book", "Production", "ctrl+alt+d"),
-    ParentShortcut("production_reports", "Production Reports", "Production", "ctrl+alt+p"),
-    ParentShortcut("finance_overview", "Finance Overview", "Finance", "alt+shift+f"),
+    ParentShortcut("inventory_customer_prices_list", "Customer Prices", "Inventory", "alt+j"),
+    ParentShortcut("inventory_reports", "Reports", "Inventory", "alt+shift+v"),
+    ParentShortcut("inventory_scheduled_reports", "Scheduled reports", "Inventory", "ctrl+alt+j"),
+    # Production
+    ParentShortcut("production_dashboard", "Overview", "Production", "alt+shift+m"),
+    ParentShortcut("production_recipes", "Recipes", "Production", "ctrl+alt+r"),
+    ParentShortcut("production_batches", "Batches", "Production", "ctrl+alt+b"),
+    ParentShortcut("production_day_book", "Day Book", "Production", "ctrl+alt+d"),
+    ParentShortcut("production_margins", "Margins", "Production", "alt+shift+j"),
+    ParentShortcut("production_yield", "Yield", "Production", "alt+k"),
+    ParentShortcut("production_reports", "Reports", "Production", "ctrl+alt+p"),
+    ParentShortcut("production_scheduled_reports", "Scheduled reports", "Production", "alt+shift+k"),
+    ParentShortcut("production_settings", "Settings", "Production", "alt+l"),
+    # Finance
+    ParentShortcut("finance_overview", "Overview", "Finance", "alt+shift+f"),
     ParentShortcut("accounts_list", "Accounts", "Finance", "ctrl+a"),
     ParentShortcut("vouchers_list", "Vouchers", "Finance", "ctrl+u"),
     ParentShortcut("receipts_list", "Receipts", "Finance", "ctrl+r"),
     ParentShortcut("payments_list", "Payments", "Finance", "ctrl+y"),
-    ParentShortcut(
-        "accounting_invoices_list", "Accounting Invoices", "Finance", "ctrl+shift+a"
-    ),
+    ParentShortcut("credit_notes_list", "Credit Notes", "Finance", "alt+shift+l"),
+    ParentShortcut("debit_notes_list", "Debit Notes", "Finance", "alt+m"),
+    ParentShortcut("accounting_invoices_list", "Accounting Invoices", "Finance", "ctrl+shift+a"),
     ParentShortcut("journal_list", "Journal", "Finance", "ctrl+j"),
     ParentShortcut("trial_balance_list", "Trial Balance", "Finance", "ctrl+shift+b"),
-    ParentShortcut("reports", "Reports", "Finance", "ctrl+shift+g"),
+    ParentShortcut("reports", "Reports", "Finance", "ctrl+alt+shift+g"),
     ParentShortcut("export_backup", "Export / Backup", "Finance", "ctrl+shift+e"),
-    ParentShortcut("data_migration", "Data Migration", "Migration", "ctrl+alt+1"),
-    ParentShortcut("business_settings", "Business", "Business", "ctrl+,"),
-    ParentShortcut("settings_locations_list", "Locations", "Business", "ctrl+shift+h"),
-    ParentShortcut("customization_activities_list", "Customization Activities", "Settings", "ctrl+shift+y"),
-    ParentShortcut("services_list", "Service Configuration", "Settings", "ctrl+shift+f"),
+    # Business / Settings / Access / System
+    ParentShortcut("business_settings", "Business Settings", "Business", "ctrl+,"),
+    ParentShortcut("settings_locations_list", "Locations", "Business", "alt+n"),
+    ParentShortcut("store_time_settings", "Business Tasks", "Business", "ctrl+alt+n"),
+    ParentShortcut("print_settings", "Print", "Settings", "alt+shift+n"),
     ParentShortcut("keyboard_shortcuts", "Keyboard Shortcuts", "Settings", "ctrl+/"),
-    ParentShortcut("system_settings", "System", "System", "ctrl+alt+s"),
+    ParentShortcut("customization_activities_list", "Customization Activities", "Settings", "alt+o"),
+    ParentShortcut("project_activities_list", "Project Activities", "Settings", "alt+q"),
+    ParentShortcut("store_activities_list", "Store Activities", "Settings", "ctrl+alt+q"),
+    ParentShortcut("business_activities_list", "Business Activities", "Settings", "alt+r"),
+    ParentShortcut("production_activities_list", "Production Activities", "Settings", "alt+s"),
+    ParentShortcut("measurement_specs", "Measurement Specs", "Settings", "alt+t"),
+    ParentShortcut("services_list", "Service Configuration", "Settings", "ctrl+shift+f"),
+    ParentShortcut("discounts_list", "Discounts", "Settings", "alt+u"),
+    ParentShortcut("crm_settings", "CRM Settings", "Settings", "alt+shift+u"),
+    ParentShortcut("users_settings", "Users", "Access", "alt+v"),
+    ParentShortcut("roles_settings", "Roles", "Access", "ctrl+alt+v"),
+    ParentShortcut("permissions_settings", "Permissions", "Access", "alt+w"),
+    ParentShortcut("audit_logs", "Audit Logs", "Access", "ctrl+alt+w"),
+    ParentShortcut("plans_settings", "Plans", "Access", "alt+shift+w"),
+    ParentShortcut("feature_flags_settings", "Feature Flags", "Access", "alt+x"),
+    ParentShortcut("data_migration", "Data Migration", "Migration", "ctrl+alt+1"),
+    ParentShortcut("schedulers_crm", "CRM Schedulers", "Schedulers", "ctrl+alt+x"),
+    ParentShortcut("schedulers_sales", "Sales Schedulers", "Schedulers", "alt+shift+x"),
+    ParentShortcut("schedulers_purchases", "Purchases Schedulers", "Schedulers", "alt+y"),
+    ParentShortcut("schedulers_inventory", "Inventory Schedulers", "Schedulers", "ctrl+alt+y"),
+    ParentShortcut("schedulers_production", "Production Schedulers", "Schedulers", "alt+shift+y"),
+    ParentShortcut("schedulers_boutique", "Boutique Schedulers", "Schedulers", "alt+z"),
+    ParentShortcut("schedulers_projects", "Projects Schedulers", "Schedulers", "ctrl+alt+z"),
+    ParentShortcut("system_settings", "System Settings", "System", "ctrl+alt+s"),
     ParentShortcut("system_updates", "Updates", "System", "ctrl+alt+u"),
     ParentShortcut("system_logs", "Logs", "System", "ctrl+alt+l"),
 ]
@@ -85,6 +145,12 @@ _PARENTS = [
 
 _ACTIONS = [
     ActionShortcut("list.primary", "Add / Create (list primary)", "List", "ctrl+shift+n"),
+    ActionShortcut("list.search.focus", "Focus list search", "List", "/"),
+    ActionShortcut("list.row.next", "Next list row", "List", "j"),
+    ActionShortcut("list.row.prev", "Previous list row", "List", "k"),
+    ActionShortcut("list.row.open", "Open selected list row", "List", "enter"),
+    ActionShortcut("list.row.edit", "Edit selected list row", "List", "e"),
+    ActionShortcut("list.row.new", "New on current list", "List", "n"),
     ActionShortcut("list.filters.open", "Open Filters", "List", "ctrl+alt+f"),
     ActionShortcut("list.sort.open", "Open Sort", "List", "ctrl+shift+s"),
     ActionShortcut("list.filters.apply", "Apply Filters", "List", "ctrl+enter"),
@@ -168,6 +234,42 @@ _ACTIONS = [
         "f5",
     ),
     ActionShortcut(
+        "sales.quotations.create",
+        "Create Quotation (any screen)",
+        "Sales",
+        "f6",
+    ),
+    ActionShortcut(
+        "sales.delivery_notes.create",
+        "Create Delivery Note (any screen)",
+        "Sales",
+        "f7",
+    ),
+    ActionShortcut(
+        "sales.returns.create",
+        "Create Sales Return (any screen)",
+        "Sales",
+        "f8",
+    ),
+    ActionShortcut(
+        "boutique.orders.create",
+        "Create Boutique Order (any screen)",
+        "Orders",
+        "f9",
+    ),
+    ActionShortcut(
+        "parties.customers.create",
+        "Create Customer (any screen)",
+        "Customers",
+        "ctrl+shift+n",
+    ),
+    ActionShortcut(
+        "parties.vendors.create",
+        "Create Vendor (any screen)",
+        "Vendors",
+        "f10",
+    ),
+    ActionShortcut(
         "purchases.orders.receive", "Receive against PO", "Purchases", "ctrl+g"
     ),
     ActionShortcut(
@@ -226,9 +328,9 @@ _ACTIONS = [
         destructive=True,
     ),
     ActionShortcut(
-        "reports.export", "Export report", "Reports", "ctrl+shift+e", unbound_stub=True
+        "reports.export", "Export report", "Reports", "ctrl+shift+e"
     ),
-    ActionShortcut("reports.select", "Select report", "Reports", "", mouse_only=True),
+    ActionShortcut("reports.select", "Select report", "Reports", "f11"),
     ActionShortcut("dashboard.period.today", "Period: Today", "Dashboard", "ctrl+1"),
     ActionShortcut("dashboard.period.last_7d", "Period: Last 7d", "Dashboard", "ctrl+2"),
     ActionShortcut("dashboard.period.mtd", "Period: MTD", "Dashboard", "ctrl+3"),
@@ -268,7 +370,7 @@ def default_parents() -> dict[str, str]:
     ensure_defaults_loaded()
     from vaybooks.bms.ui.keyboard.registry import PARENTS
 
-    return {k: p.default_chord for k, p in PARENTS.items()}
+    return {k: p.default_chord for k, p in PARENTS.items() if p.default_chord}
 
 
 def default_actions() -> dict[str, str]:

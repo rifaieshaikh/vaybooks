@@ -108,10 +108,50 @@ class StockTransfer:
 
 
 @dataclass
+class CatalogProduct:
+    """Catalog parent — no stock, rates, or transactional identity."""
+
+    name: str
+    id: str = field(default_factory=lambda: uuid4().hex)
+    category_ids: List[str] = field(default_factory=list)
+    category_names: List[str] = field(default_factory=list)
+    category_id: str = ""
+    category_name: str = ""
+    unit_id: str = ""
+    unit: str = "pcs"
+    hsn_sac: str = ""
+    specifications: Dict[str, str] = field(default_factory=dict)
+    custom_fields: Dict[str, Any] = field(default_factory=dict)
+    is_active: bool = True
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
+
+    def update(self, **kwargs) -> None:
+        for key, value in kwargs.items():
+            if hasattr(self, key) and value is not None:
+                setattr(self, key, value)
+        self.updated_at = utc_now()
+
+    def sync_legacy_category_fields(self) -> None:
+        if self.category_ids:
+            self.category_id = self.category_ids[0]
+            self.category_name = self.category_names[0] if self.category_names else ""
+        else:
+            self.category_id = ""
+            self.category_name = ""
+
+
+@dataclass
 class InventoryProduct:
+    """Stockable SKU row (collection inventory_products)."""
+
     sku: str
     name: str
     id: str = field(default_factory=lambda: uuid4().hex)
+    catalog_product_id: str = ""
+    name_override: str = ""
+    attributes: Dict[str, str] = field(default_factory=dict)
+    barcode: str = ""
     category_ids: List[str] = field(default_factory=list)
     category_names: List[str] = field(default_factory=list)
     category_id: str = ""
@@ -174,6 +214,20 @@ class InventoryProduct:
         )
         profile.sync_rates_from_gst()
         return profile
+
+    def display_name(self, parent_name: str = "") -> str:
+        if (self.name_override or "").strip():
+            return self.name_override.strip()
+        base = (parent_name or self.name or "").strip()
+        if self.attributes:
+            parts = [f"{k} {v}" for k, v in self.attributes.items() if v]
+            if parts:
+                return f"{base} — {' / '.join(parts)}" if base else " / ".join(parts)
+        return base or self.sku
+
+
+# Alias — InventoryProduct documents are SKUs
+InventorySku = InventoryProduct
 
 
 @dataclass

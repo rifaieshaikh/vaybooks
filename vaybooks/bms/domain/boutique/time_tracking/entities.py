@@ -33,6 +33,19 @@ class TimeEntry:
     worker_name: str = ""
     notes: str = ""
     task_type: TaskType = TaskType.ACTIVITY
+    # Created → Scheduled → Completed for activity tasks; system milestones stay Created/Completed.
+    status: str = "Created"
+    estimated_hours: float = 0.0
+    auto_schedule: bool = True
+    assignee_worker_id: str = ""
+    assignee_name: str = ""
     id: str = field(default_factory=lambda: uuid4().hex)
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
+
+    @property
+    def is_placeholder(self) -> bool:
+        """Empty activity task awaiting schedule / time taken."""
+        return self.task_type == TaskType.ACTIVITY and not (
+            str(self.start_time or "").strip() and str(self.end_time or "").strip()
+        )

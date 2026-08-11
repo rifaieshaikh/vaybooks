@@ -27,6 +27,11 @@ class MongoTimeTrackingRepository:
             "worker_name": entry.worker_name,
             "notes": entry.notes,
             "task_type": entry.task_type.value,
+            "status": entry.status,
+            "estimated_hours": float(entry.estimated_hours or 0),
+            "auto_schedule": bool(entry.auto_schedule),
+            "assignee_worker_id": entry.assignee_worker_id or "",
+            "assignee_name": entry.assignee_name or "",
             "created_at": entry.created_at,
             "updated_at": entry.updated_at,
         }
@@ -37,6 +42,13 @@ class MongoTimeTrackingRepository:
             task_type = TaskType(raw_type)
         except ValueError:
             task_type = TaskType.ACTIVITY
+        status = str(doc.get("status") or "").strip()
+        if not status:
+            # Legacy rows with logged times are treated as completed work.
+            if doc.get("start_time") and doc.get("end_time"):
+                status = "Completed"
+            else:
+                status = "Created"
         return TimeEntry(
             id=doc["_id"],
             order_id=doc["order_id"],
@@ -52,6 +64,11 @@ class MongoTimeTrackingRepository:
             worker_name=doc.get("worker_name", ""),
             notes=doc.get("notes", ""),
             task_type=task_type,
+            status=status,
+            estimated_hours=float(doc.get("estimated_hours") or 0),
+            auto_schedule=bool(doc.get("auto_schedule", True)),
+            assignee_worker_id=str(doc.get("assignee_worker_id") or ""),
+            assignee_name=str(doc.get("assignee_name") or ""),
             created_at=doc.get("created_at", datetime.utcnow()),
             updated_at=doc.get("updated_at", datetime.utcnow()),
         )
@@ -95,7 +112,10 @@ class MongoTimeTrackingRepository:
         if order_number:
             query["order_number"] = {"$regex": order_number, "$options": "i"}
         if worker_name:
-            query["worker_name"] = {"$regex": worker_name, "$options": "i"}
+            query["$or"] = [
+                {"worker_name": {"$regex": worker_name, "$options": "i"}},
+                {"assignee_name": {"$regex": worker_name, "$options": "i"}},
+            ]
         if activity_name:
             query["activity_name"] = activity_name
         if work_date_from is not None or work_date_to is not None:

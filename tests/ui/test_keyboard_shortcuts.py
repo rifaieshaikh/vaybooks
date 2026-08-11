@@ -57,12 +57,25 @@ def test_default_actions_include_list_roles():
     ensure_defaults_loaded(force=True)
     actions = default_actions()
     assert actions["list.primary"] == "ctrl+shift+n"
+    assert actions["list.search.focus"] == "/"
+    assert actions["list.row.next"] == "j"
+    assert actions["list.row.prev"] == "k"
+    assert actions["list.row.open"] == "enter"
+    assert actions["list.row.edit"] == "e"
+    assert actions["list.row.new"] == "n"
     assert actions["list.filters.open"] == "ctrl+alt+f"
     assert actions["list.sort.open"] == "ctrl+shift+s"
     assert actions["list.filters.clear"] == "ctrl+1"
     assert actions["list.sort.clear"] == "ctrl+2"
     assert actions["dialog.save"] == "ctrl+s"
     assert actions["purchases.orders.create"] == "f1"
+    assert actions["boutique.orders.create"] == "f9"
+    assert actions["parties.customers.create"] == "ctrl+shift+n"
+    assert actions["parties.vendors.create"] == "f10"
+    assert actions["list.view_nth.1"] == "alt+1"
+    assert actions["list.edit_nth.1"] == "alt+shift+1"
+    assert actions["reports.export"] == "ctrl+shift+e"
+    assert actions["reports.select"] == "f11"
 
 
 def test_list_chords_do_not_collide_with_parents():
@@ -70,6 +83,12 @@ def test_list_chords_do_not_collide_with_parents():
     parent_chords = set(default_parents().values())
     for aid in (
         "list.primary",
+        "list.search.focus",
+        "list.row.next",
+        "list.row.prev",
+        "list.row.open",
+        "list.row.edit",
+        "list.row.new",
         "list.filters.open",
         "list.sort.open",
         "list.filters.clear",

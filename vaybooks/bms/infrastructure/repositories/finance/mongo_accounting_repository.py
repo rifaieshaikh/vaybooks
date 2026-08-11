@@ -6,6 +6,7 @@ from pymongo.database import Database
 from vaybooks.bms.domain.finance.accounting.entities import Account, Voucher, VoucherLine
 from vaybooks.bms.domain.identity.location_access import merge_mongo_filters
 from vaybooks.bms.domain.shared.enums import AccountType, VoucherType
+from vaybooks.bms.infrastructure.db.bson_utils import from_bson_date, to_bson_value
 
 
 class MongoAccountRepository:
@@ -137,6 +138,7 @@ class MongoVoucherRepository:
         )
 
     def _to_doc(self, voucher: Voucher) -> dict:
+        due = getattr(voucher, "due_date", None)
         return {
             "_id": voucher.id,
             "voucher_number": voucher.voucher_number,
@@ -157,12 +159,22 @@ class MongoVoucherRepository:
             "reference_production_batch_id": voucher.reference_production_batch_id,
             "location_id": voucher.location_id,
             "location_name": voucher.location_name,
+            "due_date": to_bson_value(due) if due else None,
             "lines": [self._line_to_doc(l) for l in voucher.lines],
             "created_at": voucher.created_at,
             "updated_at": voucher.updated_at,
         }
 
     def _from_doc(self, doc: dict) -> Voucher:
+        due_raw = doc.get("due_date")
+        due_date = None
+        if due_raw:
+            if isinstance(due_raw, str):
+                due_date = date.fromisoformat(due_raw[:10])
+            else:
+                due_date = from_bson_date(due_raw)
+                if isinstance(due_date, datetime):
+                    due_date = due_date.date()
         return Voucher(
             id=doc["_id"],
             voucher_number=doc["voucher_number"],
@@ -185,6 +197,7 @@ class MongoVoucherRepository:
             ),
             location_id=str(doc.get("location_id") or ""),
             location_name=str(doc.get("location_name") or ""),
+            due_date=due_date,
             lines=[self._line_from_doc(l) for l in doc.get("lines", [])],
             created_at=doc.get("created_at", datetime.utcnow()),
             updated_at=doc.get("updated_at", datetime.utcnow()),
@@ -243,6 +256,89 @@ class MongoVoucherRepository:
     def list_all(self, location_filter: dict | None = None) -> List[Voucher]:
         query = merge_mongo_filters(location_filter or {})
         return [self._from_doc(d) for d in self._collection.find(query)]
+
+    def list_by_type(
+        self,
+        voucher_type: str | VoucherType,
+        *,
+        location_filter: dict | None = None,
+        extra_filter: dict | None = None,
+    ) -> List[Voucher]:
+        vt = voucher_type.value if hasattr(voucher_type, "value") else str(voucher_type)
+        base: dict = {"voucher_type": vt}
+        if extra_filter:
+            base = {"$and": [base, extra_filter]}
+        query = merge_mongo_filters(base, location_filter or {})
+        return [self._from_doc(d) for d in self._collection.find(query)]
+
+    def list_by_types(
+        self,
+        voucher_types: list[str | VoucherType],
+        *,
+        location_filter: dict | None = None,
+        extra_filter: dict | None = None,
+    ) -> List[Voucher]:
+        values = [
+            vt.value if hasattr(vt, "value") else str(vt) for vt in voucher_types
+        ]
+        if not values:
+            return []
+        base: dict = {"voucher_type": {"$in": values}}
+        if extra_filter:
+            base = {"$and": [base, extra_filter]}
+        query = merge_mongo_filters(base, location_filter or {})
+        return [self._from_doc(d) for d in self._collection.find(query)]
+
+    def query_by_type(
+        self,
+        voucher_type: str | VoucherType,
+        *,
+        extra_filter: dict | None = None,
+        sort_by: str = "voucher_date",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> dict:
+        from packages.services_kit.paging import query_mongo_page
+
+        vt = voucher_type.value if hasattr(voucher_type, "value") else str(voucher_type)
+        base: dict = {"voucher_type": vt}
+        if extra_filter:
+            base = {"$and": [base, extra_filter]}
+        query = merge_mongo_filters(base, location_filter or {})
+        return query_mongo_page(
+            self._collection,
+            query,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+            map_doc=self._from_doc,
+        )
+
+    def query_page(
+        self,
+        query: dict | None = None,
+        *,
+        sort_by: str = "",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> dict:
+        from packages.services_kit.paging import query_mongo_page
+
+        q = merge_mongo_filters(query or {}, location_filter or {})
+        return query_mongo_page(
+            self._collection,
+            q,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            page=page,
+            page_size=page_size,
+            map_doc=self._from_doc,
+        )
 
 
 class MongoAccountingRepository:

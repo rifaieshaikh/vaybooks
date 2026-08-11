@@ -156,7 +156,7 @@ class FakeOrgRepo:
             version=1,
         )
 
-    def get(self):
+    def get(self, org_id: str | None = None):
         return self._ent
 
     def save(self, entitlement: OrgEntitlement) -> OrgEntitlement:

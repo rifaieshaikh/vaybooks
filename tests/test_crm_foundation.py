@@ -37,6 +37,7 @@ from vaybooks.bms.domain.crm.entities import (
 )
 from vaybooks.bms.domain.crm.enums import (
     CRM_REPORT_DEFINITIONS,
+    ActivityOrigin,
     ActivityStatus,
     CrmRole,
     LeadStatus,
@@ -160,7 +161,19 @@ class FakeActivityRepo:
         return None
 
     def list(self, **kwargs) -> List[CrmActivity]:
-        return list(self._store.values())[: kwargs.get("limit", 500)]
+        items = list(self._store.values())
+        if kwargs.get("origin"):
+            items = [a for a in items if a.origin == kwargs["origin"]]
+        if kwargs.get("needs_correction") is not None:
+            flag = bool(kwargs["needs_correction"])
+            items = [a for a in items if bool(a.needs_correction) is flag]
+        if kwargs.get("assigned_user_id"):
+            items = [
+                a for a in items if a.assigned_user_id == kwargs["assigned_user_id"]
+            ]
+        if kwargs.get("status"):
+            items = [a for a in items if a.status == kwargs["status"]]
+        return items[: kwargs.get("limit", 500)]
 
     def list_timeline(self, **kwargs) -> List[CrmActivity]:
         return self.list(**kwargs)
@@ -403,6 +416,70 @@ def test_auto_activity_idempotency_and_reversal():
     assert len(activities._store) == 1
     reversed_act = auto.on_order_cancelled("so1")
     assert reversed_act.status == ActivityStatus.REVERSED.value
+
+
+def test_automatic_activity_edit_sets_needs_correction():
+    activities = FakeActivityRepo()
+    settings = FakeSettingsRepo()
+    auto = CrmAutoActivityService(activities, settings_repo=settings)
+    act_svc = CrmActivityAppService(activities, settings_repo=settings)
+    activity = auto.record_event(
+        type_key="invoice_created",
+        source_module="finance",
+        source_txn_type="sales_invoice",
+        source_txn_id="inv-1",
+        customer_id="c1",
+        notes="auto note",
+    )
+    assert activity is not None
+    assert activity.origin == ActivityOrigin.AUTOMATIC.value
+    assert activity.needs_correction is False
+
+    flagged = act_svc.update_activity(
+        activity.id, notes="corrected note", allow_automatic=True
+    )
+    assert flagged.needs_correction is True
+
+    cleared = act_svc.update_activity(
+        activity.id, needs_correction=False, allow_automatic=True
+    )
+    assert cleared.needs_correction is False
+
+    # Explicit clear with content edit should not re-flag
+    kept_clear = act_svc.update_activity(
+        activity.id,
+        notes="final note",
+        needs_correction=False,
+        allow_automatic=True,
+    )
+    assert kept_clear.needs_correction is False
+
+
+def test_activity_list_needs_correction_origin_filter():
+    activities = FakeActivityRepo()
+    settings = FakeSettingsRepo()
+    act_svc = CrmActivityAppService(activities, settings_repo=settings)
+    auto = CrmAutoActivityService(activities, settings_repo=settings)
+
+    manual = act_svc.create_manual(
+        activity_type="Called",
+        customer_id="c1",
+        location_id="loc-test",
+    )
+    auto_act = auto.record_event(
+        type_key="payment_received",
+        source_module="finance",
+        source_txn_type="receipt",
+        source_txn_id="rcpt-1",
+        customer_id="c1",
+    )
+    assert auto_act is not None
+    act_svc.update_activity(auto_act.id, notes="fix me", allow_automatic=True)
+
+    flagged = act_svc.list_activities(needs_correction=True, origin="Automatic")
+    assert len(flagged) == 1
+    assert flagged[0].id == auto_act.id
+    assert all(a.id != manual.id for a in flagged)
 
 
 # --- WhatsApp ---

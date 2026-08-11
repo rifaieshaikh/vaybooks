@@ -55,6 +55,16 @@ def _targets_intersect(rule_ids: Sequence[str], candidate_ids: Sequence[str]) ->
     return bool(set(rule_ids) & set(candidate_ids))
 
 
+def _product_id_matches(rule: DiscountRule, product_id: str) -> bool:
+    if not product_id:
+        return False
+    if product_id in (rule.product_ids or []):
+        return True
+    # Expanded SKU ids may be stored on the rule after catalog expansion.
+    expanded = getattr(rule, "_expanded_sku_ids", None) or []
+    return product_id in expanded
+
+
 def _optional_target_ok(
     rule: DiscountRule,
     *,
@@ -65,8 +75,10 @@ def _optional_target_ok(
 ) -> bool:
     """When seasonal/global set optional targets, all non-empty target groups must match."""
     checks: list[bool] = []
-    if rule.product_ids:
-        checks.append(product_id in rule.product_ids)
+    if rule.product_ids or getattr(rule, "catalog_product_ids", None) or getattr(
+        rule, "_expanded_sku_ids", None
+    ):
+        checks.append(_product_id_matches(rule, product_id))
     if rule.category_ids:
         checks.append(_targets_intersect(rule.category_ids, category_ids))
     if rule.customer_ids:
@@ -102,7 +114,7 @@ def rule_matches_line(
     customer_id = (customer_id or "").strip()
 
     if rule.scope == SCOPE_PRODUCT:
-        return bool(product_id) and product_id in (rule.product_ids or [])
+        return _product_id_matches(rule, product_id)
 
     if rule.scope == SCOPE_CATEGORY:
         return _targets_intersect(rule.category_ids or [], category_ids)

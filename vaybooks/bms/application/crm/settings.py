@@ -45,6 +45,11 @@ class CrmSettingsAppService:
             "business_display_name",
             "payment_reminder_template",
             "payment_reminder_due_offsets_days",
+            "calendar_drag_enabled",
+            "custom_fields_enabled",
+            "crm_mode",
+            "field_packs",
+            "custom_field_defs",
         }
         for key, value in updates.items():
             if key not in allowed:

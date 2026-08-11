@@ -2,7 +2,7 @@
 seed.toml
 qa-output/
 dev-orchestrator-output/
-tasks/
+/tasks/
 __pycache__/
 *.pyc
 .env
@@ -15,3 +15,11 @@ COMMIT_MSG.tmp
 .vscode
 .claudeignore
 CLAUDE.md
+
+# Node.js
+node_modules/
+**/node_modules/
+web/dist/
+**/dist/
+npm-debug.log*
+yarn-error.log*

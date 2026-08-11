@@ -8,9 +8,9 @@ from pymongo.database import Database
 from vaybooks.bms.domain.crm.entities import CrmEnquiry
 from vaybooks.bms.domain.shared.date_utils import utc_now
 from vaybooks.bms.infrastructure.repositories.crm._serialize import (
+    deleted_mode_filter,
     enquiry_from_doc,
     enquiry_to_doc,
-    not_deleted_filter,
 )
 
 
@@ -38,10 +38,12 @@ class MongoCrmEnquiryRepository:
         assigned_user_id: Optional[str] = None,
         branch: Optional[str] = None,
         include_deleted: bool = False,
+        deleted: str = "exclude",
         search: str = "",
         limit: int = 500,
     ) -> List[CrmEnquiry]:
-        query: dict = dict(not_deleted_filter(include_deleted))
+        mode = "include" if include_deleted else deleted
+        query: dict = dict(deleted_mode_filter(mode))
         if status:
             query["status"] = status
         if lead_id:
