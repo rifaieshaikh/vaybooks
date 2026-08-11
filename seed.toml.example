@@ -6,6 +6,12 @@ SEED_CONFIG = true
 SEED_QA_FIXTURES = false
 PURGE_BUSINESS_DATA = false
 
+# Demo/test seeds are NOT bootstrapped. Orchestrate from the API backend:
+#   python scripts/seed/seed-data.py
+#   python scripts/seed/seed-data.py --list
+#   python scripts/seed/seed-data.py --run category_analytics --yes
+
+
 # Single control for profile demo seeding:
 #   "none" (or empty)  → disabled
 #   "boutique"         → one vertical (business + catalog + parties)

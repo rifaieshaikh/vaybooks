@@ -59,6 +59,7 @@ class OrderPatch(BaseModel):
 class OrderItemWrite(BaseModel):
     description: str = Field(min_length=1)
     bill_number: str = ""
+    category_id: Optional[str] = None
     expected_delivery_date: Optional[str] = None
     customer_specification: str = ""
     measurement_id: Optional[str] = None
@@ -70,6 +71,7 @@ class OrderItemWrite(BaseModel):
 class OrderItemUpdate(BaseModel):
     bill_number: str = ""
     description: str = Field(min_length=1)
+    category_id: Optional[str] = None
     expected_delivery_date: Optional[str] = None
     customer_specification: Optional[str] = None
     measurement_id: Optional[str] = None
@@ -222,6 +224,23 @@ class ReportRunBody(BaseModel):
 
 def _c():
     return get_boutique_container()
+
+
+def _validate_category_id(category_id: Optional[str]) -> Optional[str]:
+    """Validate an inventory category when the inventory service supports it."""
+    normalized = (category_id or "").strip() or None
+    if not normalized:
+        return None
+    try:
+        from packages.services_kit.inventory_container import get_inventory_container
+
+        inventory = get_inventory_container().inventory
+    except Exception:
+        return normalized
+    get_category = getattr(inventory, "get_category", None)
+    if callable(get_category) and not get_category(normalized):
+        raise ValidationError("Inventory category not found")
+    return normalized
 
 
 def _require_activity_on_order(order_id: str, activity_id: str):
@@ -833,6 +852,7 @@ def add_order_item(order_id: str, body: OrderItemWrite) -> dict[str, Any]:
             measurement_id=body.measurement_id,
             sell_amount=float(body.sell_amount or 0),
             activity_estimated_hours=body.activity_estimated_hours or {},
+            category_id=_validate_category_id(body.category_id),
         )
         order = _c().orders.get_order_detail(order_id)
         return {
@@ -850,6 +870,8 @@ def update_order_item(order_id: str, item_id: str, body: OrderItemUpdate) -> dic
         kwargs: dict[str, Any] = {}
         if "measurement_id" in fields_set:
             kwargs["measurement_id"] = body.measurement_id if body.measurement_id is not None else ""
+        if "category_id" in fields_set:
+            kwargs["category_id"] = _validate_category_id(body.category_id)
         if "required_activities" in fields_set:
             kwargs["required_activities"] = body.required_activities or {}
         if "activity_estimated_hours" in fields_set:

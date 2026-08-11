@@ -11,6 +11,7 @@ from copy import deepcopy
 from typing import Dict, List, Optional
 
 from vaybooks.bms.domain.inventory.entities import (
+    CatalogProduct,
     InventoryProduct,
     Location,
     ProductCategory,
@@ -193,6 +194,45 @@ class MemoryLocationRepository:
 MemoryWarehouseRepository = MemoryLocationRepository
 
 
+class MemoryCatalogProductRepository:
+    def __init__(self) -> None:
+        self._store: Dict[str, CatalogProduct] = {}
+
+    def save(self, product: CatalogProduct) -> CatalogProduct:
+        self._store[product.id] = deepcopy(product)
+        return deepcopy(product)
+
+    def find_by_id(self, product_id: str) -> Optional[CatalogProduct]:
+        p = self._store.get(product_id)
+        return deepcopy(p) if p else None
+
+    def list_all(self, active_only: bool = True) -> List[CatalogProduct]:
+        rows = list(self._store.values())
+        if active_only:
+            rows = [p for p in rows if p.is_active]
+        return [deepcopy(p) for p in rows]
+
+    def list_by_category(self, category_id: str) -> List[CatalogProduct]:
+        if not category_id:
+            return []
+        return [
+            deepcopy(p)
+            for p in self._store.values()
+            if category_id in (p.category_ids or []) or p.category_id == category_id
+        ]
+
+    def search(self, query: str) -> List[CatalogProduct]:
+        q = (query or "").strip().lower()
+        rows = list(self._store.values())
+        if q:
+            rows = [
+                p
+                for p in rows
+                if q in (p.name or "").lower() or q in (p.hsn_sac or "").lower()
+            ]
+        return [deepcopy(p) for p in rows]
+
+
 class MemoryInventoryProductRepository:
     def __init__(self) -> None:
         self._store: Dict[str, InventoryProduct] = {}
@@ -219,6 +259,15 @@ class MemoryInventoryProductRepository:
         if active_only:
             rows = [p for p in rows if p.is_active]
         return [deepcopy(p) for p in rows]
+
+    def list_by_catalog_product(self, catalog_product_id: str) -> List[InventoryProduct]:
+        if not catalog_product_id:
+            return []
+        return [
+            deepcopy(p)
+            for p in self._store.values()
+            if (p.catalog_product_id or "") == catalog_product_id
+        ]
 
     def list_by_category(self, category_id: str) -> List[InventoryProduct]:
         if not category_id:

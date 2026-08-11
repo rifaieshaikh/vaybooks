@@ -223,9 +223,9 @@ export function StockListPage() {
           rows={pageRows}
           rowKey={(row) => String(row.id)}
           keyboardNav
-          onActivateRow={(row) => navigate(`/inventory/products/${String(row.id)}`)}
+          onActivateRow={(row) => navigate(`/inventory/skus/${String(row.id)}`)}
           actions={(row) => (
-            <EntityListActions onOpen={() => navigate(`/inventory/products/${String(row.id)}`)} />
+            <EntityListActions onOpen={() => navigate(`/inventory/skus/${String(row.id)}`)} />
           )}
         />
       ) : null}

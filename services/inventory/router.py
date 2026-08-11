@@ -13,7 +13,8 @@ from packages.messaging.bus import get_bus
 from packages.messaging.locking import ReserveLockService
 from packages.services_kit.inventory_container import get_inventory_container
 from packages.services_kit.sales_container import get_sales_container
-from services.common.authz import require_permission
+from services.auth.router import _decode_token
+from services.common.authz import assert_permissions, require_permission
 from services.parties.serialize import entity_dict
 from vaybooks.bms.domain.shared.enums import StockMovementType, StockTransferStatus
 from vaybooks.bms.domain.shared.exceptions import ValidationError
@@ -31,8 +32,12 @@ class ReserveRequest(BaseModel):
 class CategoryWrite(BaseModel):
     name: str = Field(min_length=1)
     parent_id: Optional[str] = None
-    description: str = ""
-    is_active: bool = True
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class CategoryProductsAdd(BaseModel):
+    product_ids: List[str] = Field(default_factory=list)
 
 
 class ProductWrite(BaseModel):
@@ -121,6 +126,22 @@ def _parse_date(raw: Optional[str]) -> date:
         return date.fromisoformat(raw[:10])
     except ValueError:
         return date.today()
+
+
+def _parse_optional_date(raw: Optional[str]) -> Optional[date]:
+    if not raw or not str(raw).strip():
+        return None
+    try:
+        return date.fromisoformat(str(raw).strip()[:10])
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {raw}") from None
+
+
+def _parse_grain(raw: Optional[str]) -> str:
+    grain = (raw or "month").strip().lower()
+    if grain not in {"day", "week", "month"}:
+        raise HTTPException(status_code=400, detail="grain must be day, week, or month")
+    return grain
 
 
 def _movement_type(raw: str) -> StockMovementType:
@@ -263,6 +284,7 @@ def list_warehouses(active_only: bool = Query(default=False)) -> list[dict[str, 
 def list_categories(
     q: str = Query(default=""),
     active_only: bool = Query(default=False),
+    _: str = Depends(require_permission("inventory.categories.view")),
 ) -> list[dict[str, Any]]:
     inv = _svc()
     if q.strip():
@@ -278,16 +300,37 @@ def list_categories(
     return out
 
 
+@router.get("/categories/check-name")
+def check_category_name(
+    name: str = Query(..., min_length=1),
+    _: str = Depends(require_permission("inventory.categories.view")),
+) -> dict[str, Any]:
+    category = _svc().find_category_by_name(name)
+    return {"exists": bool(category), **({"id": category.id} if category else {})}
+
+
 @router.post("/categories", status_code=201)
-def create_category(body: CategoryWrite) -> dict[str, Any]:
+def create_category(
+    body: CategoryWrite,
+    username: str = Depends(require_permission("inventory.categories.create")),
+) -> dict[str, Any]:
     try:
+        is_active = True if body.is_active is None else bool(body.is_active)
+        if not is_active:
+            assert_permissions(username, ("inventory.categories.deactivate",))
         cat = _svc().create_category(
             body.name,
             parent_id=body.parent_id or None,
-            description=body.description,
+            description=body.description or "",
         )
-        if not body.is_active:
-            cat = _svc().update_category(cat.id, body.name, parent_id=body.parent_id, description=body.description, is_active=False)
+        if not is_active:
+            cat = _svc().update_category(
+                cat.id,
+                cat.name,
+                parent_id=body.parent_id,
+                description=body.description or "",
+                is_active=False,
+            )
     except Exception as exc:
         raise _http_err(exc) from exc
     data = entity_dict(cat)
@@ -296,24 +339,60 @@ def create_category(body: CategoryWrite) -> dict[str, Any]:
 
 
 @router.get("/categories/{category_id}")
-def get_category(category_id: str) -> dict[str, Any]:
+def get_category(
+    category_id: str,
+    _: str = Depends(require_permission("inventory.categories.view")),
+) -> dict[str, Any]:
     cat = _svc().get_category(category_id)
     if not cat:
         raise HTTPException(status_code=404, detail="category not found")
     data = entity_dict(cat)
     data["path"] = _svc().get_category_path(cat.id)
+    data["product_count"] = _svc().count_products_in_category(cat.id)
     return data
 
 
 @router.put("/categories/{category_id}")
-def update_category(category_id: str, body: CategoryWrite) -> dict[str, Any]:
+def update_category(
+    category_id: str,
+    body: CategoryWrite,
+    username: str = Depends(_decode_token),
+) -> dict[str, Any]:
+    existing = _svc().get_category(category_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="category not found")
+
+    fields_set = body.model_fields_set
+    next_active = existing.is_active if body.is_active is None else bool(body.is_active)
+    next_description = (
+        existing.description if "description" not in fields_set else (body.description or "")
+    )
+    if "parent_id" in fields_set:
+        next_parent = body.parent_id
+    else:
+        next_parent = existing.parent_id
+
+    wants_status = next_active != bool(existing.is_active)
+    wants_fields = (next_description != (existing.description or "")) or (
+        (next_parent or None) != (existing.parent_id or None)
+    )
+    permissions = []
+    if wants_fields:
+        permissions.append("inventory.categories.edit")
+    if wants_status:
+        permissions.append("inventory.categories.deactivate")
+    if not permissions:
+        # No-op save still requires being signed in (already via _decode_token).
+        pass
+    else:
+        assert_permissions(username, permissions)
     try:
         cat = _svc().update_category(
             category_id,
-            body.name,
-            parent_id=body.parent_id,
-            description=body.description,
-            is_active=body.is_active,
+            existing.name,
+            parent_id=next_parent,
+            description=next_description,
+            is_active=next_active,
         )
     except Exception as exc:
         raise _http_err(exc) from exc
@@ -322,7 +401,367 @@ def update_category(category_id: str, body: CategoryWrite) -> dict[str, Any]:
     return data
 
 
-# --- Products ------------------------------------------------------------------
+@router.get("/categories/{category_id}/products")
+def list_category_products(
+    category_id: str,
+    q: str = Query(default=""),
+    _: str = Depends(require_permission("inventory.categories.items.view")),
+) -> list[dict[str, Any]]:
+    return [_product_dict(product) for product in _svc().list_products_in_category(category_id, q)]
+
+
+@router.post("/categories/{category_id}/products")
+def add_category_products(
+    category_id: str,
+    body: CategoryProductsAdd,
+    _: str = Depends(
+        require_permission("inventory.categories.items.add", "inventory.products.edit")
+    ),
+) -> dict[str, List[str]]:
+    try:
+        return _svc().add_products_to_category(category_id, body.product_ids)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+
+
+@router.get("/categories/{category_id}/sales-breakdown")
+def category_sales_breakdown(
+    category_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    grain: Optional[str] = Query(default="month"),
+    _: str = Depends(require_permission("inventory.categories.sales.view")),
+) -> dict[str, Any]:
+    return _svc().category_sales_breakdown(
+        category_id,
+        start_date=_parse_optional_date(start_date),
+        end_date=_parse_optional_date(end_date),
+        grain=_parse_grain(grain),
+    )
+
+
+@router.get("/categories/{category_id}/production-breakdown")
+def category_production_breakdown(
+    category_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    grain: Optional[str] = Query(default="month"),
+    _: str = Depends(require_permission("inventory.categories.production.view")),
+) -> dict[str, Any]:
+    return _svc().category_production_breakdown(
+        category_id,
+        start_date=_parse_optional_date(start_date),
+        end_date=_parse_optional_date(end_date),
+        grain=_parse_grain(grain),
+    )
+
+
+@router.get("/categories/{category_id}/customization-breakdown")
+def category_customization_breakdown(
+    category_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    grain: Optional[str] = Query(default="month"),
+    _: str = Depends(require_permission("inventory.categories.customization.view")),
+) -> dict[str, Any]:
+    return _svc().category_customization_breakdown(
+        category_id,
+        start_date=_parse_optional_date(start_date),
+        end_date=_parse_optional_date(end_date),
+        grain=_parse_grain(grain),
+    )
+
+
+# --- Catalog products + SKUs ---------------------------------------------------
+
+
+class CatalogProductWrite(BaseModel):
+    name: str = Field(min_length=1)
+    category_ids: List[str] = Field(default_factory=list)
+    unit_id: str = ""
+    unit_code: str = "pcs"
+    hsn_sac: str = ""
+    specifications: dict[str, str] = Field(default_factory=dict)
+    custom_fields: dict[str, Any] = Field(default_factory=dict)
+    is_active: bool = True
+
+
+class CatalogMergeWrite(BaseModel):
+    target_catalog_product_id: str = Field(min_length=1)
+    source_catalog_product_ids: List[str] = Field(default_factory=list)
+    force: bool = False
+
+
+class SkuWrite(BaseModel):
+    sku: str = Field(min_length=1)
+    name_override: str = ""
+    attributes: dict[str, str] = Field(default_factory=dict)
+    barcode: str = ""
+    selling_rate: float = 0.0
+    mrp: float = 0.0
+    gst_rate: float = 0.0
+    gst_required: bool = False
+    opening_qty: float = 0.0
+    location_id: str = ""
+    track_batch: bool = False
+    track_serial: bool = False
+    is_active: bool = True
+    catalog_product_id: str = ""
+
+
+def _catalog_dict(product: Any) -> dict[str, Any]:
+    return entity_dict(product)
+
+
+@router.get("/catalog-products")
+def list_catalog_products(
+    q: str = Query(default=""),
+    active_only: bool = Query(default=False),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> list[dict[str, Any]]:
+    inv = _svc()
+    if q.strip():
+        rows = inv.search_catalog_products(q)
+        if active_only:
+            rows = [p for p in rows if getattr(p, "is_active", True)]
+    else:
+        rows = inv.list_catalog_products(active_only=active_only)
+    return [_catalog_dict(p) for p in rows]
+
+
+@router.post("/catalog-products", status_code=201)
+def create_catalog_product(
+    body: CatalogProductWrite,
+    _: str = Depends(require_permission("inventory.products.create")),
+) -> dict[str, Any]:
+    try:
+        product = _svc().create_catalog_product(
+            body.name,
+            body.category_ids or [],
+            unit_id=body.unit_id,
+            unit_code=body.unit_code,
+            hsn_sac=body.hsn_sac,
+            specifications=body.specifications,
+            custom_fields=body.custom_fields,
+        )
+        if not body.is_active:
+            product = _svc().update_catalog_product(product.id, is_active=False)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return _catalog_dict(product)
+
+
+@router.post("/catalog-products/merge")
+def merge_catalog_products(
+    body: CatalogMergeWrite,
+    _: str = Depends(require_permission("inventory.products.edit")),
+) -> dict[str, Any]:
+    try:
+        product = _svc().merge_catalog_products(
+            body.target_catalog_product_id,
+            body.source_catalog_product_ids,
+            force=body.force,
+        )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return _catalog_dict(product)
+
+
+@router.get("/catalog-products/{catalog_product_id}")
+def get_catalog_product(
+    catalog_product_id: str,
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    product = _svc().get_catalog_product(catalog_product_id)
+    if not product:
+        # Deep-link compat: if id is a SKU, signal redirect target
+        resolved = _svc().resolve_inventory_id(catalog_product_id)
+        if resolved.get("is_sku"):
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "not_a_catalog_product",
+                    "redirect": f"/inventory/skus/{catalog_product_id}",
+                    "sku_id": catalog_product_id,
+                    "catalog_product_id": resolved.get("catalog_product_id") or "",
+                },
+            )
+        raise HTTPException(status_code=404, detail="catalog product not found")
+    data = _catalog_dict(product)
+    skus = _svc().list_skus_for_catalog(catalog_product_id)
+    data["skus"] = [_product_dict(s) for s in skus]
+    data["sku_count"] = len(skus)
+    data["on_hand"] = round(sum(float(s.current_qty or 0) for s in skus), 4)
+    return data
+
+
+@router.put("/catalog-products/{catalog_product_id}")
+def update_catalog_product(
+    catalog_product_id: str,
+    body: CatalogProductWrite,
+    _: str = Depends(require_permission("inventory.products.edit")),
+) -> dict[str, Any]:
+    try:
+        product = _svc().update_catalog_product(
+            catalog_product_id,
+            name=body.name,
+            category_ids=body.category_ids or [],
+            unit_id=body.unit_id or None,
+            hsn_sac=body.hsn_sac,
+            specifications=body.specifications,
+            custom_fields=body.custom_fields,
+            is_active=body.is_active,
+        )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return _catalog_dict(product)
+
+
+@router.get("/catalog-products/{catalog_product_id}/skus")
+def list_catalog_skus(
+    catalog_product_id: str,
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> list[dict[str, Any]]:
+    return [_product_dict(s) for s in _svc().list_skus_for_catalog(catalog_product_id)]
+
+
+@router.post("/catalog-products/{catalog_product_id}/skus", status_code=201)
+def create_catalog_sku(
+    catalog_product_id: str,
+    body: SkuWrite,
+    _: str = Depends(require_permission("inventory.products.create")),
+) -> dict[str, Any]:
+    location_id = (body.location_id or "").strip()
+    if body.opening_qty > 0 and not location_id:
+        locs = _svc().list_locations(active_only=True)
+        location_id = locs[0].id if locs else ""
+    try:
+        product = _svc().create_sku_under_catalog(
+            catalog_product_id,
+            body.sku,
+            name_override=body.name_override,
+            attributes=body.attributes,
+            barcode=body.barcode,
+            opening_qty=body.opening_qty,
+            selling_rate=body.selling_rate,
+            mrp=body.mrp,
+            gst_rate=body.gst_rate,
+            gst_required=body.gst_required,
+            track_batch=body.track_batch,
+            track_serial=body.track_serial,
+            location_id=location_id,
+        )
+        if not body.is_active:
+            product = _svc().discontinue_product(product.id)
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return _product_dict(product)
+
+
+@router.get("/catalog-products/{catalog_product_id}/sales-breakdown")
+def catalog_sales_breakdown(
+    catalog_product_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    grain: Optional[str] = Query(default="month"),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return _svc().catalog_product_sales_breakdown(
+        catalog_product_id,
+        start_date=_parse_optional_date(start_date),
+        end_date=_parse_optional_date(end_date),
+        grain=_parse_grain(grain),
+    )
+
+
+@router.get("/catalog-products/{catalog_product_id}/spec-insights")
+def catalog_spec_insights(
+    catalog_product_id: str,
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return _svc().catalog_product_spec_insights(catalog_product_id)
+
+
+@router.get("/catalog-products/{catalog_product_id}/activity")
+def catalog_activity(
+    catalog_product_id: str,
+    limit: int = Query(default=50),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return _svc().catalog_product_activity(catalog_product_id, limit=limit)
+
+
+@router.get("/skus")
+def list_skus(
+    q: str = Query(default=""),
+    active_only: bool = Query(default=False),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> list[dict[str, Any]]:
+    # Compat: SKU list is the stockable inventory_products surface
+    return list_products(q=q, active_only=active_only)
+
+
+@router.get("/skus/{sku_id}")
+def get_sku(
+    sku_id: str,
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return get_product(sku_id)
+
+
+@router.put("/skus/{sku_id}")
+def update_sku(
+    sku_id: str,
+    body: ProductWrite,
+    _: str = Depends(require_permission("inventory.products.edit")),
+) -> dict[str, Any]:
+    return update_product(sku_id, body)
+
+
+@router.get("/skus/{sku_id}/sales-breakdown")
+def sku_sales_breakdown(
+    sku_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    grain: Optional[str] = Query(default="month"),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return _svc().sku_sales_breakdown(
+        sku_id,
+        start_date=_parse_optional_date(start_date),
+        end_date=_parse_optional_date(end_date),
+        grain=_parse_grain(grain),
+    )
+
+
+@router.get("/skus/{sku_id}/activity")
+def sku_activity(
+    sku_id: str,
+    limit: int = Query(default=50),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    return _svc().sku_activity(sku_id, limit=limit)
+
+
+@router.get("/resolve/{entity_id}")
+def resolve_inventory_entity(
+    entity_id: str,
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> dict[str, Any]:
+    resolved = _svc().resolve_inventory_id(entity_id)
+    sku = resolved.get("sku")
+    catalog = resolved.get("catalog_product")
+    return {
+        "id": entity_id,
+        "is_sku": resolved["is_sku"],
+        "is_catalog_product": resolved["is_catalog_product"],
+        "catalog_product_id": resolved.get("catalog_product_id") or "",
+        "sku": _product_dict(sku) if sku else None,
+        "catalog_product": _catalog_dict(catalog) if catalog else None,
+    }
+
+
+# --- Products (compat flat SKU-shaped API) -------------------------------------
 
 
 @router.get("/products")

@@ -356,8 +356,8 @@ def _bootstrap_db():
     from vaybooks.bms.infrastructure.db.demo_seed_profiles import profiles_to_run
 
     logger.info(
-        "Bootstrap seed settings: seed_config=%s seed_qa_fixtures=%s purge_business_data=%s "
-        "seed_profile=%s counts=(c=%s,v=%s,cat=%s,p=%s) db=%s",
+        "Bootstrap seed settings: seed_config=%s seed_qa_fixtures=%s "
+        "purge_business_data=%s seed_profile=%s counts=(c=%s,v=%s,cat=%s,p=%s) db=%s",
         settings.seed_config,
         settings.seed_qa_fixtures,
         settings.purge_business_data,

@@ -6,6 +6,7 @@ export function canPermission(permissions: string[] | undefined | null, key: str
   const k = (key || '').trim();
   if (!k) return true;
   const perms = permissions || [];
+  if (perms.includes('*')) return true;
   return perms.includes(k);
 }
 

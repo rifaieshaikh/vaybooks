@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   useAddBoutiqueOrderItemMutation,
   useLazyGetBoutiqueItemPdfQuery,
+  useCan,
+  useListInventoryCategoriesQuery,
   useRemoveBoutiqueOrderItemMutation,
   useUpdateBoutiqueOrderItemMutation,
 } from '@vaybooks/store';
-import { Button, ErrorText, FormRow, Modal, TextInput } from '@vaybooks/ui-kit';
+import { Button, ErrorText, FormRow, Modal, SearchableSelect, TextInput } from '@vaybooks/ui-kit';
 import { defaultRequiredActivities } from '../../activityDefaults';
 import { asCaption, extractError, formatMoney } from '../../utils';
 import { garmentSchema, type GarmentValues } from '../schemas';
@@ -61,6 +63,23 @@ export function GarmentCard({
   const [updateItem, updateState] = useUpdateBoutiqueOrderItemMutation();
   const [removeItem, removeState] = useRemoveBoutiqueOrderItemMutation();
   const [fetchPdf] = useLazyGetBoutiqueItemPdfQuery();
+  const can = useCan();
+  const canEditCategory =
+    can('boutique.items.category.edit') && can('inventory.categories.view');
+  const { data: categories = [] } = useListInventoryCategoriesQuery(
+    { active_only: true },
+    { skip: !canEditCategory },
+  );
+  const categoryOptions = useMemo(
+    () => [
+      { value: '', label: '— No category —' },
+      ...(categories as Record<string, unknown>[]).map((category) => ({
+        value: asCaption(category.id),
+        label: asCaption(category.name) || asCaption(category.id),
+      })),
+    ],
+    [categories],
+  );
 
   const form = useForm<GarmentValues>({
     resolver: zodResolver(garmentSchema),
@@ -75,6 +94,7 @@ export function GarmentCard({
         orderEtd ||
         '',
       measurementId: asCaption(item?.measurement_id) || draftSeed?.measurementId || '',
+      categoryId: asCaption(item?.category_id) || draftSeed?.categoryId || '',
       billNumber: asCaption(item?.bill_number) || draftSeed?.billNumber || '',
       requiredActivities:
         draftSeed?.requiredActivities ||
@@ -126,6 +146,7 @@ export function GarmentCard({
       sell_amount: sellAmount,
       expected_delivery_date: values.expectedDeliveryDate || undefined,
       measurement_id: values.measurementId || undefined,
+      ...(canEditCategory ? { category_id: values.categoryId || null } : {}),
       // With a measurement, bill is assigned server-side; keep existing if already set.
       bill_number: values.measurementId
         ? String(values.billNumber || item?.bill_number || '').trim()
@@ -299,6 +320,24 @@ export function GarmentCard({
             />
           </FormRow>
 
+          {canEditCategory ? (
+            <FormRow label="Inventory category">
+              <Controller
+                control={form.control}
+                name="categoryId"
+                render={({ field }) => (
+                  <SearchableSelect
+                    options={categoryOptions}
+                    value={field.value || ''}
+                    onChange={field.onChange}
+                    disabled={readOnly}
+                    placeholder="Select category"
+                  />
+                )}
+              />
+            </FormRow>
+          ) : null}
+
           <Controller
             control={form.control}
             name="measurementId"
@@ -376,6 +415,7 @@ export function GarmentCard({
                   requiredActivities: { ...form.getValues('requiredActivities') },
                   activityEstimatedHours: { ...form.getValues('activityEstimatedHours') },
                   measurementId: '',
+                  categoryId: form.getValues('categoryId'),
                   billNumber: '',
                 })
               }

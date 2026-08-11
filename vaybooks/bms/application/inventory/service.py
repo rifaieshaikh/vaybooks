@@ -1,13 +1,15 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Union
 
 from vaybooks.bms.domain.inventory.category_tree import build_category_path
 from vaybooks.bms.domain.inventory.entities import (
+    CatalogProduct,
     InventoryProduct,
     Location,
     ProductCategory,
     ProductUnit,
     StockBalance,
+    StockMovement,
     StockTransfer,
     Warehouse,
 )
@@ -15,6 +17,7 @@ from vaybooks.bms.domain.inventory.field_definitions import ProductFieldDefiniti
 from vaybooks.bms.domain.inventory.rate_history import ProductRatePeriod
 from vaybooks.bms.domain.inventory.rate_history_service import ProductRateHistoryService
 from vaybooks.bms.domain.inventory.repository import (
+    CatalogProductRepository,
     InventoryProductRepository,
     LocationRepository,
     ProductCategoryRepository,
@@ -42,11 +45,13 @@ class InventoryAppService:
         location_repo: Optional[LocationRepository] = None,
         balance_repo: Optional[StockBalanceRepository] = None,
         transfer_repo: Optional[StockTransferRepository] = None,
+        catalog_repo: Optional[CatalogProductRepository] = None,
     ):
         self._rate_history = rate_history
         self._location_repo = location_repo or warehouse_repo
         self._balance_repo = balance_repo
         self._transfer_repo = transfer_repo
+        self._catalog_repo = catalog_repo
         self._domain = InventoryDomainService(
             category_repo,
             product_repo,
@@ -58,6 +63,7 @@ class InventoryAppService:
             location_repo=self._location_repo,
             balance_repo=balance_repo,
             transfer_repo=transfer_repo,
+            catalog_repo=catalog_repo,
         )
         self._product_repo = product_repo
         self._category_repo = category_repo
@@ -129,6 +135,9 @@ class InventoryAppService:
 
     def get_category(self, category_id: str) -> Optional[ProductCategory]:
         return self._category_repo.find_by_id(category_id)
+
+    def find_category_by_name(self, name: str) -> Optional[ProductCategory]:
+        return self._category_repo.find_by_name((name or "").strip())
 
     def create_category(
         self,
@@ -243,6 +252,308 @@ class InventoryAppService:
 
     def count_products_in_category(self, category_id: str) -> int:
         return self._product_repo.count_by_category(category_id)
+
+    def list_products_in_category(
+        self, category_id: str, q: str = ""
+    ) -> List[InventoryProduct]:
+        products = self._product_repo.list_by_category(category_id)
+        needle = (q or "").strip().lower()
+        if needle:
+            products = [
+                product
+                for product in products
+                if needle in (product.name or "").lower()
+                or needle in (product.sku or "").lower()
+            ]
+        return [self._hydrate_product(product) for product in products if product]
+
+    def add_products_to_category(
+        self, category_id: str, product_ids: List[str]
+    ) -> Dict[str, List[str]]:
+        if not self.get_category(category_id):
+            raise ValueError("Category not found")
+
+        result: Dict[str, List[str]] = {
+            "added": [],
+            "already_present": [],
+            "missing": [],
+        }
+        seen: set[str] = set()
+        for product_id in product_ids:
+            product_id = (product_id or "").strip()
+            if not product_id or product_id in seen:
+                continue
+            seen.add(product_id)
+            # Prefer catalog parent when id is a catalog product or SKU with parent
+            catalog = self.get_catalog_product(product_id)
+            sku = None if catalog else self._product_repo.find_by_id(product_id)
+            if sku and sku.catalog_product_id:
+                catalog = self.get_catalog_product(sku.catalog_product_id)
+            if catalog:
+                if category_id in (catalog.category_ids or []):
+                    result["already_present"].append(product_id)
+                    continue
+                catalog.category_ids = list(catalog.category_ids or []) + [category_id]
+                paths = self.category_paths_for(catalog.category_ids)
+                catalog.category_names = [paths.get(cid, "") for cid in catalog.category_ids]
+                catalog.sync_legacy_category_fields()
+                if self._catalog_repo:
+                    self._catalog_repo.save(catalog)
+                for child in self._product_repo.list_by_catalog_product(catalog.id):
+                    child.category_ids = list(catalog.category_ids)
+                    child.category_names = list(catalog.category_names)
+                    child.sync_legacy_category_fields()
+                    self._product_repo.save(child)
+                result["added"].append(product_id)
+                continue
+            if not sku:
+                result["missing"].append(product_id)
+                continue
+            if category_id in (sku.category_ids or []):
+                result["already_present"].append(product_id)
+                continue
+            sku.category_ids = list(sku.category_ids or []) + [category_id]
+            paths = self.category_paths_for(sku.category_ids)
+            sku.category_names = [paths.get(cid, "") for cid in sku.category_ids]
+            sku.sync_legacy_category_fields()
+            self._product_repo.save(sku)
+            result["added"].append(product_id)
+        return result
+
+    @staticmethod
+    def _as_date(value: Any) -> Optional[date]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _date_in_range(
+        value: Optional[date],
+        start_date: Optional[date],
+        end_date: Optional[date],
+    ) -> bool:
+        if start_date is None and end_date is None:
+            return True
+        if value is None:
+            return False
+        if start_date is not None and value < start_date:
+            return False
+        if end_date is not None and value > end_date:
+            return False
+        return True
+
+    @staticmethod
+    def _period_key(value: date, grain: str) -> str:
+        normalized = (grain or "month").strip().lower()
+        if normalized == "day":
+            return value.isoformat()
+        if normalized == "week":
+            iso = value.isocalendar()
+            return f"{iso.year}-W{iso.week:02d}"
+        return f"{value.year:04d}-{value.month:02d}"
+
+    def _category_product_breakdown_rows(self, category_id: str) -> List[dict[str, Any]]:
+        """Seed one row per SKU in the category (via parent catalog membership)."""
+        skus: List[InventoryProduct] = []
+        seen: set[str] = set()
+        if self._catalog_repo:
+            for catalog in self._catalog_repo.list_by_category(category_id):
+                for sku in self._product_repo.list_by_catalog_product(catalog.id):
+                    if sku.id in seen:
+                        continue
+                    seen.add(sku.id)
+                    skus.append(sku)
+        for sku in self.list_products_in_category(category_id):
+            if sku.id in seen:
+                continue
+            seen.add(sku.id)
+            skus.append(sku)
+        rows: List[dict[str, Any]] = []
+        for product in skus:
+            parent_name = ""
+            if self._catalog_repo and product.catalog_product_id:
+                parent = self._catalog_repo.find_by_id(product.catalog_product_id)
+                parent_name = parent.name if parent else ""
+            rows.append(
+                {
+                    "product_id": product.id,
+                    "sku_id": product.id,
+                    "catalog_product_id": product.catalog_product_id or "",
+                    "product_name": product.display_name(parent_name) or product.name,
+                    "sku": product.sku,
+                    "qty": 0.0,
+                    "amount": 0.0,
+                }
+            )
+        return rows
+
+    def category_sales_breakdown(
+        self,
+        category_id: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        rows = self._category_product_breakdown_rows(category_id)
+        by_product = {row["product_id"]: row for row in rows}
+        trend_map: dict[str, dict[str, Any]] = {}
+        if by_product:
+            try:
+                from packages.services_kit.sales_container import get_sales_container
+                from vaybooks.bms.domain.sales.line_items import parse_sales_line_items_note
+                from vaybooks.bms.domain.shared.enums import VoucherType
+
+                accounting = get_sales_container().sales._accounting
+                for voucher in accounting.list_vouchers_by_type(VoucherType.SALES_INVOICE):
+                    voucher_day = self._as_date(getattr(voucher, "voucher_date", None))
+                    if not self._date_in_range(voucher_day, start_date, end_date):
+                        continue
+                    items, _, _ = parse_sales_line_items_note(
+                        getattr(voucher, "description", "") or ""
+                    )
+                    period = self._period_key(voucher_day or date.today(), grain)
+                    for item in items:
+                        row = by_product.get(str(item.get("product_id") or "").strip())
+                        if not row:
+                            continue
+                        qty = float(item.get("qty") or 0)
+                        amount = float(
+                            item.get("line_total")
+                            or item.get("taxable_amount")
+                            or qty * float(item.get("rate") or 0)
+                        )
+                        row["qty"] += qty
+                        row["amount"] += amount
+                        bucket = trend_map.setdefault(
+                            period, {"period": period, "qty": 0.0, "amount": 0.0}
+                        )
+                        bucket["qty"] += qty
+                        bucket["amount"] += amount
+            except Exception:
+                pass
+        for row in rows:
+            row["qty"] = round(row["qty"], 4)
+            row["amount"] = round(row["amount"], 2)
+        trend = sorted(trend_map.values(), key=lambda item: item["period"])
+        for bucket in trend:
+            bucket["qty"] = round(bucket["qty"], 4)
+            bucket["amount"] = round(bucket["amount"], 2)
+        return {
+            "rows": rows,
+            "trend": trend,
+            "totals": {
+                "qty": round(sum(row["qty"] for row in rows), 4),
+                "amount": round(sum(row["amount"] for row in rows), 2),
+            },
+        }
+
+    def category_production_breakdown(
+        self,
+        category_id: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        rows = self._category_product_breakdown_rows(category_id)
+        by_product = {row["product_id"]: row for row in rows}
+        trend_map: dict[str, dict[str, Any]] = {}
+        if by_product:
+            try:
+                from packages.services_kit.production_container import get_production_container
+                from vaybooks.bms.domain.shared.enums import ProductionBatchStatus
+
+                for batch in get_production_container().production.list_batches():
+                    if getattr(batch, "status", None) != ProductionBatchStatus.POSTED:
+                        continue
+                    batch_day = self._as_date(getattr(batch, "batch_date", None))
+                    if not self._date_in_range(batch_day, start_date, end_date):
+                        continue
+                    period = self._period_key(batch_day or date.today(), grain)
+                    for output in getattr(batch, "outputs", []) or []:
+                        row = by_product.get(str(getattr(output, "product_id", "") or ""))
+                        if not row:
+                            continue
+                        qty = float(getattr(output, "qty", 0) or 0)
+                        row["qty"] += qty
+                        bucket = trend_map.setdefault(
+                            period, {"period": period, "qty": 0.0}
+                        )
+                        bucket["qty"] += qty
+            except Exception:
+                pass
+        for row in rows:
+            row["qty"] = round(row["qty"], 4)
+        trend = sorted(trend_map.values(), key=lambda item: item["period"])
+        for bucket in trend:
+            bucket["qty"] = round(bucket["qty"], 4)
+        return {
+            "rows": rows,
+            "trend": trend,
+            "totals": {"qty": round(sum(row["qty"] for row in rows), 4)},
+        }
+
+    def category_customization_breakdown(
+        self,
+        category_id: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        by_status: dict[str, dict[str, Any]] = {}
+        trend_map: dict[str, dict[str, Any]] = {}
+        try:
+            from packages.services_kit.boutique_container import get_boutique_container
+
+            orders = get_boutique_container().orders._order_repo.list_all()
+            for order in orders:
+                order_day = self._as_date(getattr(order, "order_date", None))
+                if not self._date_in_range(order_day, start_date, end_date):
+                    continue
+                period = self._period_key(order_day or date.today(), grain)
+                for item in getattr(order, "customization_items", []) or []:
+                    if getattr(item, "category_id", None) != category_id:
+                        continue
+                    status = getattr(getattr(item, "item_status", None), "value", None) or "Unknown"
+                    sell_amount = float(getattr(item, "sell_amount", 0) or 0)
+                    row = by_status.setdefault(
+                        status, {"status": status, "count": 0, "sell_amount": 0.0}
+                    )
+                    row["count"] += 1
+                    row["sell_amount"] += sell_amount
+                    bucket = trend_map.setdefault(
+                        period, {"period": period, "count": 0, "sell_amount": 0.0}
+                    )
+                    bucket["count"] += 1
+                    bucket["sell_amount"] += sell_amount
+        except Exception:
+            pass
+        rows = sorted(by_status.values(), key=lambda row: row["status"])
+        for row in rows:
+            row["sell_amount"] = round(row["sell_amount"], 2)
+        trend = sorted(trend_map.values(), key=lambda item: item["period"])
+        for bucket in trend:
+            bucket["sell_amount"] = round(bucket["sell_amount"], 2)
+        return {
+            "rows": rows,
+            "trend": trend,
+            "totals": {
+                "count": sum(row["count"] for row in rows),
+                "sell_amount": round(sum(row["sell_amount"] for row in rows), 2),
+            },
+        }
 
     def list_field_definitions(self, active_only: bool = False) -> List[ProductFieldDefinition]:
         return self._domain.list_field_definitions(active_only=active_only)
@@ -632,3 +943,253 @@ class InventoryAppService:
 
     def get_stock_transfer(self, transfer_id: str) -> Optional[StockTransfer]:
         return self._domain.get_stock_transfer(transfer_id)
+
+    # --- Catalog products / SKUs ---
+
+    def list_catalog_products(self, active_only: bool = False) -> List[CatalogProduct]:
+        return self._domain.list_catalog_products(active_only=active_only)
+
+    def search_catalog_products(self, query: str) -> List[CatalogProduct]:
+        return self._domain.search_catalog_products(query)
+
+    def get_catalog_product(self, catalog_product_id: str) -> Optional[CatalogProduct]:
+        return self._domain.get_catalog_product(catalog_product_id)
+
+    def create_catalog_product(self, name: str, category_ids=None, **kwargs) -> CatalogProduct:
+        return self._domain.create_catalog_product(name, category_ids, **kwargs)
+
+    def update_catalog_product(self, catalog_product_id: str, **kwargs) -> CatalogProduct:
+        return self._domain.update_catalog_product(catalog_product_id, **kwargs)
+
+    def list_skus_for_catalog(self, catalog_product_id: str) -> List[InventoryProduct]:
+        return [
+            self._hydrate_product(p)
+            for p in self._domain.list_skus_for_catalog(catalog_product_id)
+            if p
+        ]
+
+    def create_sku_under_catalog(self, catalog_product_id: str, sku: str, **kwargs) -> InventoryProduct:
+        return self._hydrate_product(
+            self._domain.create_sku_under_catalog(catalog_product_id, sku, **kwargs)
+        )
+
+    def merge_catalog_products(
+        self,
+        target_catalog_product_id: str,
+        source_catalog_product_ids: List[str],
+        *,
+        force: bool = False,
+    ) -> CatalogProduct:
+        return self._domain.merge_catalog_products(
+            target_catalog_product_id,
+            source_catalog_product_ids,
+            force=force,
+        )
+
+    def resolve_inventory_id(self, entity_id: str) -> dict[str, Any]:
+        """Resolve an id as SKU and/or catalog product (for deep-link redirects)."""
+        sku = self.get_product(entity_id)
+        catalog = self.get_catalog_product(entity_id)
+        return {
+            "id": entity_id,
+            "is_sku": bool(sku),
+            "is_catalog_product": bool(catalog),
+            "sku": sku,
+            "catalog_product": catalog,
+            "catalog_product_id": (sku.catalog_product_id if sku else "")
+            or (catalog.id if catalog else ""),
+        }
+
+    def _sku_breakdown_seed_rows(self, sku_ids: List[str]) -> List[dict[str, Any]]:
+        rows: List[dict[str, Any]] = []
+        for sku_id in sku_ids:
+            product = self.get_product(sku_id)
+            if not product:
+                continue
+            parent_name = ""
+            if product.catalog_product_id:
+                parent = self.get_catalog_product(product.catalog_product_id)
+                parent_name = parent.name if parent else ""
+            rows.append(
+                {
+                    "product_id": product.id,
+                    "sku_id": product.id,
+                    "catalog_product_id": product.catalog_product_id or "",
+                    "product_name": product.display_name(parent_name) or product.name,
+                    "sku": product.sku,
+                    "qty": 0.0,
+                    "amount": 0.0,
+                }
+            )
+        return rows
+
+    def catalog_product_sales_breakdown(
+        self,
+        catalog_product_id: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        skus = self.list_skus_for_catalog(catalog_product_id)
+        rows = self._sku_breakdown_seed_rows([s.id for s in skus])
+        return self._fill_sales_breakdown_rows(
+            rows, start_date=start_date, end_date=end_date, grain=grain
+        )
+
+    def sku_sales_breakdown(
+        self,
+        sku_id: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        rows = self._sku_breakdown_seed_rows([sku_id])
+        return self._fill_sales_breakdown_rows(
+            rows, start_date=start_date, end_date=end_date, grain=grain
+        )
+
+    def _fill_sales_breakdown_rows(
+        self,
+        rows: List[dict[str, Any]],
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        grain: str = "month",
+    ) -> dict[str, Any]:
+        by_product = {row["product_id"]: row for row in rows}
+        trend_map: dict[str, dict[str, Any]] = {}
+        if by_product:
+            try:
+                from packages.services_kit.sales_container import get_sales_container
+                from vaybooks.bms.domain.sales.line_items import parse_sales_line_items_note
+                from vaybooks.bms.domain.shared.enums import VoucherType
+
+                accounting = get_sales_container().sales._accounting
+                for voucher in accounting.list_vouchers_by_type(VoucherType.SALES_INVOICE):
+                    voucher_day = self._as_date(getattr(voucher, "voucher_date", None))
+                    if not self._date_in_range(voucher_day, start_date, end_date):
+                        continue
+                    items, _, _ = parse_sales_line_items_note(
+                        getattr(voucher, "description", "") or ""
+                    )
+                    period = self._period_key(voucher_day or date.today(), grain)
+                    for item in items:
+                        pid = str(
+                            item.get("sku_id") or item.get("product_id") or ""
+                        ).strip()
+                        row = by_product.get(pid)
+                        if not row:
+                            continue
+                        qty = float(item.get("qty") or 0)
+                        amount = float(
+                            item.get("line_total")
+                            or item.get("taxable_amount")
+                            or qty * float(item.get("rate") or 0)
+                        )
+                        row["qty"] += qty
+                        row["amount"] += amount
+                        bucket = trend_map.setdefault(
+                            period, {"period": period, "qty": 0.0, "amount": 0.0}
+                        )
+                        bucket["qty"] += qty
+                        bucket["amount"] += amount
+            except Exception:
+                pass
+        for row in rows:
+            row["qty"] = round(row["qty"], 4)
+            row["amount"] = round(row["amount"], 2)
+        trend = sorted(trend_map.values(), key=lambda item: item["period"])
+        for bucket in trend:
+            bucket["qty"] = round(bucket["qty"], 4)
+            bucket["amount"] = round(bucket["amount"], 2)
+        return {
+            "rows": rows,
+            "trend": trend,
+            "totals": {
+                "qty": round(sum(row["qty"] for row in rows), 4),
+                "amount": round(sum(row["amount"] for row in rows), 2),
+            },
+        }
+
+    def catalog_product_spec_insights(self, catalog_product_id: str) -> dict[str, Any]:
+        catalog = self.get_catalog_product(catalog_product_id)
+        if not catalog:
+            return {
+                "specifications": [],
+                "custom_fields": [],
+                "attributes": [],
+                "totals": {"sku_count": 0, "on_hand": 0.0},
+            }
+        skus = self.list_skus_for_catalog(catalog_product_id)
+        specs = [
+            {"key": k, "value": v, "sku_count": len(skus)}
+            for k, v in (catalog.specifications or {}).items()
+        ]
+        customs = [
+            {"key": str(k), "value": str(v), "sku_count": len(skus)}
+            for k, v in (catalog.custom_fields or {}).items()
+        ]
+        attributes: List[dict[str, Any]] = []
+        on_hand = 0.0
+        for sku in skus:
+            on_hand += float(sku.current_qty or 0)
+            for key, value in (sku.attributes or {}).items():
+                attributes.append(
+                    {
+                        "key": key,
+                        "value": value,
+                        "sku_id": sku.id,
+                        "sku": sku.sku,
+                        "on_hand": float(sku.current_qty or 0),
+                        "sales_qty": 0.0,
+                    }
+                )
+        return {
+            "specifications": specs,
+            "custom_fields": customs,
+            "attributes": attributes,
+            "totals": {
+                "sku_count": len(skus),
+                "on_hand": round(on_hand, 4),
+            },
+        }
+
+    def catalog_product_activity(self, catalog_product_id: str, *, limit: int = 50) -> dict[str, Any]:
+        skus = self.list_skus_for_catalog(catalog_product_id)
+        events: List[dict[str, Any]] = []
+        for sku in skus:
+            for row in self.get_product_ledger(sku.id)[:20]:
+                events.append(
+                    {
+                        "type": "stock_movement",
+                        "sku_id": sku.id,
+                        "sku": sku.sku,
+                        "date": row.get("movement_date") or row.get("date"),
+                        "label": f"{row.get('movement_type') or row.get('type') or ''} {row.get('qty') or ''}".strip(),
+                        "ref": row.get("reference_id"),
+                    }
+                )
+        events.sort(key=lambda e: str(e.get("date") or ""), reverse=True)
+        return {"events": events[: max(1, min(int(limit or 50), 200))]}
+
+    def sku_activity(self, sku_id: str, *, limit: int = 50) -> dict[str, Any]:
+        events: List[dict[str, Any]] = []
+        sku = self.get_product(sku_id)
+        if not sku:
+            return {"events": []}
+        for row in self.get_product_ledger(sku_id)[:50]:
+            events.append(
+                {
+                    "type": "stock_movement",
+                    "sku_id": sku.id,
+                    "sku": sku.sku,
+                    "date": row.get("movement_date") or row.get("date"),
+                    "label": f"{row.get('movement_type') or row.get('type') or ''} {row.get('qty') or ''}".strip(),
+                    "ref": row.get("reference_id"),
+                }
+            )
+        events.sort(key=lambda e: str(e.get("date") or ""), reverse=True)
+        return {"events": events[: max(1, min(int(limit or 50), 200))]}
+

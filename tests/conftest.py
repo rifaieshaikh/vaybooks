@@ -570,19 +570,16 @@ class FakeProductCategoryRepository:
         return [self._store[cid] for cid in category_ids if cid in self._store]
 
     def find_by_name(self, name: str):
-        name = (name or "").strip()
+        needle = (name or "").strip().lower()
+        if not needle:
+            return None
         for category in self._store.values():
-            if category.name == name:
+            if (category.name or "").strip().lower() == needle:
                 return category
         return None
 
     def find_by_parent_and_name(self, parent_id: str | None, name: str):
-        name = (name or "").strip()
-        parent_id = parent_id or None
-        for category in self._store.values():
-            if category.name == name and (category.parent_id or None) == parent_id:
-                return category
-        return None
+        return self.find_by_name(name)
 
     def list_children(self, parent_id: str | None):
         parent_id = parent_id or None
@@ -761,6 +758,41 @@ class FakeProductUnitRepository:
         return 0
 
 
+class FakeCatalogProductRepository:
+    def __init__(self):
+        self._store: Dict[str, object] = {}
+
+    def save(self, product):
+        self._store[product.id] = product
+        return product
+
+    def find_by_id(self, product_id: str):
+        return self._store.get(product_id)
+
+    def list_all(self, active_only: bool = True):
+        if active_only:
+            return [p for p in self._store.values() if getattr(p, "is_active", True)]
+        return list(self._store.values())
+
+    def list_by_category(self, category_id: str):
+        return [
+            p
+            for p in self._store.values()
+            if category_id in (getattr(p, "category_ids", None) or [])
+            or getattr(p, "category_id", "") == category_id
+        ]
+
+    def search(self, query: str):
+        q = (query or "").strip().lower()
+        if not q:
+            return self.list_all()
+        return [
+            p
+            for p in self._store.values()
+            if q in getattr(p, "name", "").lower()
+        ]
+
+
 class FakeInventoryProductRepository:
     def __init__(self):
         self._store: Dict[str, "InventoryProduct"] = {}
@@ -783,6 +815,15 @@ class FakeInventoryProductRepository:
         if active_only:
             return [p for p in self._store.values() if p.is_active]
         return list(self._store.values())
+
+    def list_by_catalog_product(self, catalog_product_id: str):
+        if not catalog_product_id:
+            return []
+        return [
+            p
+            for p in self._store.values()
+            if getattr(p, "catalog_product_id", "") == catalog_product_id
+        ]
 
     def list_by_category(self, category_id: str):
         return [
@@ -874,6 +915,7 @@ def make_inventory_app_service():
         location_repo=FakeLocationRepository(),
         balance_repo=FakeStockBalanceRepository(),
         transfer_repo=FakeStockTransferRepository(),
+        catalog_repo=FakeCatalogProductRepository(),
     )
     service.find_or_create_unit("pcs", "Pieces")
     service.create_location("TEST-LOC", "Test Location")

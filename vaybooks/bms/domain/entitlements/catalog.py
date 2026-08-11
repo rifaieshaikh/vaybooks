@@ -143,6 +143,7 @@ PERMISSIONS: Tuple[str, ...] = tuple(
         *_expand("boutique.orders", ("view", "create", "edit")),
         *_expand("boutique.measurements", ("view", "edit")),
         *_expand("boutique.items", ("view", "edit")),
+        "boutique.items.category.edit",
         *_expand("boutique.tasks", ("view", "edit")),
         "boutique.calendar.view",
         "boutique.reports.view",
@@ -196,9 +197,25 @@ PERMISSIONS: Tuple[str, ...] = tuple(
         "purchases.reports.view",
         # Inventory
         "inventory.overview.view",
-        *_expand("inventory.categories", ("view", "edit")),
+        *_expand(
+            "inventory.categories",
+            (
+                "view",
+                "create",
+                "edit",
+                "deactivate",
+                "open",
+            ),
+        ),
+        "inventory.categories.overview.view",
+        "inventory.categories.items.view",
+        "inventory.categories.items.add",
+        "inventory.categories.sales.view",
+        "inventory.categories.production.view",
+        "inventory.categories.customization.view",
         *_expand("inventory.warehouses", ("view", "edit")),
         *_expand("inventory.products", ("view", "create", "edit")),
+        *_expand("inventory.skus", ("view", "create", "edit")),
         "inventory.stock.view",
         "inventory.stock_ledger.view",
         *_expand("inventory.movements", ("view", "create")),
@@ -295,6 +312,37 @@ def resolve_permission_patterns(patterns: Iterable[str]) -> FrozenSet[str]:
     return frozenset(resolved)
 
 
+# Pre-granular inventory.categories keys were only view/edit. Expand stored roles that
+# still lack ``open`` so custom roles keep access after the catalog split.
+_CATEGORY_VIEW_EXPANSION: Tuple[str, ...] = (
+    "inventory.categories.view",
+    "inventory.categories.open",
+    "inventory.categories.overview.view",
+    "inventory.categories.items.view",
+)
+_CATEGORY_EDIT_EXPANSION: Tuple[str, ...] = (
+    *_CATEGORY_VIEW_EXPANSION,
+    "inventory.categories.create",
+    "inventory.categories.edit",
+    "inventory.categories.deactivate",
+    "inventory.categories.items.add",
+    "inventory.categories.sales.view",
+    "inventory.categories.production.view",
+    "inventory.categories.customization.view",
+)
+
+
+def expand_legacy_category_permissions(keys: Iterable[str]) -> Set[str]:
+    out: Set[str] = set(keys or [])
+    if "inventory.categories.open" in out:
+        return out
+    if "inventory.categories.edit" in out:
+        out.update(_CATEGORY_EDIT_EXPANSION)
+    elif "inventory.categories.view" in out:
+        out.update(_CATEGORY_VIEW_EXPANSION)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Page → permission
 # ---------------------------------------------------------------------------
@@ -383,9 +431,12 @@ PAGE_PERMISSIONS: Dict[str, str] = {
     "purchases-scheduled-reports": "schedulers.view",
     "inventory-overview": "inventory.overview.view",
     "inventory-categories": "inventory.categories.view",
+    "inventory-category-detail": "inventory.categories.open",
     "inventory-warehouses": "inventory.warehouses.view",
     "inventory-products": "inventory.products.view",
     "inventory-product-detail": "inventory.products.view",
+    "inventory-skus": "inventory.skus.view",
+    "inventory-sku-detail": "inventory.skus.view",
     "inventory-stock": "inventory.stock.view",
     "inventory-stock-ledger": "inventory.stock_ledger.view",
     "inventory-movements": "inventory.movements.view",
@@ -657,6 +708,9 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
             "purchases.reports.view",
             "inventory.overview.view",
             "inventory.categories.view",
+            "inventory.categories.open",
+            "inventory.categories.overview.view",
+            "inventory.categories.items.view",
             "inventory.warehouses.view",
             "inventory.products.view",
             "inventory.stock.view",
@@ -808,6 +862,8 @@ SYSTEM_ROLE_DEFINITIONS: Dict[str, Dict] = {
             "parties.customers.*",
             "parties.employees.view",
             "boutique.*",
+            "boutique.items.category.edit",
+            "inventory.categories.view",
         ),
     },
     ROLE_WAREHOUSE_MANAGER: {

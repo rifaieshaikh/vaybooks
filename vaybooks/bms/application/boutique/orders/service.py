@@ -395,6 +395,7 @@ class OrderAppService:
         measurement_id: Optional[str] = None,
         sell_amount: float = 0.0,
         activity_estimated_hours: Optional[dict] = None,
+        category_id: Optional[str] = None,
     ) -> CustomizationItem:
         order = self._order_repo.find_by_id(order_id)
         if not order:
@@ -432,6 +433,7 @@ class OrderAppService:
             measurement_number=measurement_number,
             estimated_hours_map=activity_estimated_hours or {},
             sell_amount=float(sell_amount or 0),
+            category_id=category_id,
         )
         self._order_repo.save(order)
         self._sync_order_tasks(order)
@@ -635,6 +637,7 @@ class OrderAppService:
                         "margin_per_hour": item.margin_per_hour,
                         "mph_snapshot_at": item.mph_snapshot_at,
                         "measurement_id": item.measurement_id or "",
+                        "category_id": item.category_id,
                     }
                 )
         return rows
@@ -855,6 +858,7 @@ class OrderAppService:
         customer_specification: Optional[str] = None,
         *,
         measurement_id=_MEASUREMENT_UNSET,
+        category_id=_MEASUREMENT_UNSET,
         required_activities: Optional[dict] = None,
         sell_amount: Optional[float] = None,
         activity_estimated_hours: Optional[dict] = None,
@@ -918,6 +922,7 @@ class OrderAppService:
             expected_delivery_date=expected_delivery_date,
             customer_specification=customer_specification,
             sell_amount=sell_amount,
+            category_id=item.category_id if category_id is _MEASUREMENT_UNSET else category_id,
         )
 
         if required_activities is not None or activity_estimated_hours is not None:

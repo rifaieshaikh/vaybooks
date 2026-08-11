@@ -2,25 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useInventoryReportsCatalogQuery, useRunInventoryReportMutation } from '@vaybooks/store';
 import { Button, DataTable, ErrorText, FormRow, type DataTableColumn } from '@vaybooks/ui-kit';
-
-function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
-  if (rows.length === 0) return;
-  const headers = Object.keys(rows[0]);
-  const escape = (value: unknown) => {
-    const s = String(value ?? '');
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const lines = [headers.join(','), ...rows.map((row) => headers.map((h) => escape(row[h])).join(','))];
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
+import { downloadCsv } from '../utils';
 
 function extractError(e: unknown): string {
   if (e && typeof e === 'object' && 'data' in e) {

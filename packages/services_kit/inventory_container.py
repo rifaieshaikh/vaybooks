@@ -47,6 +47,7 @@ def _build_mongo(uri: str) -> InventoryContainer:
     from vaybooks.bms.application.inventory.service import InventoryAppService
     from vaybooks.bms.domain.inventory.rate_history_service import ProductRateHistoryService
     from vaybooks.bms.infrastructure.repositories.inventory.mongo_inventory_repository import (
+        MongoCatalogProductRepository,
         MongoInventoryProductRepository,
         MongoLocationRepository,
         MongoProductCategoryRepository,
@@ -66,6 +67,7 @@ def _build_mongo(uri: str) -> InventoryContainer:
 
     category_repo = MongoProductCategoryRepository(db)
     product_repo = MongoInventoryProductRepository(db)
+    catalog_repo = MongoCatalogProductRepository(db)
     movement_repo = MongoStockMovementRepository(db)
     unit_repo = MongoProductUnitRepository(db)
     field_repo = MongoProductFieldDefinitionRepository(db)
@@ -89,6 +91,7 @@ def _build_mongo(uri: str) -> InventoryContainer:
         location_repo=location_repo,
         balance_repo=balance_repo,
         transfer_repo=transfer_repo,
+        catalog_repo=catalog_repo,
     )
     return InventoryContainer(
         backend="mongo",

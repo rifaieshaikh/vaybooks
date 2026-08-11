@@ -65,9 +65,9 @@ def test_update_category_happy_path():
     updated = service.update_category(
         cat.id, "Textiles", "new desc", is_active=True
     )
-    assert updated.name == "Textiles"
+    assert updated.name == "Fabric"
     assert updated.description == "new desc"
-    assert service.get_category(cat.id).name == "Textiles"
+    assert service.get_category(cat.id).name == "Fabric"
 
 
 def test_delete_category_happy_path():

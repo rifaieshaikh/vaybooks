@@ -1089,6 +1089,16 @@ export const baseApi = createApi({
       query: (args) => ({ url: '/inventory/categories', params: args || undefined }),
       providesTags: ['Inventory'],
     }),
+    checkInventoryCategoryName: build.query<
+      { exists: boolean; id?: string },
+      { name: string }
+    >({
+      query: ({ name }) => ({ url: '/inventory/categories/check-name', params: { name } }),
+    }),
+    getInventoryCategory: build.query<Record<string, unknown>, string>({
+      query: (id) => `/inventory/categories/${id}`,
+      providesTags: ['Inventory'],
+    }),
     createInventoryCategory: build.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: '/inventory/categories', method: 'POST', body }),
       invalidatesTags: ['Inventory'],
@@ -1100,11 +1110,150 @@ export const baseApi = createApi({
       query: ({ id, body }) => ({ url: `/inventory/categories/${id}`, method: 'PUT', body }),
       invalidatesTags: ['Inventory'],
     }),
+    listInventoryCategoryProducts: build.query<
+      Record<string, unknown>[],
+      { id: string; q?: string }
+    >({
+      query: ({ id, q }) => ({
+        url: `/inventory/categories/${id}/products`,
+        params: q ? { q } : undefined,
+      }),
+      providesTags: ['Inventory'],
+    }),
+    addInventoryCategoryProducts: build.mutation<
+      { added: string[]; already_present: string[]; missing: string[] },
+      { id: string; product_ids: string[] }
+    >({
+      query: ({ id, product_ids }) => ({
+        url: `/inventory/categories/${id}/products`,
+        method: 'POST',
+        body: { product_ids },
+      }),
+      invalidatesTags: ['Inventory'],
+    }),
+    getInventoryCategorySalesBreakdown: build.query<
+      Record<string, unknown>,
+      { id: string; start_date?: string; end_date?: string; grain?: string }
+    >({
+      query: ({ id, start_date, end_date, grain }) => ({
+        url: `/inventory/categories/${id}/sales-breakdown`,
+        params: {
+          ...(start_date ? { start_date } : {}),
+          ...(end_date ? { end_date } : {}),
+          ...(grain ? { grain } : {}),
+        },
+      }),
+      providesTags: ['Inventory'],
+    }),
+    getInventoryCategoryProductionBreakdown: build.query<
+      Record<string, unknown>,
+      { id: string; start_date?: string; end_date?: string; grain?: string }
+    >({
+      query: ({ id, start_date, end_date, grain }) => ({
+        url: `/inventory/categories/${id}/production-breakdown`,
+        params: {
+          ...(start_date ? { start_date } : {}),
+          ...(end_date ? { end_date } : {}),
+          ...(grain ? { grain } : {}),
+        },
+      }),
+      providesTags: ['Inventory'],
+    }),
+    getInventoryCategoryCustomizationBreakdown: build.query<
+      Record<string, unknown>,
+      { id: string; start_date?: string; end_date?: string; grain?: string }
+    >({
+      query: ({ id, start_date, end_date, grain }) => ({
+        url: `/inventory/categories/${id}/customization-breakdown`,
+        params: {
+          ...(start_date ? { start_date } : {}),
+          ...(end_date ? { end_date } : {}),
+          ...(grain ? { grain } : {}),
+        },
+      }),
+      providesTags: ['Inventory'],
+    }),
     listInventoryProducts: build.query<
       Record<string, unknown>[],
       { q?: string; active_only?: boolean } | void
     >({
       query: (args) => ({ url: '/inventory/products', params: args || undefined }),
+      providesTags: ['Inventory'],
+    }),
+    listCatalogProducts: build.query<
+      Record<string, unknown>[],
+      { q?: string; active_only?: boolean } | void
+    >({
+      query: (args) => ({ url: '/inventory/catalog-products', params: args || undefined }),
+      providesTags: ['Inventory'],
+    }),
+    createCatalogProduct: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/inventory/catalog-products', method: 'POST', body }),
+      invalidatesTags: ['Inventory'],
+    }),
+    getCatalogProduct: build.query<Record<string, unknown>, string>({
+      query: (id) => `/inventory/catalog-products/${id}`,
+      providesTags: ['Inventory'],
+    }),
+    updateCatalogProduct: build.mutation<
+      Record<string, unknown>,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({
+        url: `/inventory/catalog-products/${id}`,
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: ['Inventory'],
+    }),
+    createCatalogSku: build.mutation<
+      Record<string, unknown>,
+      { catalogProductId: string; body: Record<string, unknown> }
+    >({
+      query: ({ catalogProductId, body }) => ({
+        url: `/inventory/catalog-products/${catalogProductId}/skus`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Inventory'],
+    }),
+    getCatalogProductSalesBreakdown: build.query<
+      Record<string, unknown>,
+      { id: string; start_date?: string; end_date?: string; grain?: string }
+    >({
+      query: ({ id, start_date, end_date, grain }) => ({
+        url: `/inventory/catalog-products/${id}/sales-breakdown`,
+        params: {
+          ...(start_date ? { start_date } : {}),
+          ...(end_date ? { end_date } : {}),
+          ...(grain ? { grain } : {}),
+        },
+      }),
+      providesTags: ['Inventory'],
+    }),
+    getCatalogProductSpecInsights: build.query<Record<string, unknown>, string>({
+      query: (id) => `/inventory/catalog-products/${id}/spec-insights`,
+      providesTags: ['Inventory'],
+    }),
+    getCatalogProductActivity: build.query<
+      Record<string, unknown>,
+      { id: string; limit?: number }
+    >({
+      query: ({ id, limit }) => ({
+        url: `/inventory/catalog-products/${id}/activity`,
+        params: limit ? { limit } : undefined,
+      }),
+      providesTags: ['Inventory'],
+    }),
+    resolveInventoryEntity: build.query<Record<string, unknown>, string>({
+      query: (id) => `/inventory/resolve/${id}`,
+      providesTags: ['Inventory'],
+    }),
+    listInventorySkus: build.query<
+      Record<string, unknown>[],
+      { q?: string; active_only?: boolean } | void
+    >({
+      query: (args) => ({ url: '/inventory/skus', params: args || undefined }),
       providesTags: ['Inventory'],
     }),
     createInventoryProduct: build.mutation<Record<string, unknown>, Record<string, unknown>>({
@@ -3812,9 +3961,26 @@ export const {
   useCreateStockReserveMutation,
   useInventoryOverviewQuery,
   useListInventoryCategoriesQuery,
+  useLazyCheckInventoryCategoryNameQuery,
+  useGetInventoryCategoryQuery,
   useCreateInventoryCategoryMutation,
   useUpdateInventoryCategoryMutation,
+  useListInventoryCategoryProductsQuery,
+  useAddInventoryCategoryProductsMutation,
+  useGetInventoryCategorySalesBreakdownQuery,
+  useGetInventoryCategoryProductionBreakdownQuery,
+  useGetInventoryCategoryCustomizationBreakdownQuery,
   useListInventoryProductsQuery,
+  useListCatalogProductsQuery,
+  useCreateCatalogProductMutation,
+  useGetCatalogProductQuery,
+  useUpdateCatalogProductMutation,
+  useCreateCatalogSkuMutation,
+  useGetCatalogProductSalesBreakdownQuery,
+  useGetCatalogProductSpecInsightsQuery,
+  useGetCatalogProductActivityQuery,
+  useResolveInventoryEntityQuery,
+  useListInventorySkusQuery,
   useCreateInventoryProductMutation,
   useGetInventoryProductQuery,
   useUpdateInventoryProductMutation,

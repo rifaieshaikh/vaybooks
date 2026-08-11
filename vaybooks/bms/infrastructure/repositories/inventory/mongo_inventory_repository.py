@@ -1,9 +1,11 @@
 from datetime import date, datetime
+import re
 from typing import Any, List, Optional
 
 from pymongo.database import Database
 
 from vaybooks.bms.domain.inventory.entities import (
+    CatalogProduct,
     InventoryProduct,
     Location,
     ProductCategory,
@@ -98,9 +100,11 @@ class MongoProductCategoryRepository:
         self._collection = db.product_categories
 
     def _to_doc(self, category: ProductCategory) -> dict:
+        name = category.name or ""
         return {
             "_id": category.id,
-            "name": category.name,
+            "name": name,
+            "name_lower": name.strip().lower(),
             "parent_id": category.parent_id,
             "description": category.description,
             "is_active": category.is_active,
@@ -138,16 +142,20 @@ class MongoProductCategoryRepository:
         return [by_id[cid] for cid in ids if cid in by_id]
 
     def find_by_name(self, name: str) -> Optional[ProductCategory]:
-        doc = self._collection.find_one({"name": name.strip()})
+        needle = (name or "").strip().lower()
+        if not needle:
+            return None
+        doc = self._collection.find_one({"name_lower": needle})
+        if doc:
+            return self._from_doc(doc)
+        # Fallback for docs not yet backfilled with name_lower
+        doc = self._collection.find_one({"name": {"$regex": f"^{re.escape((name or '').strip())}$", "$options": "i"}})
         return self._from_doc(doc) if doc else None
 
     def find_by_parent_and_name(
         self, parent_id: Optional[str], name: str
     ) -> Optional[ProductCategory]:
-        doc = self._collection.find_one(
-            {"parent_id": _parent_key(parent_id), "name": name.strip()}
-        )
-        return self._from_doc(doc) if doc else None
+        return self.find_by_name(name)
 
     def list_all(self, active_only: bool = True) -> List[ProductCategory]:
         query = {"is_active": True} if active_only else {}
@@ -326,6 +334,102 @@ class MongoProductFieldDefinitionRepository:
         self._collection.delete_one({"_id": definition_id})
 
 
+class MongoCatalogProductRepository:
+    def __init__(self, db: Database):
+        self._collection = db.inventory_catalog_products
+
+    def _migrate_categories(self, doc: dict) -> tuple[list[str], list[str]]:
+        category_ids = list(doc.get("category_ids") or [])
+        category_names = list(doc.get("category_names") or [])
+        legacy_id = doc.get("category_id")
+        if not category_ids and legacy_id:
+            category_ids = [legacy_id]
+            legacy_name = doc.get("category_name") or ""
+            category_names = [legacy_name] if legacy_name else []
+        return category_ids, category_names
+
+    def _to_doc(self, product: CatalogProduct) -> dict:
+        product.sync_legacy_category_fields()
+        return {
+            "_id": product.id,
+            "name": product.name,
+            "category_ids": list(product.category_ids),
+            "category_names": list(product.category_names),
+            "category_id": product.category_id,
+            "category_name": product.category_name,
+            "unit_id": product.unit_id,
+            "unit": product.unit,
+            "hsn_sac": product.hsn_sac,
+            "specifications": dict(product.specifications or {}),
+            "custom_fields": dict(product.custom_fields or {}),
+            "is_active": product.is_active,
+            "created_at": product.created_at,
+            "updated_at": product.updated_at,
+        }
+
+    def _from_doc(self, doc: dict) -> CatalogProduct:
+        category_ids, category_names = self._migrate_categories(doc)
+        product = CatalogProduct(
+            id=doc["_id"],
+            name=doc["name"],
+            category_ids=category_ids,
+            category_names=category_names,
+            unit_id=str(doc.get("unit_id") or ""),
+            unit=doc.get("unit", "pcs"),
+            hsn_sac=str(doc.get("hsn_sac") or ""),
+            specifications=dict(doc.get("specifications") or {}),
+            custom_fields=dict(doc.get("custom_fields") or {}),
+            is_active=doc.get("is_active", True),
+            created_at=doc.get("created_at", datetime.utcnow()),
+            updated_at=doc.get("updated_at", datetime.utcnow()),
+        )
+        product.sync_legacy_category_fields()
+        return product
+
+    def save(self, product: CatalogProduct) -> CatalogProduct:
+        self._collection.replace_one(
+            {"_id": product.id}, self._to_doc(product), upsert=True
+        )
+        return product
+
+    def find_by_id(self, product_id: str) -> Optional[CatalogProduct]:
+        doc = self._collection.find_one({"_id": product_id})
+        return self._from_doc(doc) if doc else None
+
+    def list_all(self, active_only: bool = True) -> List[CatalogProduct]:
+        query = {"is_active": True} if active_only else {}
+        return [self._from_doc(d) for d in self._collection.find(query)]
+
+    def list_by_category(self, category_id: str) -> List[CatalogProduct]:
+        return [
+            self._from_doc(d)
+            for d in self._collection.find(
+                {
+                    "$or": [
+                        {"category_ids": category_id},
+                        {"category_id": category_id},
+                    ]
+                }
+            )
+        ]
+
+    def search(self, query: str) -> List[CatalogProduct]:
+        if not query.strip():
+            return self.list_all()
+        regex = {"$regex": query.strip(), "$options": "i"}
+        docs = self._collection.find(
+            {
+                "$or": [
+                    {"name": regex},
+                    {"category_name": regex},
+                    {"category_names": regex},
+                    {"hsn_sac": regex},
+                ]
+            }
+        )
+        return [self._from_doc(d) for d in docs]
+
+
 class MongoInventoryProductRepository:
     def __init__(self, db: Database):
         self._collection = db.inventory_products
@@ -346,6 +450,10 @@ class MongoInventoryProductRepository:
             "_id": product.id,
             "sku": product.sku,
             "name": product.name,
+            "catalog_product_id": product.catalog_product_id or "",
+            "name_override": product.name_override or "",
+            "attributes": dict(product.attributes or {}),
+            "barcode": product.barcode or "",
             "category_ids": list(product.category_ids),
             "category_names": list(product.category_names),
             "category_id": product.category_id,
@@ -372,6 +480,10 @@ class MongoInventoryProductRepository:
             id=doc["_id"],
             sku=doc["sku"],
             name=doc["name"],
+            catalog_product_id=str(doc.get("catalog_product_id") or ""),
+            name_override=str(doc.get("name_override") or ""),
+            attributes={str(k): str(v) for k, v in dict(doc.get("attributes") or {}).items()},
+            barcode=str(doc.get("barcode") or ""),
             category_ids=category_ids,
             category_names=category_names,
             unit_id=str(doc.get("unit_id") or ""),
@@ -410,6 +522,14 @@ class MongoInventoryProductRepository:
         query = {"is_active": True} if active_only else {}
         return [self._from_doc(d) for d in self._collection.find(query)]
 
+    def list_by_catalog_product(self, catalog_product_id: str) -> List[InventoryProduct]:
+        if not catalog_product_id:
+            return []
+        return [
+            self._from_doc(d)
+            for d in self._collection.find({"catalog_product_id": catalog_product_id})
+        ]
+
     def list_by_category(self, category_id: str) -> List[InventoryProduct]:
         return [
             self._from_doc(d)
@@ -445,6 +565,7 @@ class MongoInventoryProductRepository:
                 "$or": [
                     {"name": regex},
                     {"sku": regex},
+                    {"barcode": regex},
                     {"category_name": regex},
                     {"category_names": regex},
                 ]

@@ -136,6 +136,7 @@ import {
 } from '../../mfe-parties/src';
 import {
   CategoriesListPage,
+  CategoryDetailPage,
   CustomerPricesPage,
   InventoryOverviewPage,
   InventoryReportsPage,
@@ -143,6 +144,8 @@ import {
   MovementsListPage,
   ProductDetailPage,
   ProductsListPage,
+  SkuDetailPage,
+  SkusListPage,
   StockLedgerPage,
   StockListPage,
   TransferDetailPage,
@@ -381,9 +384,26 @@ export default function App() {
 
         <Route element={<ModuleGate module="inventory" />}>
           <Route path="inventory" element={<InventoryOverviewPage />} />
-          <Route path="inventory/categories" element={<CategoriesListPage />} />
+          <Route
+            path="inventory/categories"
+            element={
+              <RequirePermission permission="inventory.categories.view">
+                <CategoriesListPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="inventory/categories/:id"
+            element={
+              <RequirePermission permission="inventory.categories.view">
+                <CategoryDetailPage />
+              </RequirePermission>
+            }
+          />
           <Route path="inventory/products" element={<ProductsListPage />} />
           <Route path="inventory/products/:id" element={<ProductDetailPage />} />
+          <Route path="inventory/skus" element={<SkusListPage />} />
+          <Route path="inventory/skus/:id" element={<SkuDetailPage />} />
           <Route path="inventory/stock" element={<StockListPage />} />
           <Route path="inventory/stock-ledger" element={<StockLedgerPage />} />
           <Route path="inventory/movements" element={<MovementsListPage />} />

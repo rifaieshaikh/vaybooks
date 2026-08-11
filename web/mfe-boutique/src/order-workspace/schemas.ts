@@ -16,6 +16,7 @@ export const garmentSchema = z
     sellAmount: z.coerce.number().min(0, 'Estimate amount cannot be negative'),
     expectedDeliveryDate: z.string(),
     measurementId: z.string(),
+    categoryId: z.string(),
     billNumber: z.string(),
     requiredActivities: z.record(z.string(), z.boolean()),
     activityEstimatedHours: z.record(z.string(), z.coerce.number().min(0)),

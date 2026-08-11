@@ -86,33 +86,135 @@ type EntityListActionsProps = {
   onOpen?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onDeactivate?: () => void;
+  onActivate?: () => void;
   /** Emphasis action (PDF, DN create, Convert, …) — not Delete. */
   primary?: { label: string; onClick: () => void; disabled?: boolean; title?: string };
   openLabel?: string;
   editLabel?: string;
   deleteLabel?: string;
+  deactivateLabel?: string;
+  activateLabel?: string;
+  /** Opt-in icon buttons; default keeps text labels for other MFEs. */
+  variant?: 'text' | 'icon';
 };
+
+function EyeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.75" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 20h4L18.5 9.5a2.121 2.121 0 0 0-3-3L5 17v3Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path d="M13.5 6.5l3 3" stroke="currentColor" strokeWidth="1.75" />
+    </svg>
+  );
+}
+
+function BanIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M7 7l10 10" stroke="currentColor" strokeWidth="1.75" />
+    </svg>
+  );
+}
+
+function CheckCircleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M8.5 12.5l2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M4 7h16" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <path d="M9 7V5h6v2" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <path d="M7 7l1 12h8l1-12" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 export function EntityListActions({
   onOpen,
   onEdit,
   onDelete,
+  onDeactivate,
+  onActivate,
   primary,
   openLabel = 'Open',
   editLabel = 'Edit',
   deleteLabel = 'Delete',
+  deactivateLabel = 'Deactivate',
+  activateLabel = 'Activate',
+  variant = 'text',
 }: EntityListActionsProps) {
-  if (!onOpen && !onEdit && !onDelete && !primary) return null;
+  if (!onOpen && !onEdit && !onDelete && !onDeactivate && !onActivate && !primary) return null;
+  const icon = variant === 'icon';
   return (
     <div className="el-actions">
       {onOpen ? (
-        <button type="button" className="el-action-btn" onClick={onOpen}>
-          {openLabel}
+        <button
+          type="button"
+          className={icon ? 'el-action-btn el-action-btn--icon' : 'el-action-btn'}
+          onClick={onOpen}
+          title={openLabel}
+          aria-label={openLabel}
+        >
+          {icon ? <EyeIcon /> : openLabel}
         </button>
       ) : null}
       {onEdit ? (
-        <button type="button" className="el-action-btn" onClick={onEdit}>
-          {editLabel}
+        <button
+          type="button"
+          className={icon ? 'el-action-btn el-action-btn--icon' : 'el-action-btn'}
+          onClick={onEdit}
+          title={editLabel}
+          aria-label={editLabel}
+        >
+          {icon ? <PencilIcon /> : editLabel}
+        </button>
+      ) : null}
+      {onDeactivate ? (
+        <button
+          type="button"
+          className={icon ? 'el-action-btn el-action-btn--icon' : 'el-action-btn'}
+          onClick={onDeactivate}
+          title={deactivateLabel}
+          aria-label={deactivateLabel}
+        >
+          {icon ? <BanIcon /> : deactivateLabel}
+        </button>
+      ) : null}
+      {onActivate ? (
+        <button
+          type="button"
+          className={icon ? 'el-action-btn el-action-btn--icon' : 'el-action-btn'}
+          onClick={onActivate}
+          title={activateLabel}
+          aria-label={activateLabel}
+        >
+          {icon ? <CheckCircleIcon /> : activateLabel}
         </button>
       ) : null}
       {primary ? (
@@ -121,14 +223,25 @@ export function EntityListActions({
           className="el-action-btn el-action-btn--primary"
           onClick={primary.onClick}
           disabled={primary.disabled}
-          title={primary.title}
+          title={primary.title || primary.label}
+          aria-label={primary.label}
         >
           {primary.label}
         </button>
       ) : null}
       {onDelete ? (
-        <button type="button" className="el-action-btn el-action-btn--danger" onClick={onDelete}>
-          {deleteLabel}
+        <button
+          type="button"
+          className={
+            icon
+              ? 'el-action-btn el-action-btn--icon el-action-btn--danger'
+              : 'el-action-btn el-action-btn--danger'
+          }
+          onClick={onDelete}
+          title={deleteLabel}
+          aria-label={deleteLabel}
+        >
+          {icon ? <TrashIcon /> : deleteLabel}
         </button>
       ) : null}
     </div>

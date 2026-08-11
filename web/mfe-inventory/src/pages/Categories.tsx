@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  useCan,
   useCreateInventoryCategoryMutation,
+  useLazyCheckInventoryCategoryNameQuery,
   useListInventoryCategoriesQuery,
   useUpdateInventoryCategoryMutation,
 } from '@vaybooks/store';
@@ -57,13 +59,14 @@ function categoryToForm(row: Record<string, unknown>): CategoryFormValues {
   };
 }
 
-function categoryBody(v: CategoryFormValues) {
-  return {
-    name: v.name.trim(),
+function categoryBody(v: CategoryFormValues, opts?: { includeStatus?: boolean; includeName?: boolean }) {
+  const body: Record<string, unknown> = {
     description: v.description || '',
     parent_id: v.parent_id || null,
-    is_active: v.is_active,
   };
+  if (opts?.includeName !== false) body.name = v.name.trim();
+  if (opts?.includeStatus) body.is_active = v.is_active;
+  return body;
 }
 
 function extractError(e: unknown): string {
@@ -80,15 +83,31 @@ function CategoryFormFields({
   values,
   onChange,
   parentOptions,
+  nameReadOnly,
+  showStatus,
+  nameError,
+  onNameBlur,
 }: {
   values: CategoryFormValues;
   onChange: (n: keyof CategoryFormValues, v: string | boolean) => void;
   parentOptions: SearchableSelectOption[];
+  nameReadOnly?: boolean;
+  showStatus?: boolean;
+  nameError?: string;
+  onNameBlur?: () => void;
 }) {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       <FormRow label="Name *">
-        <TextInput value={values.name} onChange={(e) => onChange('name', e.target.value)} required />
+        <TextInput
+          value={values.name}
+          onChange={(e) => onChange('name', e.target.value)}
+          onBlur={onNameBlur}
+          required
+          readOnly={nameReadOnly}
+          disabled={nameReadOnly}
+        />
+        {nameError ? <ErrorText>{nameError}</ErrorText> : null}
       </FormRow>
       <FormRow label="Description">
         <TextInput value={values.description} onChange={(e) => onChange('description', e.target.value)} />
@@ -101,27 +120,43 @@ function CategoryFormFields({
           onChange={(next) => onChange('parent_id', next)}
         />
       </FormRow>
-      <FormRow label="Status">
-        <select
-          value={values.is_active ? 'yes' : 'no'}
-          onChange={(e) => onChange('is_active', e.target.value === 'yes')}
-          style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-        >
-          <option value="yes">Active</option>
-          <option value="no">Inactive</option>
-        </select>
-      </FormRow>
+      {showStatus ? (
+        <FormRow label="Status">
+          <select
+            value={values.is_active ? 'yes' : 'no'}
+            onChange={(e) => onChange('is_active', e.target.value === 'yes')}
+            style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
+          >
+            <option value="yes">Active</option>
+            <option value="no">Inactive</option>
+          </select>
+        </FormRow>
+      ) : null}
     </div>
   );
 }
 
 /** Streamlit parity: category catalog with hierarchy, filters and add/edit modal. */
 export function CategoriesListPage() {
+  const navigate = useNavigate();
+  const can = useCan();
+  const canView = can('inventory.categories.view');
+  const canCreate = can('inventory.categories.create');
+  const canEdit = can('inventory.categories.edit');
+  const canDeactivate = can('inventory.categories.deactivate');
+  // open is preferred; view is a fallback while plans/sessions catch up after the catalog split
+  const canOpen = can('inventory.categories.open') || canView;
+
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data = [], isLoading, error, refetch } = useListInventoryCategoriesQuery({ active_only: false });
+  const { data = [], isLoading, error, refetch } = useListInventoryCategoriesQuery(
+    { active_only: false },
+    { skip: !canView },
+  );
   const [createCategory, createState] = useCreateInventoryCategoryMutation();
   const [updateCategory, updateState] = useUpdateInventoryCategoryMutation();
+  const [checkName] = useLazyCheckInventoryCategoryNameQuery();
 
+  const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortCriterion[]>(DEFAULT_CATEGORY_SORT);
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({ ...DEFAULT_CATEGORY_FILTERS });
@@ -129,6 +164,7 @@ export function CategoriesListPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [values, setValues] = useState<CategoryFormValues>(emptyCategoryForm());
   const [formError, setFormError] = useState('');
+  const [nameError, setNameError] = useState('');
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
@@ -149,6 +185,18 @@ export function CategoriesListPage() {
 
   const filtered = useMemo(() => {
     let rows = data.filter((row) => {
+      const name = String(row.name || '');
+      const pathRaw = row.path;
+      const path =
+        typeof pathRaw === 'string'
+          ? pathRaw
+          : Array.isArray(pathRaw)
+            ? (pathRaw as string[]).join(' ')
+            : '';
+      if (search.trim()) {
+        const q = search.trim().toLowerCase();
+        if (!name.toLowerCase().includes(q) && !path.toLowerCase().includes(q)) return false;
+      }
       if (!matchesRegex(row.name, filters.name)) return false;
       if (filters.active_only === 'yes' && row.is_active === false) return false;
       if (filters.active_only === 'no' && row.is_active !== false) return false;
@@ -156,7 +204,7 @@ export function CategoriesListPage() {
     });
     rows = sortRows(rows, sort);
     return rows;
-  }, [data, filters, sort]);
+  }, [data, filters, sort, search]);
 
   const pages = pageCount(filtered.length, PAGE_SIZE);
   const pageRows = paginate(filtered, Math.min(page, pages), PAGE_SIZE);
@@ -170,41 +218,92 @@ export function CategoriesListPage() {
 
   function setField(name: keyof CategoryFormValues, value: string | boolean) {
     setValues((p) => ({ ...p, [name]: value }));
+    if (name === 'name') setNameError('');
   }
 
   function openAdd() {
+    if (!canCreate) return;
     setFormError('');
+    setNameError('');
     setValues(emptyCategoryForm());
     setEditId(null);
     setDialog('add');
   }
 
-  useEffect(() => {
-    if (searchParams.get('new') !== '1') return;
-    openAdd();
-    const next = new URLSearchParams(searchParams);
-    next.delete('new');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
-
   function openEdit(row: CategoryRow) {
+    if (!canEdit) return;
     setFormError('');
+    setNameError('');
     setEditId(String(row.id));
     setValues(categoryToForm(row));
     setDialog('edit');
   }
 
-  async function submitForm() {
-    setFormError('');
-    if (!values.name.trim()) {
-      setFormError('Name is required');
+  function openDetail(row: CategoryRow) {
+    if (!canOpen) return;
+    navigate(`/inventory/categories/${String(row.id)}`);
+  }
+
+  async function onNameBlur() {
+    if (dialog !== 'add') return;
+    const name = values.name.trim();
+    if (!name) {
+      setNameError('');
       return;
     }
     try {
+      const result = await checkName({ name }).unwrap();
+      setNameError(result.exists ? 'A category with this name already exists' : '');
+    } catch {
+      setNameError('');
+    }
+  }
+
+  const [actionError, setActionError] = useState('');
+
+  async function toggleActive(row: CategoryRow) {
+    if (!canDeactivate) return;
+    setActionError('');
+    try {
+      // Status-only payload — omit description/parent so API does not require edit.
+      await updateCategory({
+        id: String(row.id),
+        body: {
+          name: String(row.name || ''),
+          is_active: row.is_active === false,
+        },
+      }).unwrap();
+      refetch();
+    } catch (e: unknown) {
+      setActionError(extractError(e) || 'Could not update status');
+    }
+  }
+
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    if (canCreate) openAdd();
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, canCreate]);
+
+  async function submitForm() {
+    setFormError('');
+    if (dialog === 'add' && !values.name.trim()) {
+      setFormError('Name is required');
+      return;
+    }
+    if (dialog === 'add' && nameError) return;
+    try {
       if (dialog === 'add') {
-        await createCategory(categoryBody(values)).unwrap();
+        await createCategory(
+          categoryBody(values, { includeStatus: canDeactivate, includeName: true }),
+        ).unwrap();
       } else if (dialog === 'edit' && editId) {
-        await updateCategory({ id: editId, body: categoryBody(values) }).unwrap();
+        await updateCategory({
+          id: editId,
+          body: categoryBody(values, { includeStatus: canDeactivate, includeName: true }),
+        }).unwrap();
       }
       setDialog(null);
       refetch();
@@ -220,14 +319,18 @@ export function CategoriesListPage() {
         header: 'Category',
         render: (row) => {
           const name = displayName(row, ['name'], 'Unnamed category');
-          const path = Array.isArray(row.path) ? (row.path as string[]) : [];
+          const pathRaw = row.path;
+          const path =
+            typeof pathRaw === 'string'
+              ? pathRaw
+              : Array.isArray(pathRaw)
+                ? (pathRaw as string[]).join(' › ')
+                : '';
           return (
             <div className="el-customer">
               <div className="el-customer-meta">
                 <span className="el-customer-name">{name}</span>
-                <span className="el-customer-sub">
-                  {path.length > 1 ? path.join(' › ') : 'Top level'}
-                </span>
+                <span className="el-customer-sub">{path && path !== name ? path : 'Top level'}</span>
               </div>
             </div>
           );
@@ -253,16 +356,40 @@ export function CategoriesListPage() {
     [],
   );
 
+  if (!canView) {
+    return (
+      <EntityListPage>
+        <EntityListEmpty>
+          <strong>You do not have permission to view categories.</strong>
+        </EntityListEmpty>
+      </EntityListPage>
+    );
+  }
+
   return (
     <EntityListPage>
       <EntityListHero
         kicker="Inventory"
         title="Categories"
         count={`${filtered.length} ${filtered.length === 1 ? 'category' : 'categories'}`}
+        search={
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search name or path…"
+            aria-label="Search categories"
+          />
+        }
         actions={
-          <Button type="button" onClick={openAdd}>
-            Add Category
-          </Button>
+          canCreate ? (
+            <Button type="button" onClick={openAdd}>
+              Add Category
+            </Button>
+          ) : null
         }
         chips={
           <EntityListQuickFilters
@@ -305,6 +432,7 @@ export function CategoriesListPage() {
 
       {isLoading ? <EntityListLoading>Loading categories…</EntityListLoading> : null}
       {error ? <ErrorText>Failed to load categories. Is the API running?</ErrorText> : null}
+      {actionError ? <ErrorText>{actionError}</ErrorText> : null}
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
           <strong>No categories found.</strong>
@@ -317,9 +445,22 @@ export function CategoriesListPage() {
           rows={pageRows}
           rowKey={(row) => String(row.id)}
           keyboardNav
-          onEditRow={(row) => openEdit(row)}
-          onNew={openAdd}
-          actions={(row) => <EntityListActions onEdit={() => openEdit(row)} />}
+          onActivateRow={canOpen ? (row) => openDetail(row) : undefined}
+          onEditRow={canEdit ? (row) => openEdit(row) : undefined}
+          onNew={canCreate ? openAdd : undefined}
+          actions={(row) => (
+            <EntityListActions
+              variant="icon"
+              onOpen={canOpen ? () => openDetail(row) : undefined}
+              onEdit={canEdit ? () => openEdit(row) : undefined}
+              onDeactivate={
+                canDeactivate && row.is_active !== false ? () => void toggleActive(row) : undefined
+              }
+              onActivate={
+                canDeactivate && row.is_active === false ? () => void toggleActive(row) : undefined
+              }
+            />
+          )}
         />
       ) : null}
 
@@ -338,12 +479,21 @@ export function CategoriesListPage() {
       >
         <ModalForm onSubmit={() => void submitForm()}>
           {formError ? <ErrorText>{formError}</ErrorText> : null}
-          <CategoryFormFields values={values} onChange={setField} parentOptions={parentOptions} />
+          <CategoryFormFields
+            values={values}
+            onChange={setField}
+            parentOptions={parentOptions}
+            nameReadOnly={dialog === 'edit'}
+            showStatus={canDeactivate}
+            nameError={dialog === 'add' ? nameError : undefined}
+            onNameBlur={() => void onNameBlur()}
+          />
           <ModalFormActions
             busy={createState.isLoading || updateState.isLoading}
             submitLabel={dialog === 'edit' ? 'Save Changes' : 'Create Category'}
             busyLabel="Saving…"
             onCancel={() => setDialog(null)}
+            submitDisabled={Boolean(dialog === 'add' && nameError)}
           />
         </ModalForm>
       </Modal>
