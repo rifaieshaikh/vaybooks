@@ -127,7 +127,7 @@ def dashboard() -> dict[str, object]:
 
 @router.get("/mtd")
 def mtd_dashboard(period: str = "mtd") -> dict[str, object]:
-    """Period dashboard — presets map to date ranges (Streamlit period dashboard)."""
+    """Period dashboard — presets map to date ranges."""
     from datetime import date, timedelta
 
     today = date.today()

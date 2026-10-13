@@ -42,6 +42,5 @@ Cross-product checklist for bundle installs, infrastructure variants, and smoke 
 
 ## Regression gates
 
-- [ ] Streamlit legacy mode still runs via `.\restart_vaybooks.ps1 -Mode Streamlit` until cutover
 - [ ] `restart_bms.ps1` deprecation wrapper delegates to `restart_vaybooks.ps1`
 - [ ] Parity checklist ([`parity-checklist.md`](parity-checklist.md)) updated for each migrated route

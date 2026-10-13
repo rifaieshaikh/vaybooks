@@ -27,7 +27,7 @@ def require_mongo() -> None:
 
     uri = mongo_uri()
     if not uri:
-        pytest.skip("MONGODB_URI not configured (env or .streamlit/secrets.toml)")
+        pytest.skip("MONGODB_URI not configured (env or secrets.toml)")
     try:
         from pymongo import MongoClient
 

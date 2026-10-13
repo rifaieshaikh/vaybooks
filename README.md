@@ -1,6 +1,6 @@
 # VayBooks
 
-Greenfield migration in progress: **Vite/React MFEs + Redux** and **FastAPI microservices** (combined process for desktop), with Streamlit retained as a reference UX until cutover.
+Greenfield migration in progress: **Vite/React MFEs + Redux** and **FastAPI microservices** (combined process for desktop).
 
 **MongoDB Atlas is the source of truth** for business data (per-service DB names on one mongod). CSV/JSON are only for import, export, and backup.
 
@@ -15,7 +15,6 @@ pip install -r requirements-api.txt
 
 - UI: http://localhost:5173  
 - API docs: http://localhost:8000/docs  
-- Legacy Streamlit: `.\restart_vaybooks.ps1 -Mode Streamlit`
 
 See [`docs/architecture-phase0.md`](docs/architecture-phase0.md), [`installer/MIGRATION.md`](installer/MIGRATION.md), [`web/README.md`](web/README.md).
 
@@ -24,12 +23,6 @@ See [`docs/architecture-phase0.md`](docs/architecture-phase0.md), [`installer/MI
 ```
 React MFEs + Redux → API Gateway → Auth / module services → per-service Mongo
                               ↘ outbox / in-process bus (desktop) or Kafka (web)
-```
-
-Streamlit reference (until cutover):
-
-```
-Streamlit UI → Application Services → Domain → MongoDB (PyMongo)
 ```
 
 Domain/application are re-exported from [`packages/reexports`](packages/reexports) (Step A).
@@ -55,10 +48,10 @@ pip install -r requirements.txt
 1. Create a [MongoDB Atlas](https://www.mongodb.com/atlas) account
 2. Create a cluster
 3. Create a database user
-4. Allow network access (include your IP or `0.0.0.0/0` for Streamlit Cloud)
+4. Allow network access (include your IP)
 5. Copy the connection string
 
-### 3. Streamlit secrets
+### 3. Local secrets
 
 Copy the example secrets file and add your credentials:
 
@@ -98,9 +91,12 @@ pytest tests/
 
 ### 6. Start the app
 
-```bash
-streamlit run app.py
+```powershell
+.\restart_vaybooks.ps1 -Mode Dev
 ```
+
+- UI: http://localhost:5173
+- API docs: http://localhost:8000/docs
 
 ## Features
 
@@ -124,16 +120,9 @@ streamlit run app.py
 5. Generate invoice (MPH calculated)
 6. Mark delivered
 
-## Hosting on Streamlit Cloud
-
-1. Push repo to GitHub
-2. Connect to [Streamlit Cloud](https://streamlit.io/cloud)
-3. Add `MONGODB_URI` and `MONGODB_DATABASE` in app secrets
-4. Set main file to `app.py`
-
 ## Tech Stack
 
-- Frontend: Streamlit
-- Backend: Python (DDD)
+- Frontend: React (Vite)
+- Backend: Python (FastAPI, DDD)
 - Database: MongoDB Atlas
 - Driver: PyMongo

@@ -1,7 +1,6 @@
-"""Non-Streamlit schedulers service container (Mongo only).
+"""Schedulers service container (Mongo only).
 
-Assembles SchedulerAppService the same way as bootstrap._build_scheduler_service,
-wiring domain services from sibling containers where available.
+Assembles SchedulerAppService from sibling containers where available.
 """
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ def _require_uri() -> str:
     uri = _mongo_uri()
     if not uri:
         raise RuntimeError(
-            "MONGODB_URI is required (set env or .streamlit/secrets.toml); "
+            "MONGODB_URI is required (set env or secrets.toml); "
             "memory backend is disabled"
         )
     return uri
@@ -172,7 +171,7 @@ def _build_services_and_repos(db) -> tuple[dict, dict]:
 
 
 def _build_scheduler_service(db, services: dict, *, repos: dict, audit=None):
-    """Mirror of vaybooks.bms.ui.bootstrap._build_scheduler_service (no Streamlit)."""
+    """Build SchedulerAppService from the supplied domain services."""
     from vaybooks.bms.application.schedulers.jobs import all_jobs
     from vaybooks.bms.application.schedulers.jobs._base import Deps
     from vaybooks.bms.application.schedulers.registry import JobRegistry

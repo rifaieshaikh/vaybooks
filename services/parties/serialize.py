@@ -34,7 +34,7 @@ def entity_dict(entity: Any) -> dict[str, Any]:
     data = _jsonable(entity)
     if not isinstance(data, dict):
         return {"value": data}
-    # Convenience mirrors used by Streamlit cards
+    # Convenience name mirrors for list and detail payloads
     if "customer_name" in data and "name" not in data:
         data["name"] = data["customer_name"]
     if "vendor_name" in data and "name" not in data:

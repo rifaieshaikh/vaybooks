@@ -309,9 +309,9 @@ def put_print_settings(body: PrintPatch) -> dict[str, Any]:
 
 @router.get("/keyboard")
 def get_keyboard() -> dict[str, Any]:
-    from vaybooks.bms.ui.keyboard.bindings import get_bindings
-    from vaybooks.bms.ui.keyboard.defaults import ensure_defaults_loaded
-    from vaybooks.bms.ui.keyboard.registry import all_actions, all_parents
+    from vaybooks.bms.application.keyboard.bindings import get_bindings
+    from vaybooks.bms.application.keyboard.defaults import ensure_defaults_loaded
+    from vaybooks.bms.application.keyboard.registry import all_actions, all_parents
 
     ensure_defaults_loaded()
     bindings = get_bindings()
@@ -348,7 +348,7 @@ def get_keyboard() -> dict[str, Any]:
 
 @router.put("/keyboard")
 def put_keyboard(body: KeyboardPatch) -> dict[str, Any]:
-    from vaybooks.bms.ui.keyboard.bindings import get_bindings, save_action_binding, save_parent_binding
+    from vaybooks.bms.application.keyboard.bindings import get_bindings, save_action_binding, save_parent_binding
 
     errors: list[str] = []
     for key, chord in (body.parents or {}).items():

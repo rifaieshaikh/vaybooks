@@ -110,7 +110,7 @@ def test_env_settings_include_seed_flags(monkeypatch, tmp_path):
     reload_settings()
 
 
-def test_seed_flags_read_from_streamlit_secrets_file(monkeypatch, tmp_path):
+def test_seed_flags_read_from_secrets_file(monkeypatch, tmp_path):
     monkeypatch.delenv("VAYBOOKS_DATA_DIR", raising=False)
     monkeypatch.setenv("MONGODB_URI", "mongodb://localhost:27017")
     for key in (
@@ -174,10 +174,6 @@ def test_secrets_beat_env_and_seed_toml(monkeypatch, tmp_path):
     monkeypatch.setenv("MONGODB_URI", "mongodb://localhost:27017")
     monkeypatch.setenv("SEED_PROFILE", "pharma")
     monkeypatch.setenv("SEED_CUSTOMERS", "false")
-    monkeypatch.setattr(
-        "vaybooks.bms.infrastructure.config.settings._st_secrets_as_dict",
-        lambda: {},
-    )
 
     (tmp_path / "seed.toml").write_text(
         'SEED_PROFILE = "groceries"\nSEED_CUSTOMERS = true\n',
@@ -214,10 +210,6 @@ def test_env_beats_seed_toml_when_no_secrets(monkeypatch, tmp_path):
         "SEED_CUSTOMERS",
     ):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(
-        "vaybooks.bms.infrastructure.config.settings._st_secrets_as_dict",
-        lambda: {},
-    )
 
     (tmp_path / "seed.toml").write_text(
         'SEED_PROFILE = "fancy"\nSEED_VENDORS = true\n',
@@ -236,10 +228,6 @@ def test_seed_toml_business_blocks(monkeypatch, tmp_path):
     monkeypatch.setenv("MONGODB_URI", "mongodb://localhost:27017")
     for key in _seed_env_keys():
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(
-        "vaybooks.bms.infrastructure.config.settings._st_secrets_as_dict",
-        lambda: {},
-    )
 
     (tmp_path / "seed.toml").write_text(
         "\n".join(

@@ -453,7 +453,7 @@ if __name__ == "__main__":
     uri = os.getenv("MONGODB_URI")
     db_name = os.getenv("MONGODB_DATABASE", "zahcci_customization")
     if not uri:
-        print("Set MONGODB_URI environment variable or use Streamlit secrets")
+        print("Set MONGODB_URI environment variable or .streamlit/secrets.toml")
     else:
         from vaybooks.bms.infrastructure.db.connection import get_database_from_uri
 

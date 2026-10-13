@@ -8,11 +8,11 @@
     <array>
         <string>__INSTALL_DIR__/python/bin/python3</string>
         <string>-m</string>
-        <string>streamlit</string>
-        <string>run</string>
-        <string>app.py</string>
-        <string>--server.headless=true</string>
-        <string>--server.port=8501</string>
+        <string>services.combined</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8000</string>
     </array>
     <key>WorkingDirectory</key>
     <string>__INSTALL_DIR__/app</string>
@@ -20,6 +20,8 @@
     <dict>
         <key>VAYBOOKS_DATA_DIR</key>
         <string>__DATA_DIR__</string>
+        <key>PYTHONPATH</key>
+        <string>__INSTALL_DIR__/app</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>

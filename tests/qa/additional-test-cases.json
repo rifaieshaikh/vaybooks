@@ -4,7 +4,7 @@
     "scenarioId": "SC-UI-NAV",
     "module": "UI / Navigation",
     "testTitle": "Verify sidebar shows only branding, section labels, and navigation links",
-    "preconditions": "Streamlit app running on configured baseUrl",
+    "preconditions": "App running on configured baseUrl",
     "testDataRequired": "None",
     "stepsToExecute": [
       "Navigate to base URL",
@@ -42,7 +42,7 @@
     "scenarioId": "SC-UI-ORD",
     "module": "Customization Orders",
     "testTitle": "Verify Customization Orders list shows staff-facing copy without QA boilerplate",
-    "preconditions": "Streamlit app running on configured baseUrl with seeded orders",
+    "preconditions": "App running on configured baseUrl with seeded orders",
     "testDataRequired": "Seeded orders O-1001, O-1002 from QA fixtures",
     "stepsToExecute": [
       "Navigate to base URL",

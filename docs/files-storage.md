@@ -33,7 +33,7 @@ Attachment and document storage differs by deployment profile.
 | Metadata | File records in Mongo (per-service DB); blob in S3 or local path |
 | Max size | Enforced at gateway upload |
 | Virus scan | Cloud hook placeholder (Phase 3+) |
-| Migration | Streamlit-era paths may live under `{VAYBOOKS_DATA_DIR}/data/` — migrate pointers in DB |
+| Migration | Legacy paths may live under `{VAYBOOKS_DATA_DIR}/data/` — migrate pointers in DB |
 
 ## Code references
 

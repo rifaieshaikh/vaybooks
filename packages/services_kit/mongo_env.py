@@ -1,4 +1,4 @@
-"""Resolve Mongo URI / database for non-Streamlit service containers."""
+"""Resolve Mongo URI / database for service containers."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _parse_streamlit_secrets() -> Tuple[str, str]:
+def _parse_secrets_file() -> Tuple[str, str]:
     """Read MONGODB_URI / MONGODB_DATABASE from .streamlit/secrets.toml if present."""
     secrets = _repo_root() / ".streamlit" / "secrets.toml"
     if not secrets.is_file():
@@ -53,7 +53,7 @@ def mongo_uri() -> str:
             return uri
     except Exception:
         pass
-    file_uri, _ = _parse_streamlit_secrets()
+    file_uri, _ = _parse_secrets_file()
     return file_uri
 
 
@@ -69,5 +69,5 @@ def mongo_db_name() -> str:
             return name
     except Exception:
         pass
-    _, file_db = _parse_streamlit_secrets()
+    _, file_db = _parse_secrets_file()
     return file_db or "zahcci_customization"

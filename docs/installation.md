@@ -12,7 +12,7 @@
 
 ## Windows Installation (Electron)
 
-The installer ships the **VayBooks Electron** desktop app. Streamlit is not registered as the installed product.
+The installer ships the **VayBooks Electron** desktop app. The local backend is the combined API service.
 
 ### Interactive install
 

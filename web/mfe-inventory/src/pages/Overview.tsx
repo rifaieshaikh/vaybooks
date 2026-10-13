@@ -34,7 +34,7 @@ const QUICK_LINKS: { to: string; label: string }[] = [
   { to: '/inventory/reports', label: 'Reports' },
 ];
 
-/** Streamlit parity: inventory landing page — KPIs, low-stock spotlight, quick nav. */
+/** Inventory landing page — KPIs, low-stock spotlight, and quick nav. */
 export function InventoryOverviewPage() {
   const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useInventoryOverviewQuery();

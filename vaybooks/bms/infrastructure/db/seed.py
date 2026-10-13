@@ -152,7 +152,7 @@ def run_seed(db):
 
     # Seed default activities only on a fresh database. Re-seeding by name would
     # resurrect defaults that the user has renamed or deleted. Inserts are wrapped
-    # in a duplicate-key guard because concurrent Streamlit sessions can race to
+    # in a duplicate-key guard because concurrent startup sessions can race to
     # seed the same fresh database at startup.
     if db.activity_config.count_documents({}) == 0:
         for activity in DEFAULT_ACTIVITIES:
@@ -292,7 +292,7 @@ if __name__ == "__main__":
     uri = os.getenv("MONGODB_URI")
     db_name = os.getenv("MONGODB_DATABASE", "zahcci_customization")
     if not uri:
-        print("Set MONGODB_URI environment variable or use Streamlit secrets")
+        print("Set MONGODB_URI environment variable or .streamlit/secrets.toml")
     else:
         from vaybooks.bms.infrastructure.db.connection import get_database_from_uri
 

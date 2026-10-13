@@ -31,8 +31,7 @@ packages/
 ## Conventions
 
 - **Python 3.11+** — uses `dict | None`, `@dataclass(slots=True)`, etc.
-- **Imports** — run from the `vaybooks/` repo root with it on `PYTHONPATH`:
-  `python -m packages.tools.generate_parity_checklist`
+- **Imports** — run from the repo root with it on `PYTHONPATH`.
 - **Catalog** — `MODULE_STORE` added to `vaybooks.bms.domain.entitlements.catalog`.
 - **Web transactions** — Mongo outbox `append` should join business writes in a
   multi-document transaction when a replica set is available.

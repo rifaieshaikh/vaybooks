@@ -1,6 +1,6 @@
 # Cutover Plan
 
-Final migration from Streamlit monolith to React MFEs + microservices.
+The UI is the React shell. The combined FastAPI process is the application server.
 
 ## Preconditions
 
@@ -12,26 +12,22 @@ Final migration from Streamlit monolith to React MFEs + microservices.
 
 ## Cutover steps
 
-1. **Freeze Streamlit UX** — no new Streamlit features; bugfixes only.
-2. **Default dev entry** — `restart_vaybooks.ps1 -Mode Dev` documented in README; `restart_bms.ps1` prints deprecation.
-3. **Pilot bundle** — Trade or Boutique tenant on web stack with Redis + remote Mongo.
-4. **Desktop pilot** — Electron + combined API + `npm run dev:desktop`; verify `vaybooksDesktop.isDesktop`.
-5. **License consume** — app-start verification on desktop and cloud.
-6. **Data migration** — monolith DB → per-service DBs ([`tenancy.md`](tenancy.md)).
-7. **Traffic switch** — point users to Vite shell URL; disable Streamlit service in installer.
-8. **Retire Streamlit** — remove `-Mode Streamlit` from default docs; keep script one release cycle.
+1. **Default dev entry** — `restart_vaybooks.ps1 -Mode Dev`.
+2. **Pilot bundle** — Trade or Boutique tenant on the web stack with Redis + remote Mongo.
+3. **Desktop pilot** — Electron + combined API + `npm run dev:desktop`; verify `vaybooksDesktop.isDesktop`.
+4. **License consume** — app-start verification on desktop and cloud.
+5. **Data migration** — monolith DB → per-service DBs ([`tenancy.md`](tenancy.md)).
+6. **Traffic switch** — point users to the Vite shell URL.
 
-## Retire Streamlit checklist
+## Retired UI
 
-- [ ] Inno Setup stops registering Streamlit Windows service
-- [ ] `run_streamlit.bat` removed or no-op with migration notice
-- [ ] Docker/cloud docs updated ([`cloud-deployment.md`](cloud-deployment.md)) — no longer `streamlit run app.py`
-- [ ] `app.py` archived or thin redirect for emergency rollback window
-- [ ] Support runbook updated ([`rollback-recovery.md`](rollback-recovery.md))
+- Windows service runs `python -m services.combined` (see `installer/windows/nssm/install_service.ps1`).
+- `run_streamlit.bat` and `app.py` are removed.
+- Docker and cloud docs start the combined API on port 8000 ([`cloud-deployment.md`](cloud-deployment.md)).
 
 ## Rollback
 
-During pilot, keep Streamlit installable via `-Mode Streamlit` and last-known-good installer artifact. Rollback = restore Mongo backup + re-enable Streamlit service.
+Rollback = restore the Mongo backup and redeploy the previous release artifact.
 
 ## Success criteria
 

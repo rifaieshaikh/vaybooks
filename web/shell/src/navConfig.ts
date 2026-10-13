@@ -1,4 +1,4 @@
-/** Sidebar + topbar navigation mirroring Streamlit `page_groups` in app.py. */
+/** Sidebar + topbar navigation. */
 
 export type NavIcon =
   | 'dashboard'

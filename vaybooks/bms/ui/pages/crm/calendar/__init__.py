@@ -1,1 +1,0 @@
-"""CRM activity calendar route."""

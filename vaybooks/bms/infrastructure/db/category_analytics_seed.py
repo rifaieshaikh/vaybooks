@@ -1,6 +1,6 @@
 """Idempotent multi-month demo data for category Sales/Production/Customization analytics.
 
-Test/QA only — not run from Streamlit bootstrap or schema migrations.
+Test/QA only — not run from schema migrations.
 
   python -m vaybooks.bms.infrastructure.db.category_analytics_seed
 """

@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useGetKeyboardShortcutsQuery } from '@vaybooks/store';
 import { hasActiveDetailKeyboardBack } from '@vaybooks/ui-kit';
 
-/** Streamlit parent shortcut keys → React shell routes. */
+/** Parent shortcut keys mapped to React shell routes. */
 const PARENT_ROUTES: Record<string, string> = {
   dashboard: '/',
   mtd_dashboard: '/mtd-dashboard',

@@ -417,7 +417,7 @@ def _meas_dict(record: Any) -> dict[str, Any]:
 
 
 def _ensure_default_activities() -> None:
-    """Seed Streamlit DEFAULT_ACTIVITIES when the catalog is empty."""
+    """Seed DEFAULT_ACTIVITIES when the catalog is empty."""
     existing = _c().activities.list_activities(active_only=False)
     if existing:
         return
@@ -823,7 +823,7 @@ def complete_order(order_id: str) -> dict[str, Any]:
 
 
 def _default_required_activities(explicit: dict[str, bool] | None) -> dict[str, bool]:
-    """Mirror Streamlit defaults when the client omits required_activities."""
+    """Apply catalog defaults when the client omits required_activities."""
     _ensure_default_activities()
     if explicit:
         return explicit
@@ -1095,7 +1095,7 @@ def advance_receipt_pdf(order_id: str):
 def complete_activity(order_id: str, activity_id: str, body: ActivityAction) -> dict[str, Any]:
     try:
         _require_activity_on_order(order_id, activity_id)
-        # Always validate time-tracking requirements (Streamlit prepare step).
+        # Always validate time-tracking requirements.
         _c().orders.prepare_complete_activity(activity_id)
         order = _c().orders.complete_activity(
             activity_id,

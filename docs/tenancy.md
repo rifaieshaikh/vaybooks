@@ -36,7 +36,7 @@ One MongoDB server, multiple database names:
 
 Org scoping is enforced in application code and (future) row-level guards — not separate mongod per tenant for Phase 1c.
 
-## Migration from Streamlit monolith
+## Migration from the monolith
 
 Existing installs use a single `MONGODB_DATABASE` (e.g. `zahcci_customization`). Cutover migrations will:
 

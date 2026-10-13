@@ -136,7 +136,7 @@ function CategoryFormFields({
   );
 }
 
-/** Streamlit parity: category catalog with hierarchy, filters and add/edit modal. */
+/** Category catalog with hierarchy, filters, and an add/edit modal. */
 export function CategoriesListPage() {
   const navigate = useNavigate();
   const can = useCan();

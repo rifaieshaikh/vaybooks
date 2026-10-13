@@ -15,7 +15,6 @@ Vaybooks splits **catalog products** from **stockable SKUs**.
 - Old `/inventory/products/:id` bookmarks that point at a SKU id redirect to `/inventory/skus/:id`.
 - Migration `037_catalog_product_parents` backfills 1:1 parents; `038_inventory_skus_entitlements` syncs `inventory.skus.*` keys.
 - **Web nav** may still use `inventory.products.view` for the SKUs menu until clients refresh after `038`; prefer `inventory.skus.*` going forward.
-- **No Streamlit / desktop Product↔SKU UI changes** in this wave.
 
 ## Product 360 / SKU 360
 

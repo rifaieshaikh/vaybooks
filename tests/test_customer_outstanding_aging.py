@@ -15,7 +15,6 @@ from vaybooks.bms.application.finance.reports.services.business_insights_report_
 )
 from vaybooks.bms.application.report_filters import OutstandingFilter
 from vaybooks.bms.domain.shared.enums import VoucherType
-from vaybooks.bms.ui.components.common.report_filters import build_outstanding_filter
 
 
 def test_normalize_aging_bucket_days_parses_and_sorts():
@@ -59,21 +58,6 @@ def test_allocate_surplus_without_invoices_goes_to_oldest_bucket():
     )
     assert buckets["90+"] == 500.0
     assert oldest == 91
-
-
-def test_build_outstanding_filter_reads_aging_fields():
-    result = build_outstanding_filter(
-        {
-            "as_of": date(2026, 7, 1),
-            "bucket_days": "15, 45, 90",
-            "min_balance": 100,
-            "search": "Alice",
-        }
-    )
-    assert result.as_of_date == date(2026, 7, 1)
-    assert result.bucket_days == [15, 45, 90]
-    assert result.min_balance == 100.0
-    assert result.search == "alice"
 
 
 def _sales_invoice(*, voucher_id, account_id, gross, collected, voucher_date):

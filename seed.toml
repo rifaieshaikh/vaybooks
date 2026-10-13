@@ -1,5 +1,5 @@
 # Demo / vertical seeding (copy to seed.toml and edit).
-# Precedence for each SEED_* key: Streamlit secrets → env → this file → default.
+# Precedence for each SEED_* key: secrets.toml → env → this file → default.
 # Mongo URI stays in .streamlit/secrets.toml.
 
 SEED_CONFIG = true

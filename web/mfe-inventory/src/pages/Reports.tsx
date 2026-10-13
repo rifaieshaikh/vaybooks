@@ -11,7 +11,7 @@ function extractError(e: unknown): string {
   return 'Report failed to run';
 }
 
-/** Streamlit parity: pick a report type, run it, view rows, export CSV. */
+/** Pick a report type, run it, view rows, and export CSV. */
 export function InventoryReportsPage() {
   const { data: catalog, isLoading: catalogLoading, error: catalogError } = useInventoryReportsCatalogQuery();
   const [runReport, { isLoading: running }] = useRunInventoryReportMutation();
@@ -112,7 +112,7 @@ export function InventoryReportsPage() {
   );
 }
 
-/** Streamlit parity: pointer to the shared scheduler module for recurring inventory reports. */
+/** Pointer to the shared scheduler module for recurring inventory reports. */
 export function InventoryScheduledReportsPage() {
   return (
     <div>

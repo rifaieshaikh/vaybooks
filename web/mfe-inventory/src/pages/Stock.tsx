@@ -70,7 +70,7 @@ function matchesMovementDirection(row: Record<string, unknown>, direction: strin
   return true;
 }
 
-/** Streamlit parity: stock-on-hand cards per product. */
+/** Stock-on-hand cards per product. */
 export function StockListPage() {
   const navigate = useNavigate();
   const { data = [], isLoading, error, refetch } = useListInventoryStockQuery({ active_only: false });
@@ -315,7 +315,7 @@ function useLedgerColumns(): EntityListColumn<LedgerRow>[] {
   );
 }
 
-/** Streamlit parity: full stock ledger table with product / movement-type filters. */
+/** Stock ledger table with product / movement-type filters. */
 export function StockLedgerPage() {
   const { data = [], isLoading, error, refetch } = useListStockLedgerQuery();
 
@@ -415,7 +415,7 @@ export function StockLedgerPage() {
   );
 }
 
-/** Streamlit parity: movement history + "Record Movement" action modal. */
+/** Movement history and a Record Movement action modal. */
 export function MovementsListPage() {
   const [searchParams] = useSearchParams();
   const focusId = (searchParams.get('id') || '').trim();

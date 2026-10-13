@@ -1,4 +1,4 @@
-/** Match Streamlit workspace defaults for required activities. */
+/** Workspace defaults for required activities. */
 const DEFAULT_ON = new Set(['Stitching', 'Handwork', 'Material Purchase']);
 
 export function defaultRequiredActivities(

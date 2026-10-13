@@ -282,7 +282,7 @@ export function SortDialog({
   );
 }
 
-/** Streamlit-parity filter/sort bar: icon buttons open Filters / Sort dialogs. */
+/** Filter/sort bar: icon buttons open Filters / Sort dialogs. */
 export function ListToolbar({
   title,
   countLabel,

@@ -1,4 +1,4 @@
-"""Application settings with desktop TOML, env var, and Streamlit secrets fallback."""
+"""Application settings with desktop TOML, env var, and local secrets fallback."""
 
 from __future__ import annotations
 
@@ -173,7 +173,7 @@ def _seed_flags_from_env() -> dict[str, Any]:
     return _seed_flags_from_mapping(env_raw)
 
 
-def _find_streamlit_secrets_path() -> Path | None:
+def _find_secrets_path() -> Path | None:
     path = Path.cwd() / ".streamlit" / "secrets.toml"
     return path if path.exists() else None
 
@@ -204,21 +204,12 @@ def _load_toml_file(path: Path | None) -> dict[str, Any]:
         return {}
 
 
-def _load_streamlit_secrets_file() -> dict[str, Any]:
-    return _load_toml_file(_find_streamlit_secrets_path())
+def _load_secrets_file() -> dict[str, Any]:
+    return _load_toml_file(_find_secrets_path())
 
 
 def _load_seed_toml_file() -> dict[str, Any]:
     return _load_toml_file(_find_seed_toml_path())
-
-
-def _st_secrets_as_dict() -> dict[str, Any]:
-    try:
-        import streamlit as st
-
-        return {key: st.secrets[key] for key in st.secrets}
-    except Exception:
-        return {}
 
 
 def _extract_business_blocks(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -274,12 +265,7 @@ def _pick_seed_value(
 
 def _resolve_seed_flags() -> dict[str, Any]:
     """Resolve seed flags: secrets → env → seed.toml → default (per key)."""
-    secrets_file = _load_streamlit_secrets_file()
-    st_live = _st_secrets_as_dict()
-    # File secrets win over st.secrets for the same key when both exist
-    secrets: dict[str, Any] = {}
-    secrets.update(st_live)
-    secrets.update(secrets_file)
+    secrets = _load_secrets_file()
 
     env_raw: dict[str, Any] = {
         key: os.environ[key] for key in _SEED_SETTING_KEYS if key in os.environ
@@ -344,7 +330,7 @@ def _apply_seed_flags(settings: AppSettings) -> AppSettings:
 @dataclass
 class AppSettings:
     app_version: str = __version__
-    app_port: int = 8501
+    app_port: int = 8000
     mongo_uri: str = ""
     db_name: str = "zahcci_customization"
     mongo_mode: str = "remote"
@@ -431,7 +417,7 @@ def _load_toml_settings() -> AppSettings:
     seed_flags["seed_business_flat_overrides"] = {}
     return AppSettings(
         app_version=str(raw.get("APP_VERSION", __version__)),
-        app_port=int(raw.get("APP_PORT", 8501)),
+        app_port=int(raw.get("APP_PORT", 8000)),
         mongo_uri=mongo_uri,
         db_name=str(raw.get("DB_NAME", "zahcci_customization")),
         mongo_mode=str(raw.get("MONGO_MODE", "remote")),
@@ -525,28 +511,25 @@ def _load_env_settings() -> AppSettings | None:
             "MONGODB_DATABASE",
             os.environ.get("DB_NAME", "zahcci_customization"),
         ),
-        app_port=int(os.environ.get("APP_PORT", "8501")),
+        app_port=int(os.environ.get("APP_PORT", "8000")),
         **seed_flags,
     )
 
 
-def _load_streamlit_secrets() -> AppSettings | None:
-    try:
-        import streamlit as st
-
-        if "MONGODB_URI" not in st.secrets:
-            return None
-        secrets = {key: st.secrets[key] for key in st.secrets}
-        seed_flags = _seed_flags_from_mapping(secrets)
-        seed_flags["seed_business_blocks"] = _extract_business_blocks(secrets)
-        seed_flags["seed_business_flat_overrides"] = {}
-        return AppSettings(
-            mongo_uri=str(st.secrets["MONGODB_URI"]),
-            db_name=str(st.secrets.get("MONGODB_DATABASE", "zahcci_customization")),
-            **seed_flags,
-        )
-    except Exception:
+def _load_secrets_settings() -> AppSettings | None:
+    secrets = _load_secrets_file()
+    uri = secrets.get("MONGODB_URI")
+    if not uri:
         return None
+    seed_flags = _seed_flags_from_mapping(secrets)
+    seed_flags["seed_business_blocks"] = _extract_business_blocks(secrets)
+    seed_flags["seed_business_flat_overrides"] = {}
+    return AppSettings(
+        mongo_uri=str(uri),
+        db_name=str(secrets.get("MONGODB_DATABASE", "zahcci_customization")),
+        app_port=int(secrets.get("APP_PORT", 8000)),
+        **seed_flags,
+    )
 
 
 def get_settings() -> AppSettings:
@@ -564,7 +547,7 @@ def get_settings() -> AppSettings:
         _settings = _apply_seed_flags(env_settings)
         return _settings
 
-    secrets_settings = _load_streamlit_secrets()
+    secrets_settings = _load_secrets_settings()
     if secrets_settings:
         _settings = _apply_seed_flags(secrets_settings)
         return _settings

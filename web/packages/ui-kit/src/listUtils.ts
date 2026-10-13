@@ -1,4 +1,4 @@
-/** Client-side list filter / sort / page helpers (Streamlit list_view parity). */
+/** Client-side list filter / sort / page helpers. */
 
 import type { SortCriterion } from './ListToolbar';
 

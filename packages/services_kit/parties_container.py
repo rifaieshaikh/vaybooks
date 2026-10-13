@@ -1,4 +1,4 @@
-"""Non-Streamlit parties service container (Mongo only)."""
+"""Parties service container (Mongo only)."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _require_uri() -> str:
     uri = _mongo_uri()
     if not uri:
         raise RuntimeError(
-            "MONGODB_URI is required (set env or .streamlit/secrets.toml); "
+            "MONGODB_URI is required (set env or secrets.toml); "
             "memory backend is disabled"
         )
     return uri

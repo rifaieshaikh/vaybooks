@@ -43,7 +43,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install bms dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-api.txt
 
       - name: Install qa-agent dependencies
         working-directory: ../qa-agent
@@ -59,7 +61,7 @@ jobs:
           python -m vaybooks.bms.infrastructure.db.indexes
           python -m vaybooks.bms.infrastructure.db.seed
 
-      - name: Start Streamlit
+      - name: Start API
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           MONGODB_DATABASE: zahcci_customization_test
@@ -69,7 +71,7 @@ jobs:
           MONGODB_URI = "${{ secrets.MONGODB_URI }}"
           MONGODB_DATABASE = "zahcci_customization_test"
           EOF
-          streamlit run app.py --server.headless true &
+          python -m services.combined --host 127.0.0.1 --port 8000 &
           sleep 15
 
       - name: Generate QA scenarios and test cases

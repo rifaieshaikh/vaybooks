@@ -12,7 +12,7 @@ from vaybooks.bms.domain.schedulers.time import utc_now
 
 @dataclass
 class JobContext:
-    """Everything a job needs for one run, with no Streamlit dependency."""
+    """Everything a job needs for one run."""
 
     config: SchedulerJobConfig
     now: datetime = field(default_factory=utc_now)

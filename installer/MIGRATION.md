@@ -1,6 +1,6 @@
 # VayBooks Installer Migration Notes
 
-Phase 1c / Phase 3 installer guidance for the Streamlit → React + microservices cutover.
+Phase 1c / Phase 3 installer guidance for the React + microservices stack.
 
 ## Canonical installer location
 
@@ -47,6 +47,6 @@ Optional: add separate mongod instances later for large tenants — not required
 ## Related docs
 
 - [`README.md`](README.md) — build and publish guide
-- [`../docs/cutover.md`](../docs/cutover.md) — parity checklist and Streamlit retirement
+- [`../docs/cutover.md`](../docs/cutover.md) — parity checklist and cutover
 - [`../docs/tenancy.md`](../docs/tenancy.md) — single-tenant desktop vs multi-tenant cloud
 - [`../restart_vaybooks.ps1`](../restart_vaybooks.ps1) — local dev / desktop stack starter

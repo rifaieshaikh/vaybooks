@@ -1,18 +1,16 @@
-# VayBooks stack starter — Dev, Desktop, Streamlit (legacy), or Compose.
+# VayBooks stack starter — Dev, Desktop, or Compose.
 # Usage:
 #   .\restart_vaybooks.ps1
 #   .\restart_vaybooks.ps1 -Mode Dev -WithRedis
 #   .\restart_vaybooks.ps1 -Mode Desktop
 #   .\restart_vaybooks.ps1 -Mode Compose
-#   .\restart_vaybooks.ps1 -Mode Streamlit
 
 param(
-    [ValidateSet("Dev", "Desktop", "Streamlit", "Compose")]
+    [ValidateSet("Dev", "Desktop", "Compose")]
     [string]$Mode = "Dev",
     [switch]$WithRedis,
     [int]$ApiPort = 8000,
     [int]$UiPort = 5173,
-    [switch]$NoHeadless,
     [switch]$ApiOnly
 )
 
@@ -55,37 +53,7 @@ function Stop-VayBooksJobs {
         }
 }
 
-function Stop-StreamlitProcesses {
-    param([int]$Port = 8501)
-
-    $stopped = @()
-
-    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object {
-            $cmd = $_.CommandLine
-            $cmd -and (
-                $cmd -match '(?i)[\\/ ]streamlit(\.exe)?(\s|$)' -or
-                $cmd -match '(?i)-m\s+streamlit\b'
-            )
-        } |
-        ForEach-Object {
-            Write-Host "Stopping Streamlit PID $($_.ProcessId)"
-            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-            $stopped += $_.ProcessId
-        }
-
-    Get-Process -Name "streamlit" -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            Write-Host "Stopping streamlit PID $($_.Id)"
-            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-            $stopped += $_.Id
-        }
-
-    $stopped += Stop-PortListeners -Ports @($Port)
-    return $stopped
-}
-
-function Import-StreamlitMongoEnv {
+function Import-MongoEnv {
     param([string]$Root)
 
     if ($env:MONGODB_URI) {
@@ -126,7 +94,7 @@ function Start-CombinedApi {
         Write-Host "Note: web-like Dev mode typically needs REDIS_URL or -WithRedis (auth cache falls back in-process)."
     }
 
-    Import-StreamlitMongoEnv -Root $AppDir
+    Import-MongoEnv -Root $AppDir
 
     Write-Host "Starting combined API (embedded gateway) on port $ApiPort ..."
     $job = Start-Job -Name "vaybooks-combined" -ScriptBlock {
@@ -182,22 +150,6 @@ function Wait-HttpOk {
     return $false
 }
 
-function Start-StreamlitApp {
-    param(
-        [int]$Port = 8501,
-        [switch]$NoHeadless
-    )
-
-    $streamlitArgs = @("run", "app.py", "--server.port", "$Port")
-    if (-not $NoHeadless) {
-        $streamlitArgs += @("--server.headless", "true")
-    }
-
-    Write-Host "=== Starting Streamlit (legacy) on port $Port ==="
-    Write-Host "Local URL: http://localhost:$Port"
-    & streamlit @streamlitArgs
-}
-
 Set-Location $AppDir
 
 Write-Host "=== VayBooks restart ($Mode) ==="
@@ -207,16 +159,9 @@ switch ($Mode) {
     "Compose" {
         Write-Host "=== Stopping local dev ports ==="
         Stop-VayBooksJobs
-        Stop-PortListeners -Ports @($ApiPort, $UiPort, 5175, 8501) | Out-Null
+        Stop-PortListeners -Ports @($ApiPort, $UiPort, 5175) | Out-Null
         Write-Host "=== Starting docker compose ==="
         docker compose up
-        break
-    }
-
-    "Streamlit" {
-        Write-Host "=== Stopping Streamlit ==="
-        Stop-StreamlitProcesses -Port 8501 | Out-Null
-        Start-StreamlitApp -Port 8501 -NoHeadless:$NoHeadless
         break
     }
 
@@ -240,7 +185,7 @@ switch ($Mode) {
     default {
         Write-Host "=== Stopping prior stack ==="
         Stop-VayBooksJobs
-        Stop-PortListeners -Ports @($ApiPort, $UiPort, 5175, 8501) | Out-Null
+        Stop-PortListeners -Ports @($ApiPort, $UiPort, 5175) | Out-Null
 
         if ($WithRedis) {
             Write-Host "=== Redis requested (-WithRedis) ==="

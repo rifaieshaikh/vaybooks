@@ -264,7 +264,7 @@ function ProductFormFields({
   );
 }
 
-/** Streamlit parity: SKU catalog list with stock-status badges, filters, add/edit modal. */
+/** SKU catalog list with stock-status badges, filters, and an add/edit modal. */
 export function SkusListPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();

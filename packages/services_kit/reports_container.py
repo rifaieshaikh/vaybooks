@@ -1,6 +1,6 @@
-"""Non-Streamlit reports / home dashboard container (Mongo only).
+"""Reports / home dashboard container (Mongo only).
 
-Wires ReportAppService the same way as bootstrap (report_facade).
+Wires ReportAppService through the report facade.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def _require_uri() -> str:
     uri = _mongo_uri()
     if not uri:
         raise RuntimeError(
-            "MONGODB_URI is required (set env or .streamlit/secrets.toml); "
+            "MONGODB_URI is required (set env or secrets.toml); "
             "memory backend is disabled"
         )
     return uri

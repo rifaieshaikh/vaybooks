@@ -159,7 +159,7 @@ def _voucher_amount(v: Any) -> float:
 
 
 def _display_description(raw: Any) -> str:
-    """Human-readable voucher description — strip meta JSON used by Streamlit SOR."""
+    """Human-readable voucher description — strip embedded meta JSON."""
     text = str(raw or "")
     try:
         from vaybooks.bms.domain.finance.accounting.settlement import (
@@ -208,7 +208,7 @@ def _display_description(raw: Any) -> str:
 
 
 def _party_name(v: Any) -> str:
-    """Best-effort party caption from voucher lines (Streamlit voucher_card parity)."""
+    """Best-effort party caption from voucher lines."""
     lines = list(getattr(v, "lines", None) or [])
     if not lines:
         return ""

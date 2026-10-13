@@ -1,12 +1,12 @@
 # Strangler Flags (module visibility)
 
-During the Streamlit → React cutover, **module visibility is driven by the Flags API** behind the gateway—not by hard-coded menu lists in each MFE.
+**Module visibility is driven by the Flags API** behind the gateway—not by hard-coded menu lists in each MFE.
 
 ## Principles
 
 1. **Single source of truth** — Enabled modules come from org entitlements + installer bundle + plan, resolved server-side.
 2. **Gateway-only** — Clients call `/api/flags` (or equivalent) through the gateway; microservices are not queried directly for menu gating.
-3. **Strangler pattern** — Streamlit pages and React routes both consult the same module ids (`core`, `parties`, `sales`, …) from [`vaybooks.bms.domain.entitlements.catalog`](../vaybooks/bms/domain/entitlements/catalog.py).
+3. **Strangler pattern** — React routes consult the same module ids (`core`, `parties`, `sales`, …) from [`vaybooks.bms.domain.entitlements.catalog`](../vaybooks/bms/domain/entitlements/catalog.py).
 
 ## Phase 0 bootstrap
 
@@ -43,4 +43,4 @@ GET /api/flags/modules → { "enabled": ["core", "parties", ...] }
 - [ ] Gateway exposes flags endpoint backed by entitlements DB
 - [ ] Redux `licenseSlice` / session bootstrap fetches flags after auth
 - [ ] Each MFE guards routes with shared `useModuleEnabled("sales")` hook
-- [ ] Parity checklist row marked when Streamlit page and React route both respect flags
+- [ ] Parity checklist row marked when the React route respects flags
