@@ -22,7 +22,6 @@ The UI is the React shell. The combined FastAPI process is the application serve
 ## Retired UI
 
 - Windows service runs `python -m services.combined` (see `installer/windows/nssm/install_service.ps1`).
-- `run_streamlit.bat` and `app.py` are removed.
 - Docker and cloud docs start the combined API on port 8000 ([`cloud-deployment.md`](cloud-deployment.md)).
 
 ## Rollback

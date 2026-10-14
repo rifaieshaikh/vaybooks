@@ -1,6 +1,5 @@
-.streamlit/secrets.toml
+secrets.toml
 seed.toml
-qa-output/
 dev-orchestrator-output/
 /tasks/
 __pycache__/

@@ -14,7 +14,7 @@ def _mongo_uri() -> str:
     uri = os.environ.get("MONGODB_URI")
     if not uri:
         raise RuntimeError(
-            "MONGODB_URI is required (set env or .streamlit/secrets.toml)"
+            "MONGODB_URI is required (set env or secrets.toml)"
         )
     return uri
 

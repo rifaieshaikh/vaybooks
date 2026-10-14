@@ -35,7 +35,6 @@ EXCLUDE_DIRS = {
     "venv",
     "installer",
     "dev-orchestrator-output",
-    "qa-output",
     "tasks",
     ".github",
     "web",
@@ -186,12 +185,11 @@ def copy_app(output: Path) -> Path:
         app_dir,
         ignore=_ignore_app_copy,
     )
-    secrets = app_dir / ".streamlit" / "secrets.toml"
+    secrets = app_dir / "secrets.toml"
     if secrets.exists():
         secrets.unlink()
-    secrets_example = app_dir / ".streamlit" / "secrets.toml.example"
-    secrets = app_dir / ".streamlit" / "secrets.toml"
-    if secrets_example.exists() and not secrets.exists():
+    secrets_example = app_dir / "secrets.toml.example"
+    if secrets_example.exists():
         shutil.copy(secrets_example, secrets)
     return app_dir
 

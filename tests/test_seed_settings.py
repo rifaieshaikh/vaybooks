@@ -126,9 +126,7 @@ def test_seed_flags_read_from_secrets_file(monkeypatch, tmp_path):
     ):
         monkeypatch.delenv(key, raising=False)
 
-    secrets_dir = tmp_path / ".streamlit"
-    secrets_dir.mkdir()
-    secrets_path = secrets_dir / "secrets.toml"
+    secrets_path = tmp_path / "secrets.toml"
     secrets_path.write_text(
         "\n".join(
             [
@@ -179,9 +177,7 @@ def test_secrets_beat_env_and_seed_toml(monkeypatch, tmp_path):
         'SEED_PROFILE = "groceries"\nSEED_CUSTOMERS = true\n',
         encoding="utf-8",
     )
-    secrets_dir = tmp_path / ".streamlit"
-    secrets_dir.mkdir()
-    (secrets_dir / "secrets.toml").write_text(
+    (tmp_path / "secrets.toml").write_text(
         "\n".join(
             [
                 'MONGODB_URI = "mongodb://localhost:27017"',

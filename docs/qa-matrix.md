@@ -42,5 +42,5 @@ Cross-product checklist for bundle installs, infrastructure variants, and smoke 
 
 ## Regression gates
 
-- [ ] `restart_bms.ps1` deprecation wrapper delegates to `restart_vaybooks.ps1`
+- [ ] `restart_vaybooks.ps1` starts the React shell and combined API
 - [ ] Parity checklist ([`parity-checklist.md`](parity-checklist.md)) updated for each migrated route

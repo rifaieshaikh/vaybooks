@@ -14,8 +14,8 @@ def _repo_root() -> Path:
 
 
 def _parse_secrets_file() -> Tuple[str, str]:
-    """Read MONGODB_URI / MONGODB_DATABASE from .streamlit/secrets.toml if present."""
-    secrets = _repo_root() / ".streamlit" / "secrets.toml"
+    """Read MONGODB_URI / MONGODB_DATABASE from secrets.toml if present."""
+    secrets = _repo_root() / "secrets.toml"
     if not secrets.is_file():
         return "", ""
     try:

@@ -56,17 +56,17 @@ pip install -r requirements.txt
 Copy the example secrets file and add your credentials:
 
 ```bash
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+cp secrets.toml.example secrets.toml
 ```
 
-Edit `.streamlit/secrets.toml`:
+Edit `secrets.toml`:
 
 ```toml
 MONGODB_URI = "mongodb+srv://<username>:<password>@<cluster-url>/?retryWrites=true&w=majority"
 MONGODB_DATABASE = "zahcci_customization"
 ```
 
-**Do not commit `.streamlit/secrets.toml`.**
+**Do not commit `secrets.toml`.**
 
 For CLI scripts (indexes, seed), you can also set environment variables:
 

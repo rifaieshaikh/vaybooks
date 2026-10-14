@@ -59,7 +59,7 @@ function Import-MongoEnv {
     if ($env:MONGODB_URI) {
         return
     }
-    $secrets = Join-Path $Root ".streamlit\secrets.toml"
+    $secrets = Join-Path $Root "secrets.toml"
     if (-not (Test-Path $secrets)) {
         return
     }
@@ -69,11 +69,11 @@ function Import-MongoEnv {
     }
     if ($text -match '(?im)^\s*MONGODB_URI\s*=\s*"([^"]+)"') {
         $env:MONGODB_URI = $Matches[1]
-        Write-Host "Loaded MONGODB_URI from .streamlit/secrets.toml"
+        Write-Host "Loaded MONGODB_URI from secrets.toml"
     }
     if (-not $env:MONGODB_DATABASE -and $text -match '(?im)^\s*MONGODB_DATABASE\s*=\s*"([^"]+)"') {
         $env:MONGODB_DATABASE = $Matches[1]
-        Write-Host "Loaded MONGODB_DATABASE=$($env:MONGODB_DATABASE) from .streamlit/secrets.toml"
+        Write-Host "Loaded MONGODB_DATABASE=$($env:MONGODB_DATABASE) from secrets.toml"
     }
 }
 

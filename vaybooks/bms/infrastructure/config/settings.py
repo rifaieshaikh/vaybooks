@@ -174,7 +174,7 @@ def _seed_flags_from_env() -> dict[str, Any]:
 
 
 def _find_secrets_path() -> Path | None:
-    path = Path.cwd() / ".streamlit" / "secrets.toml"
+    path = Path.cwd() / "secrets.toml"
     return path if path.exists() else None
 
 
