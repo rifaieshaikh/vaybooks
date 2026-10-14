@@ -38,6 +38,7 @@ class OrgEntitlement:
     enabled_modules: List[str] = field(default_factory=lambda: list(ALL_MODULES))
     version: int = 1
     id: str = ORG_ENTITLEMENT_ID
+    setup_completed: bool = False
     updated_at: datetime = field(default_factory=utc_now)
 
     def bump_version(self) -> None:

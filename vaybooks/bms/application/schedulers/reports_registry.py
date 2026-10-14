@@ -192,7 +192,7 @@ def _register_schema_module(
     methods: Dict[str, str],
     service_label: str,
 ) -> None:
-    from vaybooks.bms.ui.components.common.report_filters import build_report_filter
+    from vaybooks.bms.application.reports.filters import build_report_filter
 
     def make_runner(title: str, method_name: str):
         def run(ctx: ReportContext) -> Any:
@@ -225,7 +225,7 @@ def _register_schema_module(
 
 
 def _register_sales(registry: ReportRegistry, services: Dict[str, Any]) -> None:
-    from vaybooks.bms.ui.report_schemas import SALES_MODULE_REPORT_TYPES
+    from vaybooks.bms.application.reports.schemas import SALES_MODULE_REPORT_TYPES
 
     _register_schema_module(
         registry,
@@ -245,7 +245,7 @@ def _register_sales(registry: ReportRegistry, services: Dict[str, Any]) -> None:
 
 
 def _register_purchases(registry: ReportRegistry, services: Dict[str, Any]) -> None:
-    from vaybooks.bms.ui.report_schemas import PURCHASE_MODULE_REPORT_TYPES
+    from vaybooks.bms.application.reports.schemas import PURCHASE_MODULE_REPORT_TYPES
 
     _register_schema_module(
         registry,
@@ -265,7 +265,7 @@ def _register_purchases(registry: ReportRegistry, services: Dict[str, Any]) -> N
 
 
 def _register_inventory(registry: ReportRegistry, services: Dict[str, Any]) -> None:
-    from vaybooks.bms.ui.report_schemas import INVENTORY_REPORT_TYPES
+    from vaybooks.bms.application.reports.schemas import INVENTORY_REPORT_TYPES
 
     _register_schema_module(
         registry,
@@ -295,7 +295,7 @@ def _register_inventory(registry: ReportRegistry, services: Dict[str, Any]) -> N
 
 
 def _register_production(registry: ReportRegistry, services: Dict[str, Any]) -> None:
-    from vaybooks.bms.ui.report_schemas import PRODUCTION_REPORT_TYPES
+    from vaybooks.bms.application.reports.schemas import PRODUCTION_REPORT_TYPES
 
     _register_schema_module(
         registry,
@@ -344,7 +344,7 @@ def _register_production(registry: ReportRegistry, services: Dict[str, Any]) -> 
 
 
 def _register_boutique(registry: ReportRegistry, services: Dict[str, Any]) -> None:
-    from vaybooks.bms.ui.report_schemas import BOUTIQUE_REPORT_TYPES
+    from vaybooks.bms.application.reports.schemas import BOUTIQUE_REPORT_TYPES
 
     _register_schema_module(
         registry,
@@ -378,7 +378,7 @@ def _register_boutique(registry: ReportRegistry, services: Dict[str, Any]) -> No
         svc = services.get("reports_customers")
         if svc is None:
             raise ReportSkipped("Customer reports service is unavailable")
-        from vaybooks.bms.ui.components.common.report_filters import build_report_filter
+        from vaybooks.bms.application.reports.filters import build_report_filter
 
         service_filters = build_report_filter(
             "Customer Order History", _ui_filters(ctx), customer_id=customer_id

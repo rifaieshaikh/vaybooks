@@ -22,6 +22,7 @@ class ExpenseAppService:
         invoice_repo=None,
         delivery_repo=None,
         time_repo=None,
+        activity_repo=None,
     ):
         self._expense_repo = expense_repo
         self._order_repo = order_repo
@@ -29,6 +30,7 @@ class ExpenseAppService:
         self._invoice_repo = invoice_repo
         self._delivery_repo = delivery_repo
         self._time_repo = time_repo
+        self._activity_repo = activity_repo
         self._domain = ExpenseDomainService(expense_repo)
         self._invoice_domain = InvoiceDomainService(invoice_repo)
 
@@ -102,6 +104,21 @@ class ExpenseAppService:
             linked_time_minutes, linked_time_hours = self._derive_linked_time(
                 order.id, activity_id, bill_id
             )
+
+        # Time-tracked / in-house: derive amount from catalog hourly × hours.
+        if activity_id and self._activity_repo:
+            cfg = self._activity_repo.find_by_id(activity_id)
+            if cfg:
+                requires_tracking = bool(
+                    getattr(cfg, "requires_time_tracking", False)
+                )
+                is_in_house = bool(getattr(cfg, "is_in_house", False))
+                hourly = float(getattr(cfg, "default_hourly_expense", 0) or 0)
+                hours = float(linked_time_hours or 0)
+                if (requires_tracking or is_in_house) and hourly > 0 and hours > 0:
+                    amount = round(hourly * hours, 2)
+                    purchase_price = amount
+                    selling_price = amount
 
         expense = self._domain.create_expense(
             order_id=order.id,

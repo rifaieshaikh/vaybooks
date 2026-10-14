@@ -18,7 +18,7 @@ BMS_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _read_secrets() -> dict[str, str]:
-    secrets_path = BMS_ROOT / ".streamlit" / "secrets.toml"
+    secrets_path = BMS_ROOT / "secrets.toml"
     if not secrets_path.exists():
         return {}
     try:

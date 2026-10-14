@@ -1,0 +1,85 @@
+/** Shared Boutique EntityList chrome — Measurements, Items, Tasks, Time log. */
+
+.bl-page .el-table {
+  min-width: 720px;
+}
+
+.bl-primary {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.bl-primary-title {
+  font-weight: 700;
+  color: var(--el-ink, #14241f);
+  letter-spacing: 0.01em;
+}
+
+.bl-primary-sub {
+  font-size: 0.86rem;
+  color: var(--el-muted, #5c736a);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bl-meta {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.bl-meta strong {
+  font-weight: 650;
+  font-size: 0.9rem;
+  color: var(--el-ink, #14241f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bl-meta span {
+  font-size: 0.78rem;
+  color: var(--el-muted, #5c736a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bl-link {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 650;
+  color: var(--el-primary, #185c4c);
+  cursor: pointer;
+  text-align: left;
+}
+
+.bl-link:hover {
+  text-decoration: underline;
+}
+
+.bl-empty-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 0.85rem;
+}
+
+.bl-page .el-actions {
+  min-width: 10.5rem;
+}
+
+.bl-sync-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  color: var(--el-muted, #5c736a);
+}

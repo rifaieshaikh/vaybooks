@@ -60,23 +60,23 @@ class ActivityDomainService:
         ]
 
         if activity_config.requires_time_tracking:
-            if not time_entries:
-                raise IncompleteTimeEntriesError(
-                    "No tasks found for this activity"
-                )
-            incomplete = [
+            complete_entries = [
                 t
                 for t in time_entries
-                if not is_time_entry_complete(t.start_time, t.end_time)
+                if not t.is_placeholder
+                and is_time_entry_complete(t.start_time, t.end_time)
             ]
-            if incomplete:
-                preview.incomplete_time_warning = True
+            if not complete_entries:
+                placeholders = [t for t in time_entries if t.is_placeholder]
+                if placeholders:
+                    raise IncompleteTimeEntriesError(
+                        "Record time on the task before completing this activity."
+                    )
                 raise IncompleteTimeEntriesError(
-                    "Task is recorded but not fully completed. "
-                    "Please complete the task before marking this activity as completed."
+                    "Record time on the task before completing this activity."
                 )
 
-            total_minutes = sum(t.duration_minutes for t in time_entries)
+            total_minutes = sum(t.duration_minutes for t in complete_entries)
             total_hours = minutes_to_hours(total_minutes)
             preview.total_duration_minutes = total_minutes
             preview.total_hours = total_hours
@@ -86,6 +86,9 @@ class ActivityDomainService:
             preview.total_purchase_price = round(total_hours * hourly_expense, 2)
             preview.total_selling_price = round(total_hours * hourly_expense, 2)
             preview.needs_expense = True
+        else:
+            # Outsourced / material: no time gate; labor expense not forced.
+            preview.needs_expense = False
 
         return preview
 

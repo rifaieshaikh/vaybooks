@@ -1,4 +1,4 @@
-"""Idempotent multi-vertical demo seed (customers, vendors, categories, products, business)."""
+"""Idempotent multi-vertical demo seed (customers, vendors, categories, products, business, finance)."""
 
 from __future__ import annotations
 
@@ -371,3 +371,8 @@ def run_demo_seed(db: Database, settings: AppSettings) -> None:
             int(settings.seed_vendor_count),
             location_ids=party_location_ids,
         )
+
+    if getattr(settings, "seed_finance", True):
+        from vaybooks.bms.infrastructure.db.finance_seed import seed_finance_demo
+
+        seed_finance_demo(db, settings)

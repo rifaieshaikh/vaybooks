@@ -96,7 +96,7 @@ def test_etd_and_delivery_tasks_do_not_satisfy_completion():
         task_type=TaskType.DELIVERY,
     )
     service = ActivityDomainService()
-    with pytest.raises(IncompleteTimeEntriesError, match="No tasks found"):
+    with pytest.raises(IncompleteTimeEntriesError, match="Record time on the task"):
         service.prepare_completion(
             order, order_activity, activity, [etd, delivery]
         )

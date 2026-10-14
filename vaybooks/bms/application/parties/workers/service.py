@@ -78,6 +78,10 @@ class WorkerAppService:
         location_ids: Optional[List[str]] = None,
         commission_enabled: bool = False,
         commission_profile=None,
+        base_salary: float = 0.0,
+        allowances: Optional[List] = None,
+        ot_threshold_hours: float = 0.0,
+        ot_multiplier: float = 1.5,
     ) -> Worker:
         name = (worker_name or "").strip()
         if not name:
@@ -98,6 +102,10 @@ class WorkerAppService:
             worker_name=name,
             activity_refs=normalize_activity_refs(activity_refs),
             default_hourly_rate=float(default_hourly_rate or 0.0),
+            base_salary=float(base_salary or 0.0),
+            allowances=list(allowances or []),
+            ot_threshold_hours=float(ot_threshold_hours or 0.0),
+            ot_multiplier=float(ot_multiplier if ot_multiplier is not None else 1.5),
             linked_user_id=linked_user_id,
             location_ids=party_location_ids,
             commission_enabled=bool(commission_enabled),
@@ -123,6 +131,10 @@ class WorkerAppService:
         location_ids: Optional[List[str]] = None,
         commission_enabled: bool | None = None,
         commission_profile=None,
+        base_salary: float | None = None,
+        allowances: Optional[List] = None,
+        ot_threshold_hours: float | None = None,
+        ot_multiplier: float | None = None,
     ) -> Worker:
         worker = self._repo.find_by_id(worker_id)
         if not worker:
@@ -160,6 +172,10 @@ class WorkerAppService:
             location_ids=party_location_ids,
             commission_enabled=commission_enabled,
             commission_profile=commission_profile,
+            base_salary=base_salary,
+            allowances=allowances,
+            ot_threshold_hours=ot_threshold_hours,
+            ot_multiplier=ot_multiplier,
         )
         saved = self._repo.save(worker)
         self._accounting_domain.sync_worker_salary_account(

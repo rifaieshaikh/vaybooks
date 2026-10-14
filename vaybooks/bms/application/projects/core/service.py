@@ -383,6 +383,16 @@ class ProjectAppService:
     def count_by_customer(self, customer_id: str) -> int:
         return self._project_repo.count_by_customer(customer_id)
 
+    def list_by_customer(self, customer_id: str) -> List[Project]:
+        fn = getattr(self._project_repo, "list_by_customer", None)
+        if callable(fn):
+            return fn(customer_id)
+        return [
+            p
+            for p in self.list_projects()
+            if str(getattr(p, "customer_id", "") or "") == customer_id
+        ]
+
     def get_customer_summary(self, customer_id: str) -> dict:
         return self._project_repo.get_customer_summary(customer_id)
 

@@ -616,14 +616,92 @@ class AccountingDomainService:
             )
         return Voucher(
             voucher_number=voucher_number,
-            voucher_type=VoucherType.PURCHASE_BILL,
             voucher_date=voucher_date,
+            voucher_type=VoucherType.PURCHASE_BILL,
             description=description,
             lines=voucher_lines,
             reference_order_id=reference_order_id,
             reference_service_id=reference_service_id,
             reference_po_id=reference_po_id,
             reference_grn_id=reference_grn_id,
+        )
+
+    def build_purchase_expense_voucher(
+        self,
+        voucher_number: str,
+        voucher_date,
+        description: str,
+        vendor_account_id: str,
+        vendor_account_name: str,
+        expense_account_id: str,
+        expense_account_name: str,
+        amount: float,
+    ) -> Voucher:
+        """Unpaid vendor-credit purchase expense (Dr expense / Cr vendor)."""
+        amount = round(float(amount or 0), 2)
+        if amount <= 0:
+            raise ValidationError("Purchase expense amount must be positive")
+        lines = [
+            VoucherLine(
+                account_id=expense_account_id,
+                account_name=expense_account_name,
+                debit_amount=amount,
+                credit_amount=0,
+                description="Purchase expense",
+            ),
+            VoucherLine(
+                account_id=vendor_account_id,
+                account_name=vendor_account_name,
+                debit_amount=0,
+                credit_amount=amount,
+                description="Payable to vendor",
+            ),
+        ]
+        return Voucher(
+            voucher_number=voucher_number,
+            voucher_type=VoucherType.PURCHASE_EXPENSE,
+            voucher_date=voucher_date,
+            description=description,
+            lines=lines,
+        )
+
+    def build_payment_voucher(
+        self,
+        voucher_number: str,
+        voucher_date,
+        description: str,
+        expense_account_id: str,
+        expense_account_name: str,
+        paying_account_id: str,
+        paying_account_name: str,
+        amount: float,
+    ) -> Voucher:
+        """Generic expense payment (Dr expense / Cr cash or bank)."""
+        amount = round(float(amount or 0), 2)
+        if amount <= 0:
+            raise ValidationError("Payment amount must be positive")
+        lines = [
+            VoucherLine(
+                account_id=expense_account_id,
+                account_name=expense_account_name,
+                debit_amount=amount,
+                credit_amount=0,
+                description="Expense paid",
+            ),
+            VoucherLine(
+                account_id=paying_account_id,
+                account_name=paying_account_name,
+                debit_amount=0,
+                credit_amount=amount,
+                description="Payment made",
+            ),
+        ]
+        return Voucher(
+            voucher_number=voucher_number,
+            voucher_type=VoucherType.PAYMENT,
+            voucher_date=voucher_date,
+            description=description,
+            lines=lines,
         )
 
     def build_purchase_return_voucher(

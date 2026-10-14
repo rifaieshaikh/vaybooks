@@ -8,6 +8,7 @@ from pymongo.database import Database
 from vaybooks.bms.domain.crm.entities import CrmLead
 from vaybooks.bms.domain.shared.date_utils import utc_now
 from vaybooks.bms.infrastructure.repositories.crm._serialize import (
+    deleted_mode_filter,
     lead_from_doc,
     lead_to_doc,
     not_deleted_filter,
@@ -73,13 +74,15 @@ class MongoCrmLeadRepository:
         source: Optional[str] = None,
         branch: Optional[str] = None,
         include_deleted: bool = False,
+        deleted: str = "exclude",
         search: str = "",
         limit: int = 500,
         location_filter: dict | None = None,
     ) -> List[CrmLead]:
         from vaybooks.bms.domain.identity.location_access import merge_mongo_filters
 
-        query: dict = dict(not_deleted_filter(include_deleted))
+        mode = "include" if include_deleted else deleted
+        query: dict = dict(deleted_mode_filter(mode))
         if status:
             query["status"] = status
         if assigned_user_id is not None:

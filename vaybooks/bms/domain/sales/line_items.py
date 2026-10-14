@@ -36,6 +36,7 @@ class SalesInvoiceLine:
     def to_line_dict(self) -> dict:
         return {
             "product_id": self.product_id,
+            "sku_id": self.product_id,
             "description": self.description or self.item_name,
             "item_name": self.item_name,
             "qty": self.qty,
@@ -67,7 +68,9 @@ class SalesInvoiceLine:
         item_name: str,
         gst_rate: float = 0.0,
     ) -> SalesInvoiceLine:
-        product_id = str(raw.get("product_id") or raw.get("item_id") or "")
+        product_id = str(
+            raw.get("sku_id") or raw.get("product_id") or raw.get("item_id") or ""
+        )
         line_discount = round(float(raw.get("discount") or 0), 2)
         discount_mode = (raw.get("discount_mode") or "flat").strip() or "flat"
         discount_input = round(

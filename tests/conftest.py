@@ -192,6 +192,40 @@ class FakeVoucherRepository:
             if (getattr(v, "location_id", "") or "").strip() == want
         ]
 
+    def list_by_type(
+        self,
+        voucher_type,
+        *,
+        location_filter: dict | None = None,
+        extra_filter: dict | None = None,
+    ) -> List[Voucher]:
+        _ = extra_filter
+        vt = voucher_type.value if hasattr(voucher_type, "value") else str(voucher_type)
+        return [
+            v
+            for v in self.list_all(location_filter=location_filter)
+            if (v.voucher_type.value if hasattr(v.voucher_type, "value") else str(v.voucher_type))
+            == vt
+        ]
+
+    def list_by_types(
+        self,
+        voucher_types,
+        *,
+        location_filter: dict | None = None,
+        extra_filter: dict | None = None,
+    ) -> List[Voucher]:
+        _ = extra_filter
+        allowed = {
+            vt.value if hasattr(vt, "value") else str(vt) for vt in voucher_types
+        }
+        return [
+            v
+            for v in self.list_all(location_filter=location_filter)
+            if (v.voucher_type.value if hasattr(v.voucher_type, "value") else str(v.voucher_type))
+            in allowed
+        ]
+
     def delete(self, voucher_id: str) -> None:
         self._store.pop(voucher_id, None)
 
@@ -254,7 +288,16 @@ class FakeOrderRepository:
             "active_count": sum(
                 1 for o in orders if o.order_status.value not in inactive
             ),
+            "delivered_count": sum(
+                1 for o in orders if o.order_status.value == "Delivered"
+            ),
+            "completed_count": sum(
+                1 for o in orders if o.order_status.value == "Completed"
+            ),
             "total_invoiced": 0.0,
+            "total_margin": 0.0,
+            "total_hours": 0.0,
+            "avg_mph": None,
         }
 
     def update_order_activity(self, order_id, order_activity_id, updates):
@@ -346,7 +389,10 @@ class FakeTimeTrackingRepository:
         if worker_name:
             needle = worker_name.lower()
             entries = [
-                e for e in entries if needle in (e.worker_name or "").lower()
+                e
+                for e in entries
+                if needle in (e.worker_name or "").lower()
+                or needle in (getattr(e, "assignee_name", None) or "").lower()
             ]
         if activity_name:
             entries = [e for e in entries if e.activity_name == activity_name]
@@ -524,19 +570,16 @@ class FakeProductCategoryRepository:
         return [self._store[cid] for cid in category_ids if cid in self._store]
 
     def find_by_name(self, name: str):
-        name = (name or "").strip()
+        needle = (name or "").strip().lower()
+        if not needle:
+            return None
         for category in self._store.values():
-            if category.name == name:
+            if (category.name or "").strip().lower() == needle:
                 return category
         return None
 
     def find_by_parent_and_name(self, parent_id: str | None, name: str):
-        name = (name or "").strip()
-        parent_id = parent_id or None
-        for category in self._store.values():
-            if category.name == name and (category.parent_id or None) == parent_id:
-                return category
-        return None
+        return self.find_by_name(name)
 
     def list_children(self, parent_id: str | None):
         parent_id = parent_id or None
@@ -715,6 +758,41 @@ class FakeProductUnitRepository:
         return 0
 
 
+class FakeCatalogProductRepository:
+    def __init__(self):
+        self._store: Dict[str, object] = {}
+
+    def save(self, product):
+        self._store[product.id] = product
+        return product
+
+    def find_by_id(self, product_id: str):
+        return self._store.get(product_id)
+
+    def list_all(self, active_only: bool = True):
+        if active_only:
+            return [p for p in self._store.values() if getattr(p, "is_active", True)]
+        return list(self._store.values())
+
+    def list_by_category(self, category_id: str):
+        return [
+            p
+            for p in self._store.values()
+            if category_id in (getattr(p, "category_ids", None) or [])
+            or getattr(p, "category_id", "") == category_id
+        ]
+
+    def search(self, query: str):
+        q = (query or "").strip().lower()
+        if not q:
+            return self.list_all()
+        return [
+            p
+            for p in self._store.values()
+            if q in getattr(p, "name", "").lower()
+        ]
+
+
 class FakeInventoryProductRepository:
     def __init__(self):
         self._store: Dict[str, "InventoryProduct"] = {}
@@ -737,6 +815,15 @@ class FakeInventoryProductRepository:
         if active_only:
             return [p for p in self._store.values() if p.is_active]
         return list(self._store.values())
+
+    def list_by_catalog_product(self, catalog_product_id: str):
+        if not catalog_product_id:
+            return []
+        return [
+            p
+            for p in self._store.values()
+            if getattr(p, "catalog_product_id", "") == catalog_product_id
+        ]
 
     def list_by_category(self, category_id: str):
         return [
@@ -828,6 +915,7 @@ def make_inventory_app_service():
         location_repo=FakeLocationRepository(),
         balance_repo=FakeStockBalanceRepository(),
         transfer_repo=FakeStockTransferRepository(),
+        catalog_repo=FakeCatalogProductRepository(),
     )
     service.find_or_create_unit("pcs", "Pieces")
     service.create_location("TEST-LOC", "Test Location")

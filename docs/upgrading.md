@@ -37,6 +37,6 @@ Migrations run automatically on next startup after upgrade. History is stored in
 
 ## Cloud Deployments
 
-For Streamlit Cloud, AWS, or Azure: redeploy the `bms/` app from the new git tag. Set `MONGODB_URI` via secrets/env. Migrations run on startup.
+For AWS or Azure: redeploy from the new git tag. Set `MONGODB_URI` via env. Migrations run on startup.
 
 See [cloud-deployment.md](cloud-deployment.md).

@@ -1,0 +1,175 @@
+:root {
+  --vb-color-primary: #185c4c;
+  --vb-color-primary-hover: #134a3d;
+  --vb-color-on-primary: #ffffff;
+  --vb-color-surface: #ffffff;
+  --vb-color-text: #1a1a1a;
+  --vb-color-muted: #5c736a;
+  --vb-color-line: #d5e3dc;
+  --vb-color-control-border: #c5d4ce;
+  --vb-color-soft: #eef5f1;
+
+  /* Single app typeface — do not override per page */
+  --vb-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --vb-font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, Consolas, monospace;
+
+  --vb-font-size: 15px;
+  --vb-line-height: 1.45;
+
+  --vb-control-radius: 8px;
+  --vb-control-padding-y: 0.55rem;
+  --vb-control-padding-x: 0.7rem;
+  --vb-control-font-size: 0.925rem;
+  --vb-control-height: 2.5rem;
+  --vb-focus-ring: 0 0 0 3px rgba(24, 92, 76, 0.12);
+}
+
+html {
+  font-family: var(--vb-font-sans);
+  font-size: var(--vb-font-size);
+  line-height: var(--vb-line-height);
+  color: var(--vb-color-text);
+}
+
+body {
+  margin: 0;
+  font-family: inherit;
+  color: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/* Shared control look for text fields and dropdowns */
+.vb-control,
+input.vb-control,
+select.vb-control,
+textarea.vb-control {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: var(--vb-control-height);
+  padding: var(--vb-control-padding-y) var(--vb-control-padding-x);
+  border: 1px solid var(--vb-color-control-border);
+  border-radius: var(--vb-control-radius);
+  background: var(--vb-color-surface);
+  color: var(--vb-color-text);
+  font-family: var(--vb-font-sans);
+  font-size: var(--vb-control-font-size);
+  line-height: 1.35;
+}
+
+select.vb-control {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--vb-color-muted) 50%),
+    linear-gradient(135deg, var(--vb-color-muted) 50%, transparent 50%);
+  background-position: calc(100% - 16px) calc(50% - 3px), calc(100% - 10px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+}
+
+.vb-control:focus,
+input.vb-control:focus,
+select.vb-control:focus,
+textarea.vb-control:focus {
+  outline: none;
+  border-color: var(--vb-color-primary);
+  box-shadow: var(--vb-focus-ring);
+}
+
+.vb-control:disabled,
+input.vb-control:disabled,
+select.vb-control:disabled,
+textarea.vb-control:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  background: var(--vb-color-soft);
+}
+
+/* Native controls used without the class still inherit the same chrome */
+input[type='text'],
+input[type='search'],
+input[type='email'],
+input[type='tel'],
+input[type='number'],
+input[type='password'],
+input[type='url'],
+input[type='date'],
+input[type='datetime-local'],
+input[type='time'],
+input:not([type]),
+select,
+textarea {
+  font-family: var(--vb-font-sans);
+  font-size: var(--vb-control-font-size);
+  line-height: 1.35;
+  min-height: var(--vb-control-height);
+  padding: var(--vb-control-padding-y) var(--vb-control-padding-x);
+  border: 1px solid var(--vb-color-control-border);
+  border-radius: var(--vb-control-radius);
+  background: var(--vb-color-surface);
+  color: var(--vb-color-text);
+  box-sizing: border-box;
+}
+
+select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--vb-color-muted) 50%),
+    linear-gradient(135deg, var(--vb-color-muted) 50%, transparent 50%);
+  background-position: calc(100% - 16px) calc(50% - 3px), calc(100% - 10px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+}
+
+input[type='text']:focus,
+input[type='search']:focus,
+input[type='email']:focus,
+input[type='tel']:focus,
+input[type='number']:focus,
+input[type='password']:focus,
+input[type='url']:focus,
+input[type='date']:focus,
+input[type='datetime-local']:focus,
+input[type='time']:focus,
+input:not([type]):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--vb-color-primary);
+  box-shadow: var(--vb-focus-ring);
+}
+
+input[type='checkbox'],
+input[type='radio'],
+input[type='range'],
+input[type='file'],
+input[type='hidden'],
+input[type='button'],
+input[type='submit'],
+input[type='reset'],
+input[type='image'],
+input[type='color'] {
+  min-height: unset;
+  padding: unset;
+  border: unset;
+  border-radius: unset;
+  background: unset;
+  box-shadow: none;
+  appearance: auto;
+}
+
+.vb-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 550;
+  color: var(--vb-color-text);
+}

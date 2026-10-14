@@ -16,6 +16,7 @@ from vaybooks.bms.domain.boutique.time_tracking.entities import (
     TimeEntry,
 )
 from vaybooks.bms.domain.boutique.time_tracking.repository import TimeTrackingRepository
+from vaybooks.bms.domain.shared.enums import ActivityStatus
 
 
 class TimeTrackingDomainService:
@@ -59,8 +60,149 @@ class TimeTrackingDomainService:
             worker_name=worker_name,
             notes=notes,
             task_type=task_type,
+            status="Completed" if start_time and end_time else "Created",
         )
         return self._repo.save(entry)
+
+    def upsert_activity_task(
+        self,
+        order: CustomizationOrder,
+        item: CustomizationItem,
+        activity_id: str,
+        activity_name: str,
+        estimated_hours: float = 0.0,
+    ) -> TimeEntry:
+        """Ensure one Created activity task placeholder per in-house activity on an item."""
+        existing = next(
+            (
+                e
+                for e in self._repo.find_by_order(order.id)
+                if e.task_type == TaskType.ACTIVITY
+                and e.bill_id == item.item_id
+                and e.activity_id == activity_id
+                and e.is_placeholder
+            ),
+            None,
+        )
+        work_date = item.expected_delivery_date or order.expected_delivery_date or date.today()
+        hours = round(float(estimated_hours or 0), 2)
+        if existing:
+            changed = False
+            if existing.bill_number != item.bill_number:
+                existing.bill_number = item.bill_number
+                changed = True
+            if existing.order_number != order.order_number:
+                existing.order_number = order.order_number
+                changed = True
+            if existing.activity_name != activity_name:
+                existing.activity_name = activity_name
+                changed = True
+            if abs(float(existing.estimated_hours or 0) - hours) > 1e-9:
+                existing.estimated_hours = hours
+                changed = True
+            if existing.work_date != work_date and not existing.start_time:
+                existing.work_date = work_date
+                changed = True
+            # Keep Scheduled placeholders; only normalize blank status.
+            if not (existing.status or "").strip():
+                existing.status = "Created"
+                changed = True
+            if changed:
+                existing.updated_at = utc_now()
+                return self._repo.save(existing)
+            return existing
+        entry = TimeEntry(
+            order_id=order.id,
+            order_number=order.order_number,
+            bill_id=item.item_id,
+            bill_number=item.bill_number,
+            activity_id=activity_id,
+            activity_name=activity_name,
+            work_date=work_date,
+            start_time="",
+            end_time="",
+            duration_minutes=0,
+            notes="Auto-created task",
+            task_type=TaskType.ACTIVITY,
+            status="Created",
+            estimated_hours=hours,
+            auto_schedule=True,
+        )
+        return self._repo.save(entry)
+
+    def sync_activity_tasks_for_order(
+        self,
+        order: CustomizationOrder,
+    ) -> List[TimeEntry]:
+        """Create/update Created placeholders for every required activity; drop orphans."""
+        wanted: set[tuple[str, str]] = set()
+        created: List[TimeEntry] = []
+        for activity in order.order_activities:
+            if not activity.is_required:
+                continue
+            if activity.activity_status == ActivityStatus.SKIPPED:
+                continue
+            item = order.get_item_by_id(activity.bill_id)
+            if not item:
+                continue
+            wanted.add((activity.bill_id, activity.activity_id))
+            created.append(
+                self.upsert_activity_task(
+                    order,
+                    item,
+                    activity.activity_id,
+                    activity.activity_name,
+                    estimated_hours=float(activity.estimated_hours or 0),
+                )
+            )
+
+        # Remove Created placeholders for activities no longer on the order.
+        for entry in list(self._repo.find_by_order(order.id)):
+            if entry.task_type != TaskType.ACTIVITY or not entry.is_placeholder:
+                continue
+            if (entry.bill_id, entry.activity_id) not in wanted:
+                self._repo.delete(entry.id)
+        return created
+
+    def find_activity_placeholder(
+        self, order_id: str, bill_id: str, activity_id: str
+    ) -> Optional[TimeEntry]:
+        return next(
+            (
+                e
+                for e in self._repo.find_by_order(order_id)
+                if e.task_type == TaskType.ACTIVITY
+                and e.bill_id == bill_id
+                and e.activity_id == activity_id
+                and e.is_placeholder
+            ),
+            None,
+        )
+
+    def complete_activity_placeholder(
+        self, order_id: str, bill_id: str, activity_id: str
+    ) -> Optional[TimeEntry]:
+        """Mark the Created placeholder Completed (e.g. outsourced complete without time)."""
+        placeholder = self.find_activity_placeholder(order_id, bill_id, activity_id)
+        if not placeholder:
+            # Also close any Created activity row for this bill/activity even if
+            # status alone marks it (empty times already covered by is_placeholder).
+            placeholder = next(
+                (
+                    e
+                    for e in self._repo.find_by_order(order_id)
+                    if e.task_type == TaskType.ACTIVITY
+                    and e.bill_id == bill_id
+                    and e.activity_id == activity_id
+                    and (e.status or "") == "Created"
+                ),
+                None,
+            )
+        if not placeholder:
+            return None
+        placeholder.status = "Completed"
+        placeholder.updated_at = utc_now()
+        return self._repo.save(placeholder)
 
     def upsert_etd_task(
         self, order: CustomizationOrder, item: CustomizationItem
@@ -222,7 +364,10 @@ class TimeTrackingDomainService:
         if worker_name:
             needle = worker_name.strip().lower()
             entries = [
-                e for e in entries if (e.worker_name or "").strip().lower() == needle
+                e
+                for e in entries
+                if needle in (e.worker_name or "").strip().lower()
+                or needle in (e.assignee_name or "").strip().lower()
             ]
         return sorted(entries, key=lambda e: (e.work_date, e.activity_name))
 

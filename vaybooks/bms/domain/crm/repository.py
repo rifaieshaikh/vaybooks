@@ -40,6 +40,7 @@ class CrmLeadRepository(Protocol):
         source: Optional[str] = None,
         branch: Optional[str] = None,
         include_deleted: bool = False,
+        deleted: str = "exclude",
         search: str = "",
         limit: int = 500,
     ) -> List[CrmLead]: ...
@@ -61,6 +62,7 @@ class CrmEnquiryRepository(Protocol):
         assigned_user_id: Optional[str] = None,
         branch: Optional[str] = None,
         include_deleted: bool = False,
+        deleted: str = "exclude",
         search: str = "",
         limit: int = 500,
     ) -> List[CrmEnquiry]: ...
@@ -89,9 +91,12 @@ class CrmActivityRepository(Protocol):
         status: Optional[str] = None,
         activity_type: Optional[str] = None,
         branch: Optional[str] = None,
+        origin: Optional[str] = None,
+        needs_correction: Optional[bool] = None,
         scheduled_from: Optional[datetime] = None,
         scheduled_to: Optional[datetime] = None,
         include_deleted: bool = False,
+        deleted: str = "exclude",
         limit: int = 500,
     ) -> List[CrmActivity]: ...
 

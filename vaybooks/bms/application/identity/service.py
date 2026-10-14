@@ -38,11 +38,13 @@ class UserAppService:
     def get_user(self, user_id: str) -> Optional[User]:
         return self._user_repo.find_by_id(user_id)
 
-    def get_by_username(self, username: str) -> Optional[User]:
-        return self._user_repo.find_by_username((username or "").strip())
+    def get_by_username(self, username: str, org_id: Optional[str] = None) -> Optional[User]:
+        return self._user_repo.find_by_username((username or "").strip(), org_id=org_id)
 
-    def authenticate(self, username: str, password: str) -> User:
-        user = self.get_by_username(username)
+    def authenticate(
+        self, username: str, password: str, org_id: Optional[str] = None
+    ) -> User:
+        user = self.get_by_username(username, org_id=org_id)
         if user is None or not user.active:
             raise ValidationError("Invalid username or password")
         if not verify_password(password, user.password_hash):
@@ -57,12 +59,16 @@ class UserAppService:
         password: str,
         role_ids: Optional[List[str]] = None,
         location_ids: Optional[List[str]] = None,
+        org_id: Optional[str] = None,
         active: bool = True,
     ) -> User:
+        from packages.tenancy.context import DEFAULT_ORG_ID, get_org_id
+
         username = (username or "").strip()
         if not username:
             raise ValidationError("Username is required")
-        if self._user_repo.find_by_username(username):
+        oid = (org_id or get_org_id() or DEFAULT_ORG_ID).strip() or DEFAULT_ORG_ID
+        if self._user_repo.find_by_username(username, org_id=oid):
             raise ValidationError(f"Username already exists: {username}")
         if not password or len(password) < 4:
             raise ValidationError("Password must be at least 4 characters")
@@ -75,11 +81,12 @@ class UserAppService:
             password_hash=hash_password(password),
             role_ids=roles,
             location_ids=locs,
+            org_id=oid,
             active=active,
         )
         saved = self._user_repo.save(user)
         self._record(
-            "user.create", saved, {"role_ids": roles, "location_ids": locs}
+            "user.create", saved, {"role_ids": roles, "location_ids": locs, "org_id": oid}
         )
         return saved
 

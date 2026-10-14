@@ -62,7 +62,29 @@ class AuthorizationService:
         else:
             enabled_flags = set(ALL_FEATURE_KEYS)
 
-        return plan_keys & module_keys & enabled_flags
+        base = plan_keys & module_keys & enabled_flags
+        # Stale plan.feature_keys snapshots omit newly catalogued permissions; keep
+        # resource families already on the plan / enabled modules current.
+        return base | self._forward_compat_catalog_keys(plan_keys, module_keys, enabled_flags)
+
+    @staticmethod
+    def _forward_compat_catalog_keys(
+        plan_keys: Set[str],
+        module_keys: Set[str],
+        enabled_flags: Set[str],
+    ) -> Set[str]:
+        extra: Set[str] = set()
+        inventory_on = "module.inventory" in module_keys or any(
+            k.startswith("inventory.") for k in plan_keys
+        )
+        if inventory_on:
+            extra.update(k for k in ALL_FEATURE_KEYS if k.startswith("inventory.categories."))
+        boutique_on = "module.boutique" in module_keys or any(
+            k.startswith("boutique.") for k in plan_keys
+        )
+        if boutique_on and "boutique.items.category.edit" in ALL_FEATURE_KEYS:
+            extra.add("boutique.items.category.edit")
+        return extra & module_keys & enabled_flags
 
     def _role_ids_for_user(self, user: User, project_id: str = "") -> list[str]:
         role_ids = list(user.role_ids or [])
@@ -84,12 +106,14 @@ class AuthorizationService:
         return role_ids
 
     def user_permission_keys(self, user: User, project_id: str = "") -> Set[str]:
+        from vaybooks.bms.domain.entitlements.catalog import expand_legacy_category_permissions
+
         keys: Set[str] = set()
         for role_id in self._role_ids_for_user(user, project_id):
             role = self._role_repo.find_by_id(role_id) if self._role_repo else None
             if role:
                 keys.update(role.permission_keys or [])
-        return keys
+        return expand_legacy_category_permissions(keys)
 
     def effective_keys(self, user: Optional[User], project_id: str = "") -> Set[str]:
         if user is None or not user.active:

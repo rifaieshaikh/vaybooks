@@ -4,10 +4,6 @@ from vaybooks.bms.domain.sales.line_items import (
     SalesInvoiceLine,
     apply_invoice_discount_to_lines,
 )
-from vaybooks.bms.ui.components.sales.discount_controls import (
-    eligible_invoice_discount_base,
-    resolve_invoice_level_discount,
-)
 
 
 def _line(**kwargs) -> SalesInvoiceLine:
@@ -23,22 +19,6 @@ def _line(**kwargs) -> SalesInvoiceLine:
     }
     defaults.update(kwargs)
     return SalesInvoiceLine(**defaults)
-
-
-def test_eligible_base_skips_lines_with_item_discount():
-    lines = [
-        {"qty": 2, "rate": 100, "discount": 0},
-        {"qty": 1, "rate": 50, "discount": 10},
-        {"qty": 3, "rate": 20, "discount": 0},
-    ]
-    assert eligible_invoice_discount_base(lines) == 260.0
-
-
-def test_percent_invoice_discount_uses_eligible_base():
-    amount = resolve_invoice_level_discount(
-        base_amount=260.0, value=10.0, mode="percent"
-    )
-    assert amount == 26.0
 
 
 def test_apply_invoice_discount_skips_discounted_lines_and_weights_by_qty_rate():

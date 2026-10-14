@@ -1,0 +1,1 @@
+export { MigrationHubPage } from './pages';

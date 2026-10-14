@@ -1,34 +1,42 @@
 import os
 
-import streamlit as st
 from pymongo import MongoClient
 
 from vaybooks.bms.infrastructure.config.settings import get_settings, validate_mongo_connection
+
+_client: MongoClient | None = None
 
 
 def _mongo_uri() -> str:
     settings = get_settings()
     if settings.mongo_uri:
         return settings.mongo_uri
-    return os.environ.get("MONGODB_URI") or st.secrets["MONGODB_URI"]
+    uri = os.environ.get("MONGODB_URI")
+    if not uri:
+        raise RuntimeError(
+            "MONGODB_URI is required (set env or secrets.toml)"
+        )
+    return uri
 
 
 def _mongo_database() -> str:
     settings = get_settings()
     if settings.db_name:
         return settings.db_name
-    return os.environ.get("MONGODB_DATABASE") or st.secrets["MONGODB_DATABASE"]
+    return os.environ.get("MONGODB_DATABASE") or "zahcci_customization"
 
 
-@st.cache_resource
 def get_mongo_client():
-    """A single MongoClient shared across all sessions and reruns."""
-    return MongoClient(
-        _mongo_uri(),
-        serverSelectionTimeoutMS=5000,
-        maxPoolSize=50,
-        retryWrites=True,
-    )
+    """A single MongoClient shared by this process."""
+    global _client
+    if _client is None:
+        _client = MongoClient(
+            _mongo_uri(),
+            serverSelectionTimeoutMS=5000,
+            maxPoolSize=50,
+            retryWrites=True,
+        )
+    return _client
 
 
 def get_database():
@@ -37,13 +45,13 @@ def get_database():
 
 
 def get_database_from_uri(uri: str, database_name: str):
-    """For scripts run outside Streamlit context."""
+    """Open a database from an explicit URI."""
     client = MongoClient(uri)
     return client[database_name]
 
 
 def get_mongo_client_from_settings():
-    """Non-Streamlit MongoClient for CLI/backup scripts."""
+    """MongoClient for CLI and backup scripts."""
     settings = get_settings()
     return MongoClient(
         settings.mongo_uri,

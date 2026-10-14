@@ -1,6 +1,7 @@
 from typing import List, Optional, Protocol
 
 from vaybooks.bms.domain.inventory.entities import (
+    CatalogProduct,
     InventoryProduct,
     Location,
     ProductCategory,
@@ -83,6 +84,18 @@ class LocationRepository(Protocol):
 WarehouseRepository = LocationRepository
 
 
+class CatalogProductRepository(Protocol):
+    def save(self, product: CatalogProduct) -> CatalogProduct: ...
+
+    def find_by_id(self, product_id: str) -> Optional[CatalogProduct]: ...
+
+    def list_all(self, active_only: bool = True) -> List[CatalogProduct]: ...
+
+    def list_by_category(self, category_id: str) -> List[CatalogProduct]: ...
+
+    def search(self, query: str) -> List[CatalogProduct]: ...
+
+
 class InventoryProductRepository(Protocol):
     def save(self, product: InventoryProduct) -> InventoryProduct: ...
 
@@ -93,6 +106,8 @@ class InventoryProductRepository(Protocol):
     def list_all(self, active_only: bool = True) -> List[InventoryProduct]: ...
 
     def list_by_category(self, category_id: str) -> List[InventoryProduct]: ...
+
+    def list_by_catalog_product(self, catalog_product_id: str) -> List[InventoryProduct]: ...
 
     def count_by_category(self, category_id: str) -> int: ...
 
