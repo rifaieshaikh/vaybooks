@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import './DocumentEditor.css';
 
 export type SearchableSelectOption = {
@@ -18,6 +19,33 @@ export type SearchableSelectProps = {
   onKeyDownAdvance?: (e: KeyboardEvent<HTMLElement>) => void;
 };
 
+type MenuPos = {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+  above: boolean;
+};
+
+/** Place the list in the viewport so a scrolling dialog cannot clip it. */
+function menuPosition(anchor: HTMLElement): MenuPos {
+  const rect = anchor.getBoundingClientRect();
+  const gap = 2;
+  const preferred = 220;
+  const margin = 8;
+  const spaceBelow = window.innerHeight - rect.bottom - gap - margin;
+  const spaceAbove = rect.top - gap - margin;
+  const above = spaceBelow < Math.min(preferred, 160) && spaceAbove > spaceBelow;
+  const maxHeight = Math.max(96, Math.min(preferred, above ? spaceAbove : spaceBelow));
+  return {
+    top: above ? rect.top - gap : rect.bottom + gap,
+    left: rect.left,
+    width: rect.width,
+    maxHeight,
+    above,
+  };
+}
+
 export function SearchableSelect({
   options,
   value,
@@ -28,9 +56,12 @@ export function SearchableSelect({
   onKeyDownAdvance,
 }: SearchableSelectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLUListElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
+  const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
 
   const selected = useMemo(
     () => options.find((o) => o.value === value) ?? null,
@@ -55,12 +86,29 @@ export function SearchableSelect({
     }
   }, [open, selected]);
 
+  useLayoutEffect(() => {
+    if (!open || !inputRef.current) {
+      setMenuPos(null);
+      return;
+    }
+    const update = () => {
+      if (inputRef.current) setMenuPos(menuPosition(inputRef.current));
+    };
+    update();
+    window.addEventListener('resize', update);
+    document.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      document.removeEventListener('scroll', update, true);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     function onDoc(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
     }
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -77,6 +125,7 @@ export function SearchableSelect({
       ref={rootRef}
     >
       <input
+        ref={inputRef}
         className="de-search-input"
         type="text"
         value={open ? query : selected?.label ?? ''}
@@ -111,6 +160,7 @@ export function SearchableSelect({
             if (opt) pick(opt.value);
           } else if (e.key === 'Escape') {
             e.preventDefault();
+            e.stopPropagation();
             setOpen(false);
           }
         }}
@@ -118,30 +168,45 @@ export function SearchableSelect({
         aria-autocomplete="list"
         role="combobox"
       />
-      {open && !disabled ? (
-        <ul className="de-search-menu" role="listbox">
-          {filtered.length === 0 ? (
-            <li className="de-search-empty">No matches</li>
-          ) : (
-            filtered.map((opt, index) => (
-              <li key={opt.value} role="option" aria-selected={opt.value === value}>
-                <button
-                  type="button"
-                  className="de-search-option"
-                  data-active={index === activeIndex ? 'true' : 'false'}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onClick={() => pick(opt.value)}
-                >
-                  <span className="de-search-option-label">{opt.label}</span>
-                  {opt.sublabel ? (
-                    <span className="de-search-option-sub">{opt.sublabel}</span>
-                  ) : null}
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
-      ) : null}
+      {open && !disabled && menuPos && typeof document !== 'undefined'
+        ? createPortal(
+            <ul
+              ref={menuRef}
+              className="de-search-menu de-search-menu--fixed"
+              role="listbox"
+              style={{
+                top: menuPos.top,
+                left: menuPos.left,
+                width: menuPos.width,
+                maxHeight: menuPos.maxHeight,
+                transform: menuPos.above ? 'translateY(-100%)' : undefined,
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              {filtered.length === 0 ? (
+                <li className="de-search-empty">No matches</li>
+              ) : (
+                filtered.map((opt, index) => (
+                  <li key={`${opt.value}:${opt.label}`} role="option" aria-selected={opt.value === value}>
+                    <button
+                      type="button"
+                      className="de-search-option"
+                      data-active={index === activeIndex ? 'true' : 'false'}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => pick(opt.value)}
+                    >
+                      <span className="de-search-option-label">{opt.label}</span>
+                      {opt.sublabel ? (
+                        <span className="de-search-option-sub">{opt.sublabel}</span>
+                      ) : null}
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

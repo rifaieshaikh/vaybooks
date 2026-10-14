@@ -548,6 +548,21 @@
   box-shadow: 0 10px 28px rgba(20, 40, 35, 0.12);
 }
 
+/* Portaled to document.body, so theme tokens cannot be inherited from .de-page. */
+.de-search-menu--fixed {
+  position: fixed;
+  right: auto;
+  z-index: 1300;
+  --de-muted: var(--vb-color-muted, #5c736a);
+  --de-line: var(--vb-color-line, #d5e3dc);
+  --de-soft: var(--vb-color-soft, #eef5f1);
+  --de-surface: var(--vb-color-surface, #fff);
+  --de-radius: var(--vb-control-radius, 8px);
+  color: var(--vb-color-text, #14241f);
+  font-family: var(--vb-font-sans, system-ui, sans-serif);
+  background: var(--de-surface);
+}
+
 .de-search-option {
   display: flex;
   flex-direction: column;

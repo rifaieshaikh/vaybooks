@@ -1,7 +1,11 @@
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Union
 
-from vaybooks.bms.domain.inventory.category_tree import build_category_path
+from vaybooks.bms.domain.inventory.category_tree import (
+    assigned_category_ids,
+    build_category_path,
+    rollup_category_counts,
+)
 from vaybooks.bms.domain.inventory.entities import (
     CatalogProduct,
     InventoryProduct,
@@ -252,6 +256,25 @@ class InventoryAppService:
 
     def count_products_in_category(self, category_id: str) -> int:
         return self._product_repo.count_by_category(category_id)
+
+    def category_inventory_counts(self) -> Dict[str, Dict[str, float]]:
+        """Products, SKUs, and on-hand stock per category, including descendants."""
+        categories = self._category_repo.list_all(active_only=False)
+        catalogs: List[set[str]] = []
+        if self._catalog_repo:
+            for product in self._catalog_repo.list_all(active_only=False):
+                catalogs.append(
+                    assigned_category_ids(product.category_ids, product.category_id)
+                )
+        skus: List[tuple[set[str], float]] = []
+        for sku in self._product_repo.list_all(active_only=False):
+            skus.append(
+                (
+                    assigned_category_ids(sku.category_ids, sku.category_id),
+                    float(sku.current_qty or 0),
+                )
+            )
+        return rollup_category_counts(categories, catalogs, skus)
 
     def list_products_in_category(
         self, category_id: str, q: str = ""

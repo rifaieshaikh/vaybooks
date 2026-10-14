@@ -7,6 +7,7 @@ from vaybooks.bms.domain.inventory.category_tree import (
     build_category_paths,
     list_descendant_ids,
     normalize_parent_id,
+    rollup_category_counts,
     validate_category_parent,
 )
 from vaybooks.bms.domain.inventory.entities import ProductCategory
@@ -74,3 +75,17 @@ def test_validate_parent_self():
 def test_validate_parent_not_found():
     with pytest.raises(ValidationError, match="Parent category not found"):
         validate_category_parent(None, "missing", {})
+
+
+def test_rollup_includes_descendant_categories_once():
+    root = ProductCategory(id="root", name="Apparel")
+    child = ProductCategory(id="child", name="Shirts", parent_id="root")
+    other = ProductCategory(id="other", name="Hardware")
+    catalogs = [{"child"}, {"root"}, {"child", "root"}]
+    skus = [({"child"}, 2.5), ({"child"}, 1.0), ({"other"}, 4.0)]
+
+    counts = rollup_category_counts([root, child, other], catalogs, skus)
+
+    assert counts["child"] == {"product_count": 2.0, "sku_count": 2.0, "stock_qty": 3.5}
+    assert counts["root"] == {"product_count": 3.0, "sku_count": 2.0, "stock_qty": 3.5}
+    assert counts["other"] == {"product_count": 0.0, "sku_count": 1.0, "stock_qty": 4.0}

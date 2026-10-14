@@ -291,11 +291,15 @@ def list_categories(
         rows = inv.search_categories(q, active_only=active_only)
     else:
         rows = inv.list_categories(active_only=active_only)
+    counts = inv.category_inventory_counts()
     out = []
     for r in rows:
         data = entity_dict(r)
         data["path"] = inv.get_category_path(r.id)
-        data["product_count"] = inv.count_products_in_category(r.id)
+        summary = counts.get(r.id) or {"product_count": 0, "sku_count": 0, "stock_qty": 0.0}
+        data["product_count"] = int(summary["product_count"])
+        data["sku_count"] = int(summary["sku_count"])
+        data["stock_qty"] = summary["stock_qty"]
         out.append(data)
     return out
 
@@ -347,8 +351,16 @@ def get_category(
     if not cat:
         raise HTTPException(status_code=404, detail="category not found")
     data = entity_dict(cat)
-    data["path"] = _svc().get_category_path(cat.id)
-    data["product_count"] = _svc().count_products_in_category(cat.id)
+    inv = _svc()
+    data["path"] = inv.get_category_path(cat.id)
+    summary = inv.category_inventory_counts().get(cat.id) or {
+        "product_count": 0,
+        "sku_count": 0,
+        "stock_qty": 0.0,
+    }
+    data["product_count"] = int(summary["product_count"])
+    data["sku_count"] = int(summary["sku_count"])
+    data["stock_qty"] = summary["stock_qty"]
     return data
 
 

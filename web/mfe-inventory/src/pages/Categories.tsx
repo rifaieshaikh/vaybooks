@@ -122,14 +122,15 @@ function CategoryFormFields({
       </FormRow>
       {showStatus ? (
         <FormRow label="Status">
-          <select
+          <SearchableSelect
+            options={[
+              { value: 'yes', label: 'Active' },
+              { value: 'no', label: 'Inactive' },
+            ]}
             value={values.is_active ? 'yes' : 'no'}
-            onChange={(e) => onChange('is_active', e.target.value === 'yes')}
-            style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
-          >
-            <option value="yes">Active</option>
-            <option value="no">Inactive</option>
-          </select>
+            placeholder="Select status"
+            onChange={(next) => onChange('is_active', next !== 'no')}
+          />
         </FormRow>
       ) : null}
     </div>
