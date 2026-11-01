@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import List, Optional, Sequence
+from typing import Callable, List, Optional, Sequence
 
 from vaybooks.bms.domain.sales.discount_entities import (
     SCOPE_SEASONAL,
@@ -16,8 +16,14 @@ from vaybooks.bms.domain.shared.exceptions import ValidationError
 
 
 class DiscountAppService:
-    def __init__(self, rule_repo: DiscountRuleRepository):
+    def __init__(
+        self,
+        rule_repo: DiscountRuleRepository,
+        *,
+        list_sku_ids_for_catalog: Optional[Callable[[str], Sequence[str]]] = None,
+    ):
         self._repo = rule_repo
+        self._list_sku_ids_for_catalog = list_sku_ids_for_catalog
 
     def list_rules(self, active_only: bool = False) -> List[DiscountRule]:
         return self._repo.list_all(active_only=active_only)
@@ -80,6 +86,24 @@ class DiscountAppService:
                 "Deactivate it first."
             )
 
+    def _prepare_rules(self, rules: Sequence[DiscountRule]) -> List[DiscountRule]:
+        """Attach expanded SKU ids from catalog_product_ids for matching."""
+        prepared: List[DiscountRule] = []
+        for rule in rules:
+            expanded: List[str] = []
+            catalog_ids = getattr(rule, "catalog_product_ids", None) or []
+            if catalog_ids and self._list_sku_ids_for_catalog:
+                for catalog_id in catalog_ids:
+                    expanded.extend(
+                        str(sku_id)
+                        for sku_id in self._list_sku_ids_for_catalog(catalog_id)
+                        if str(sku_id).strip()
+                    )
+            if expanded:
+                setattr(rule, "_expanded_sku_ids", list(dict.fromkeys(expanded)))
+            prepared.append(rule)
+        return prepared
+
     def suggest_line_discount(
         self,
         *,
@@ -96,7 +120,7 @@ class DiscountAppService:
     ) -> Optional[DiscountResult]:
         active_rules = list(rules) if rules is not None else self._repo.list_all(active_only=True)
         return resolve_line_discount(
-            active_rules,
+            self._prepare_rules(active_rules),
             qty=qty,
             rate=rate,
             product_id=product_id,
@@ -119,7 +143,7 @@ class DiscountAppService:
         boutique: bool = False,
         qty_field: str = "qty",
     ) -> List[Optional[DiscountResult]]:
-        rules = self._repo.list_all(active_only=True)
+        rules = self._prepare_rules(self._repo.list_all(active_only=True))
         return resolve_lines(
             rules,
             lines,

@@ -296,12 +296,22 @@ class MongoProjectRepository:
     def count_by_customer(self, customer_id: str) -> int:
         return self._collection.count_documents({"customer_id": customer_id})
 
+    def list_by_customer(self, customer_id: str) -> List[Project]:
+        """All projects for one customer (no location filter)."""
+        docs = self._collection.find({"customer_id": customer_id})
+        return [self._from_doc(d) for d in docs]
+
     def get_customer_summary(self, customer_id: str) -> dict:
         """Project counts and contract value for one customer."""
         active_statuses = [
             ProjectStatus.ACTIVE.value,
             ProjectStatus.PLANNED.value,
             ProjectStatus.ON_HOLD.value,
+        ]
+        completed_statuses = [
+            ProjectStatus.PHYSICALLY_COMPLETED.value,
+            ProjectStatus.DLP.value,
+            ProjectStatus.FINANCIALLY_CLOSED.value,
         ]
         pipeline = [
             {"$match": {"customer_id": customer_id}},
@@ -318,6 +328,15 @@ class MongoProjectRepository:
                             ]
                         }
                     },
+                    "completed_count": {
+                        "$sum": {
+                            "$cond": [
+                                {"$in": ["$status", completed_statuses]},
+                                1,
+                                0,
+                            ]
+                        }
+                    },
                     "contract_value": {
                         "$sum": {"$ifNull": ["$contract_value", 0]}
                     },
@@ -328,5 +347,6 @@ class MongoProjectRepository:
         return {
             "project_count": int(row.get("project_count") or 0),
             "active_count": int(row.get("active_count") or 0),
+            "completed_count": int(row.get("completed_count") or 0),
             "contract_value": round(float(row.get("contract_value") or 0), 2),
         }

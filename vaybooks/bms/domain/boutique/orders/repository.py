@@ -19,6 +19,20 @@ class OrderRepository(Protocol):
 
     def list_all(self, location_filter: dict | None = None) -> List[CustomizationOrder]: ...
 
+    def page(
+        self,
+        *,
+        q: str = "",
+        order_number: str = "",
+        customer_name: str = "",
+        status: str = "",
+        sort_by: str = "order_date",
+        sort_desc: bool = True,
+        page: int = 1,
+        page_size: int = 12,
+        location_filter: dict | None = None,
+    ) -> tuple[List[CustomizationOrder], int]: ...
+
     def list_by_status(self, status: str) -> List[CustomizationOrder]: ...
 
     def list_by_customer(self, customer_id: str) -> List[CustomizationOrder]: ...

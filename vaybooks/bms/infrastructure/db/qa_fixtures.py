@@ -525,10 +525,6 @@ def ensure_cash_drawer_account(db: Database) -> None:
 
 
 def run_qa_fixtures(db: Database) -> None:
-    from tests.qa.sync_execution_overrides import sync_execution_overrides
-
-    sync_execution_overrides()
-
     ensure_cash_drawer_account(db)
     ensure_o1001_invoice(db)
     ensure_o1004_failed_invoice_attempt(db)

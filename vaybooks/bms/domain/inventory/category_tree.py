@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from vaybooks.bms.domain.inventory.entities import ProductCategory
 from vaybooks.bms.domain.shared.exceptions import ValidationError
@@ -69,6 +69,72 @@ def validate_category_parent(
         seen.add(current)
         parent = categories_by_id.get(current)
         current = parent.parent_id if parent else None
+
+
+def assigned_category_ids(
+    category_ids: Optional[Sequence[str]] = None,
+    category_id: Optional[str] = None,
+) -> set[str]:
+    ids = {str(cid).strip() for cid in (category_ids or []) if str(cid).strip()}
+    legacy = str(category_id or "").strip()
+    if legacy:
+        ids.add(legacy)
+    return ids
+
+
+def _ancestor_chain(
+    category_id: str,
+    parent_of: Dict[str, Optional[str]],
+    valid: set[str],
+) -> List[str]:
+    chain: List[str] = []
+    current: Optional[str] = category_id
+    seen: set[str] = set()
+    while current and current not in seen and current in valid:
+        seen.add(current)
+        chain.append(current)
+        current = parent_of.get(current)
+    return chain
+
+
+def rollup_category_counts(
+    categories: Sequence[ProductCategory],
+    catalog_category_ids: Sequence[set[str]],
+    sku_rows: Sequence[Tuple[set[str], float]],
+) -> Dict[str, Dict[str, float]]:
+    """Count products, SKUs, and stock for each category, including descendants.
+
+    A row assigned to a child counts once on that child and on every ancestor.
+    """
+    valid = {category.id for category in categories}
+    parent_of = {category.id: category.parent_id for category in categories}
+    product_ids: Dict[str, set[int]] = {category_id: set() for category_id in valid}
+    sku_ids: Dict[str, set[int]] = {category_id: set() for category_id in valid}
+    stock: Dict[str, float] = {category_id: 0.0 for category_id in valid}
+
+    for index, assigned in enumerate(catalog_category_ids):
+        touched: set[str] = set()
+        for category_id in assigned:
+            touched.update(_ancestor_chain(category_id, parent_of, valid))
+        for category_id in touched:
+            product_ids[category_id].add(index)
+
+    for index, (assigned, qty) in enumerate(sku_rows):
+        touched = set()
+        for category_id in assigned:
+            touched.update(_ancestor_chain(category_id, parent_of, valid))
+        for category_id in touched:
+            sku_ids[category_id].add(index)
+            stock[category_id] += float(qty or 0)
+
+    return {
+        category_id: {
+            "product_count": float(len(product_ids[category_id])),
+            "sku_count": float(len(sku_ids[category_id])),
+            "stock_qty": round(stock[category_id], 2),
+        }
+        for category_id in valid
+    }
 
 
 def list_descendant_ids(

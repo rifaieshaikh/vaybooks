@@ -80,5 +80,11 @@ class MongoProjectTimeEntryRepository:
         docs = self._collection.find({"activity_id": activity_id}).sort("work_date", -1)
         return [self._from_doc(d) for d in docs]
 
+    def list_by_worker(self, worker_id: str) -> List[ProjectTimeEntry]:
+        if not worker_id:
+            return []
+        docs = self._collection.find({"worker_id": worker_id}).sort("work_date", -1)
+        return [self._from_doc(d) for d in docs]
+
     def delete(self, entry_id: str) -> None:
         self._collection.delete_one({"_id": entry_id})

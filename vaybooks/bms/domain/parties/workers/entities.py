@@ -14,7 +14,15 @@ from vaybooks.bms.domain.shared.date_utils import utc_now
 SOURCE_STORE = "store"
 SOURCE_CUSTOMIZATION = "customization"
 SOURCE_PROJECT = "project"
-ACTIVITY_SOURCES = (SOURCE_STORE, SOURCE_CUSTOMIZATION, SOURCE_PROJECT)
+SOURCE_BUSINESS = "business"
+SOURCE_PRODUCTION = "production"
+ACTIVITY_SOURCES = (
+    SOURCE_STORE,
+    SOURCE_CUSTOMIZATION,
+    SOURCE_PROJECT,
+    SOURCE_BUSINESS,
+    SOURCE_PRODUCTION,
+)
 
 
 @dataclass(frozen=True)
@@ -66,6 +74,11 @@ class Worker:
     activity_refs: List[WorkerActivityRef] = field(default_factory=list)
     is_active: bool = True
     default_hourly_rate: float = 0.0
+    # Pay configuration (Phase 5 payroll).
+    base_salary: float = 0.0
+    allowances: List[dict] = field(default_factory=list)
+    ot_threshold_hours: float = 0.0
+    ot_multiplier: float = 1.5
     # Optional link to identity User for system login.
     linked_user_id: str = ""
     location_ids: List[str] = field(default_factory=list)
@@ -107,11 +120,23 @@ class Worker:
         location_ids: Iterable[str] | None = None,
         commission_enabled: bool | None = None,
         commission_profile: CommissionProfile | None = None,
+        base_salary: float | None = None,
+        allowances: Iterable | None = None,
+        ot_threshold_hours: float | None = None,
+        ot_multiplier: float | None = None,
     ) -> None:
         self.worker_name = (worker_name or "").strip()
         self.activity_refs = normalize_activity_refs(activity_refs)
         self.is_active = bool(is_active)
         self.default_hourly_rate = float(default_hourly_rate or 0.0)
+        if base_salary is not None:
+            self.base_salary = float(base_salary or 0.0)
+        if allowances is not None:
+            self.allowances = _normalize_allowances(allowances)
+        if ot_threshold_hours is not None:
+            self.ot_threshold_hours = float(ot_threshold_hours or 0.0)
+        if ot_multiplier is not None:
+            self.ot_multiplier = float(ot_multiplier or 1.5)
         if linked_user_id is not None:
             self.linked_user_id = (linked_user_id or "").strip()
         if location_ids is not None:
@@ -127,3 +152,18 @@ class Worker:
         if not self.commission_enabled:
             self.commission_profile = None
         self.updated_at = utc_now()
+
+
+def _normalize_allowances(values: Iterable) -> List[dict]:
+    out: List[dict] = []
+    for value in values or []:
+        if isinstance(value, dict):
+            label = str(value.get("label") or value.get("name") or "").strip()
+            amount = float(value.get("amount") or 0)
+        else:
+            label = str(getattr(value, "label", None) or getattr(value, "name", "") or "").strip()
+            amount = float(getattr(value, "amount", 0) or 0)
+        if not label and not amount:
+            continue
+        out.append({"label": label or "Allowance", "amount": amount})
+    return out

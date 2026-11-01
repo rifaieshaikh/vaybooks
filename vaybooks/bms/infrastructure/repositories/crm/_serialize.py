@@ -58,6 +58,8 @@ def lead_to_doc(lead: CrmLead) -> dict:
         "lost_by_name": lead.lost_by_name,
         "import_batch_id": lead.import_batch_id,
         "import_row_fingerprint": lead.import_row_fingerprint,
+        "attachment_ids": list(lead.attachment_ids or []),
+        "custom_field_values": dict(lead.custom_field_values or {}),
         "branch": lead.branch,
         "location_id": lead.location_id,
         "location_name": lead.location_name,
@@ -112,6 +114,8 @@ def lead_from_doc(doc: dict) -> CrmLead:
         lost_by_name=doc.get("lost_by_name", "") or "",
         import_batch_id=doc.get("import_batch_id", "") or "",
         import_row_fingerprint=doc.get("import_row_fingerprint", "") or "",
+        attachment_ids=list(doc.get("attachment_ids") or []),
+        custom_field_values=dict(doc.get("custom_field_values") or {}),
         branch=doc.get("branch", "") or "",
         location_id=str(doc.get("location_id") or ""),
         location_name=str(doc.get("location_name") or ""),
@@ -148,6 +152,7 @@ def enquiry_to_doc(enquiry: CrmEnquiry) -> dict:
         "lost_reason": enquiry.lost_reason,
         "notes": enquiry.notes,
         "attachment_ids": list(enquiry.attachment_ids or []),
+        "custom_field_values": dict(enquiry.custom_field_values or {}),
         "quotation_id": enquiry.quotation_id,
         "sales_order_id": enquiry.sales_order_id,
         "branch": enquiry.branch,
@@ -184,6 +189,7 @@ def enquiry_from_doc(doc: dict) -> CrmEnquiry:
         lost_reason=doc.get("lost_reason", "") or "",
         notes=doc.get("notes", "") or "",
         attachment_ids=list(doc.get("attachment_ids") or []),
+        custom_field_values=dict(doc.get("custom_field_values") or {}),
         quotation_id=doc.get("quotation_id", "") or "",
         sales_order_id=doc.get("sales_order_id", "") or "",
         branch=doc.get("branch", "") or "",
@@ -213,7 +219,9 @@ def activity_to_doc(activity: CrmActivity) -> dict:
         "assigned_user_name": activity.assigned_user_name,
         "activity_at": activity.activity_at,
         "scheduled_at": activity.scheduled_at,
+        "due_at": activity.due_at,
         "completed_at": activity.completed_at,
+        "duration_minutes": activity.duration_minutes,
         "outcome": activity.outcome,
         "notes": activity.notes,
         "next_action": activity.next_action,
@@ -223,12 +231,14 @@ def activity_to_doc(activity: CrmActivity) -> dict:
         "location_name": activity.location_name,
         "priority": activity.priority,
         "attachment_ids": list(activity.attachment_ids or []),
+        "custom_field_values": dict(activity.custom_field_values or {}),
         "source_module": activity.source_module,
         "source_txn_type": activity.source_txn_type,
         "source_txn_id": activity.source_txn_id,
         "promised_amount": float(activity.promised_amount or 0),
         "promised_date": activity.promised_date,
         "cancel_reason": activity.cancel_reason,
+        "needs_correction": bool(activity.needs_correction),
         "branch": activity.branch,
         "is_deleted": activity.is_deleted,
         "deleted_at": activity.deleted_at,
@@ -258,6 +268,11 @@ def activity_from_doc(doc: dict) -> CrmActivity:
         scheduled_at=doc.get("scheduled_at"),
         due_at=doc.get("due_at"),
         completed_at=doc.get("completed_at"),
+        duration_minutes=(
+            int(doc["duration_minutes"])
+            if doc.get("duration_minutes") not in (None, "")
+            else None
+        ),
         outcome=doc.get("outcome", "") or "",
         notes=doc.get("notes", "") or "",
         next_action=doc.get("next_action", "") or "",
@@ -267,12 +282,14 @@ def activity_from_doc(doc: dict) -> CrmActivity:
         location_name=str(doc.get("location_name") or ""),
         priority=doc.get("priority", "") or "",
         attachment_ids=list(doc.get("attachment_ids") or []),
+        custom_field_values=dict(doc.get("custom_field_values") or {}),
         source_module=doc.get("source_module", "") or "",
         source_txn_type=doc.get("source_txn_type", "") or "",
         source_txn_id=doc.get("source_txn_id", "") or "",
         promised_amount=float(doc.get("promised_amount") or 0),
         promised_date=doc.get("promised_date"),
         cancel_reason=doc.get("cancel_reason", "") or "",
+        needs_correction=bool(doc.get("needs_correction", False)),
         branch=doc.get("branch", "") or "",
         is_deleted=bool(doc.get("is_deleted", False)),
         deleted_at=doc.get("deleted_at"),
@@ -447,6 +464,11 @@ def settings_to_doc(settings: CrmSettings) -> dict:
         "payment_reminder_due_offsets_days": list(
             settings.payment_reminder_due_offsets_days or []
         ),
+        "calendar_drag_enabled": bool(settings.calendar_drag_enabled),
+        "custom_fields_enabled": bool(settings.custom_fields_enabled),
+        "crm_mode": settings.crm_mode or "trade",
+        "field_packs": dict(settings.field_packs or {}),
+        "custom_field_defs": list(settings.custom_field_defs or []),
         "updated_at": settings.updated_at,
         "updated_by_id": settings.updated_by_id,
         "updated_by_name": settings.updated_by_name,
@@ -474,6 +496,11 @@ def settings_from_doc(doc: Optional[dict]) -> CrmSettings:
         payment_reminder_due_offsets_days=list(
             doc.get("payment_reminder_due_offsets_days") or [0, 3, 7]
         ),
+        calendar_drag_enabled=bool(doc.get("calendar_drag_enabled", True)),
+        custom_fields_enabled=bool(doc.get("custom_fields_enabled", True)),
+        crm_mode=str(doc.get("crm_mode") or "trade"),
+        field_packs=dict(doc.get("field_packs") or {}),
+        custom_field_defs=list(doc.get("custom_field_defs") or []),
         updated_at=doc.get("updated_at", datetime.utcnow()),
         updated_by_id=doc.get("updated_by_id", "") or "",
         updated_by_name=doc.get("updated_by_name", "") or "",
@@ -484,3 +511,19 @@ def not_deleted_filter(include_deleted: bool = False) -> Dict[str, Any]:
     if include_deleted:
         return {}
     return {"is_deleted": {"$ne": True}}
+
+
+def deleted_mode_filter(deleted: str = "exclude") -> Dict[str, Any]:
+    """Mongo filter for soft-delete visibility.
+
+    deleted: exclude|only|include
+    - exclude -> not_deleted_filter(False)
+    - include -> {}
+    - only -> {"is_deleted": True}
+    """
+    mode = (deleted or "exclude").strip().lower()
+    if mode == "include":
+        return {}
+    if mode == "only":
+        return {"is_deleted": True}
+    return not_deleted_filter(False)

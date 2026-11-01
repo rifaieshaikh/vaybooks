@@ -25,6 +25,22 @@ class VendorDomainService:
         vendor = Vendor.from_input(normalized)
         return self._vendor_repo.save(vendor)
 
+    def find_or_create_by_name(self, name: str, location_ids: List[str]) -> Vendor:
+        """Return the vendor with this name, or create one when the name is new."""
+        cleaned = (name or "").strip()
+        if not cleaned:
+            raise ValidationError("Vendor name is required")
+        existing = self._vendor_repo.find_by_name(cleaned)
+        if existing:
+            return existing
+        normalized = self._validate_and_normalize(
+            VendorInput(vendor_name=cleaned, phone_number="", location_ids=list(location_ids or [])),
+            require_phone=False,
+        )
+        self._check_duplicates(normalized, exclude_vendor_id=None)
+        vendor = Vendor.from_input(normalized)
+        return self._vendor_repo.save(vendor)
+
     def update(self, vendor_id: str, vendor_input: VendorInput) -> Vendor:
         vendor = self._vendor_repo.find_by_id(vendor_id)
         if not vendor:
@@ -34,7 +50,9 @@ class VendorDomainService:
         vendor.apply_input(normalized)
         return self._vendor_repo.save(vendor)
 
-    def _validate_and_normalize(self, vendor_input: VendorInput) -> VendorInput:
+    def _validate_and_normalize(
+        self, vendor_input: VendorInput, *, require_phone: bool = True
+    ) -> VendorInput:
         party = normalize_party_fields(
             name=vendor_input.vendor_name,
             phone_number=vendor_input.phone_number,
@@ -51,6 +69,7 @@ class VendorDomainService:
             pan=vendor_input.pan,
             registration_type=vendor_input.registration_type,
             msme_number=vendor_input.msme_number,
+            require_phone=require_phone,
         )
         banking = normalize_banking_fields(
             bank_account_holder=vendor_input.bank_account_holder,
@@ -87,7 +106,10 @@ class VendorDomainService:
     def _check_duplicates(
         self, vendor_input: VendorInput, exclude_vendor_id: Optional[str]
     ) -> None:
-        existing_phone = self._vendor_repo.find_by_phone(vendor_input.phone_number)
+        if vendor_input.phone_number:
+            existing_phone = self._vendor_repo.find_by_phone(vendor_input.phone_number)
+        else:
+            existing_phone = None
         if existing_phone and existing_phone.id != exclude_vendor_id:
             raise DuplicateVendorError(
                 f"A vendor with phone {vendor_input.phone_number} already exists.",

@@ -18,7 +18,6 @@ from vaybooks.bms.domain.identity.location_access import (
 )
 from vaybooks.bms.domain.inventory.entities import Location
 from vaybooks.bms.domain.shared.enums import LocationType
-from vaybooks.bms.domain.shared.exceptions import ValidationError
 
 
 def test_owner_is_unrestricted_even_with_location_ids():
@@ -106,25 +105,3 @@ def test_multi_location_defaults_to_all_and_can_select_all():
     assert can_select_all(user, [a, b])
     assert default_working_location_id(user, [a, b]) == ALL_LOCATIONS
 
-
-def test_require_specific_location_blocks_all(monkeypatch):
-    from vaybooks.bms.ui.auth import session
-
-    monkeypatch.setattr(
-        session, "ensure_working_location", lambda _services: ALL_LOCATIONS
-    )
-    try:
-        session.require_specific_location({})
-    except ValidationError as exc:
-        assert "Select a specific location" in str(exc)
-    else:
-        raise AssertionError("All locations must block document creation")
-
-
-def test_require_specific_location_returns_location(monkeypatch):
-    from vaybooks.bms.ui.auth import session
-
-    monkeypatch.setattr(
-        session, "ensure_working_location", lambda _services: "loc-1"
-    )
-    assert session.require_specific_location({}) == "loc-1"

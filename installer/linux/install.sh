@@ -42,7 +42,7 @@ install_app() {
   cat > "$DESKTOP_FILE" <<EOF
 [Desktop Entry]
 Name=VayBooks-BMS
-Exec=xdg-open http://127.0.0.1:8501
+Exec=xdg-open http://127.0.0.1:8000
 Icon=applications-office
 Type=Application
 EOF

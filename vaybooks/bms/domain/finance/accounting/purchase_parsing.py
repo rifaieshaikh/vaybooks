@@ -126,6 +126,7 @@ def purchase_row_from_voucher(voucher) -> dict:
         "reference_po_id": getattr(voucher, "reference_po_id", None),
         "reference_grn_id": getattr(voucher, "reference_grn_id", None),
         "reference_service_id": getattr(voucher, "reference_service_id", None),
+        "due_date": getattr(voucher, "due_date", None),
     }
 
 

@@ -106,3 +106,19 @@ def test_customer_create_stores_location_ids():
         )
     )
     assert customer.location_ids == ["loc-main", "loc-store"]
+
+
+def test_party_router_locs_never_defaults():
+    from services.parties.router import _locs, _party_location_filter
+
+    assert _locs(None) == []
+    assert _locs([]) == []
+    assert _locs(["default", "", "loc-a", "loc-a", " loc-b "]) == ["loc-a", "loc-b"]
+    assert _party_location_filter(None, None) is None
+    assert _party_location_filter("loc-a", None) == {"location_ids": "loc-a"}
+    assert _party_location_filter(None, "loc-a,loc-b") == {
+        "location_ids": {"$in": ["loc-a", "loc-b"]}
+    }
+    assert _party_location_filter("loc-a", "loc-b,loc-a") == {
+        "location_ids": {"$in": ["loc-b", "loc-a"]}
+    }

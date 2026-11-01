@@ -82,22 +82,3 @@ def test_operational_roles_do_not_inherit_scheduler_control():
         keys = set(SYSTEM_ROLE_DEFINITIONS[role_id]["permission_keys"])
         assert not any(key.startswith("schedulers.") for key in keys)
 
-
-def test_the_page_helper_delegates_to_the_session_permission_check(monkeypatch):
-    import vaybooks.bms.ui.auth.session as session
-    from vaybooks.bms.ui.pages.schedulers._common import can
-
-    granted = {"schedulers.view"}
-    monkeypatch.setattr(
-        session, "can_permission", lambda services, key, **kw: key in granted
-    )
-
-    assert can({}, "schedulers.view") is True
-    assert can({}, "schedulers.run") is False
-    assert can({}, "schedulers.edit") is False
-
-
-def test_the_page_helper_fails_open_when_no_authorization_is_wired():
-    from vaybooks.bms.ui.pages.schedulers._common import can
-
-    assert can({}, "schedulers.run") is True

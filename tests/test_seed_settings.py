@@ -30,6 +30,7 @@ def test_seed_flags_from_mapping_defaults():
     assert flags["seed_categories"] is False
     assert flags["seed_products"] is False
     assert flags["seed_profile"] == "none"
+    assert flags["seed_finance"] is True
     assert flags["seed_customer_count"] == 100
     assert flags["seed_business_registration"] == "Unregistered"
     assert flags["seed_business_state"] == "27"
@@ -48,6 +49,7 @@ def test_seed_flags_from_mapping_overrides():
             "SEED_CATEGORIES": "true",
             "SEED_PRODUCTS": "true",
             "SEED_PROFILE": "pharma,hardware",
+            "SEED_FINANCE": "false",
             "SEED_CUSTOMER_COUNT": 50,
             "SEED_BUSINESS_REGISTRATION": "Composition",
             "SEED_BUSINESS_STATE": "29",
@@ -64,6 +66,7 @@ def test_seed_flags_from_mapping_overrides():
     assert flags["seed_categories"] is True
     assert flags["seed_products"] is True
     assert flags["seed_profile"] == "pharma,hardware"
+    assert flags["seed_finance"] is False
     assert flags["seed_customer_count"] == 50
     assert flags["seed_business_registration"] == "Composition"
     assert flags["seed_business_state"] == "29"
@@ -107,7 +110,7 @@ def test_env_settings_include_seed_flags(monkeypatch, tmp_path):
     reload_settings()
 
 
-def test_seed_flags_read_from_streamlit_secrets_file(monkeypatch, tmp_path):
+def test_seed_flags_read_from_secrets_file(monkeypatch, tmp_path):
     monkeypatch.delenv("VAYBOOKS_DATA_DIR", raising=False)
     monkeypatch.setenv("MONGODB_URI", "mongodb://localhost:27017")
     for key in (
@@ -123,9 +126,7 @@ def test_seed_flags_read_from_streamlit_secrets_file(monkeypatch, tmp_path):
     ):
         monkeypatch.delenv(key, raising=False)
 
-    secrets_dir = tmp_path / ".streamlit"
-    secrets_dir.mkdir()
-    secrets_path = secrets_dir / "secrets.toml"
+    secrets_path = tmp_path / "secrets.toml"
     secrets_path.write_text(
         "\n".join(
             [
@@ -171,18 +172,12 @@ def test_secrets_beat_env_and_seed_toml(monkeypatch, tmp_path):
     monkeypatch.setenv("MONGODB_URI", "mongodb://localhost:27017")
     monkeypatch.setenv("SEED_PROFILE", "pharma")
     monkeypatch.setenv("SEED_CUSTOMERS", "false")
-    monkeypatch.setattr(
-        "vaybooks.bms.infrastructure.config.settings._st_secrets_as_dict",
-        lambda: {},
-    )
 
     (tmp_path / "seed.toml").write_text(
         'SEED_PROFILE = "groceries"\nSEED_CUSTOMERS = true\n',
         encoding="utf-8",
     )
-    secrets_dir = tmp_path / ".streamlit"
-    secrets_dir.mkdir()
-    (secrets_dir / "secrets.toml").write_text(
+    (tmp_path / "secrets.toml").write_text(
         "\n".join(
             [
                 'MONGODB_URI = "mongodb://localhost:27017"',
@@ -211,10 +206,6 @@ def test_env_beats_seed_toml_when_no_secrets(monkeypatch, tmp_path):
         "SEED_CUSTOMERS",
     ):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(
-        "vaybooks.bms.infrastructure.config.settings._st_secrets_as_dict",
-        lambda: {},
-    )
 
     (tmp_path / "seed.toml").write_text(
         'SEED_PROFILE = "fancy"\nSEED_VENDORS = true\n',
@@ -233,10 +224,6 @@ def test_seed_toml_business_blocks(monkeypatch, tmp_path):
     monkeypatch.setenv("MONGODB_URI", "mongodb://localhost:27017")
     for key in _seed_env_keys():
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(
-        "vaybooks.bms.infrastructure.config.settings._st_secrets_as_dict",
-        lambda: {},
-    )
 
     (tmp_path / "seed.toml").write_text(
         "\n".join(

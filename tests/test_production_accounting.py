@@ -73,6 +73,7 @@ class SettingsRepo:
 
 class InventoryStub:
     def __init__(self):
+        self.reversed = []
         self.products = {
             "rm": SimpleNamespace(
                 id="rm", name="Raw", unit="kg", weighted_avg_cost=10, selling_rate=0
@@ -113,7 +114,7 @@ class InventoryStub:
             self.products[line["product_id"]].weighted_avg_cost = line["unit_cost"]
 
     def reverse_movements_by_reference(self, batch_id):
-        pass
+        self.reversed.append(batch_id)
 
 
 class AccountingStub:
@@ -123,6 +124,7 @@ class AccountingStub:
             for key in ("wip", "raw", "fg", "clearing")
         }
         self.vouchers = []
+        self.voided = []
 
     def get_account(self, account_id):
         return self.accounts.get(account_id)
@@ -134,6 +136,9 @@ class AccountingStub:
         voucher = SimpleNamespace(id=f"v{len(self.vouchers) + 1}", lines=lines)
         self.vouchers.append(voucher)
         return voucher
+
+    def void_voucher(self, voucher_id):
+        self.voided.append(voucher_id)
 
     def list_vouchers(self):
         return []
@@ -214,6 +219,27 @@ def test_post_batch_updates_stock_wac_and_balanced_journals(production):
     assert len(posted.posting.movement_ids) == 3
     assert len(accounting.vouchers) == 3
     assert inventory.products["fg"].weighted_avg_cost > 0
+
+
+def test_unpost_batch_reverses_stock_and_voids_journals(production):
+    service, inventory, accounting, recipe = production
+    batch = service.create_batch(
+        batch_number="PB-UNPOST",
+        recipe_id=recipe.id,
+        batch_date=date.today(),
+        location_id="loc",
+        planned_quantity=50,
+    )
+    posted = service.post_batch(batch.id, posted_by="tester")
+    voucher_ids = list(posted.posting.voucher_ids)
+    assert posted.status == ProductionBatchStatus.POSTED
+
+    restored = service.unpost_batch(posted.id)
+    assert restored.status == ProductionBatchStatus.IN_PROGRESS
+    assert restored.posting.voucher_ids == []
+    assert restored.posting.movement_ids == []
+    assert posted.id in inventory.reversed
+    assert accounting.voided == voucher_ids
 
 
 def test_percentage_allocation_requires_one_hundred_percent(production):

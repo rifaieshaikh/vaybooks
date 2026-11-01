@@ -1,4 +1,5 @@
-﻿from datetime import datetime
+﻿import re
+from datetime import datetime
 from typing import List, Optional
 
 from bson import ObjectId
@@ -17,7 +18,6 @@ class MongoVendorRepository:
         doc = {
             "_id": vendor.id,
             "vendor_name": vendor.vendor_name,
-            "phone_number": vendor.phone_number,
             "alternate_phone_number": vendor.alternate_phone_number,
             "email": vendor.email,
             "contact_person": vendor.contact_person,
@@ -41,6 +41,8 @@ class MongoVendorRepository:
             "created_at": vendor.created_at,
             "updated_at": vendor.updated_at,
         }
+        if vendor.phone_number:
+            doc["phone_number"] = vendor.phone_number
         if vendor.gstin:
             doc["gstin"] = vendor.gstin
         return doc
@@ -57,7 +59,7 @@ class MongoVendorRepository:
         return Vendor(
             id=str(doc["_id"]),
             vendor_name=doc["vendor_name"],
-            phone_number=doc["phone_number"],
+            phone_number=doc.get("phone_number") or "",
             alternate_phone_number=doc.get("alternate_phone_number"),
             email=doc.get("email", ""),
             contact_person=doc.get("contact_person", ""),
@@ -99,6 +101,15 @@ class MongoVendorRepository:
 
     def find_by_phone(self, phone: str) -> Optional[Vendor]:
         doc = self._collection.find_one({"phone_number": phone})
+        return self._from_doc(doc) if doc else None
+
+    def find_by_name(self, name: str) -> Optional[Vendor]:
+        needle = (name or "").strip()
+        if not needle:
+            return None
+        doc = self._collection.find_one(
+            {"vendor_name": {"$regex": f"^{re.escape(needle)}$", "$options": "i"}}
+        )
         return self._from_doc(doc) if doc else None
 
     def find_by_gstin(self, gstin: str) -> Optional[Vendor]:

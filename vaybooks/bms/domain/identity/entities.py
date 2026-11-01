@@ -35,6 +35,7 @@ class User:
     role_ids: List[str] = field(default_factory=list)
     # Empty = unrestricted (all locations). Non-empty = only these location ids.
     location_ids: List[str] = field(default_factory=list)
+    org_id: str = "default"
     active: bool = True
     id: str = field(default_factory=lambda: uuid4().hex)
     created_at: datetime = field(default_factory=utc_now)

@@ -21,6 +21,7 @@ class MongoUserRepository:
             "password_hash": user.password_hash,
             "role_ids": list(user.role_ids or []),
             "location_ids": list(user.location_ids or []),
+            "org_id": getattr(user, "org_id", None) or "default",
             "active": user.active,
             "created_at": user.created_at,
             "updated_at": user.updated_at,
@@ -38,6 +39,7 @@ class MongoUserRepository:
                 for lid in (doc.get("location_ids") or [])
                 if str(lid).strip()
             ],
+            org_id=str(doc.get("org_id") or "default"),
             active=bool(doc.get("active", True)),
             created_at=doc.get("created_at", datetime.utcnow()),
             updated_at=doc.get("updated_at", datetime.utcnow()),
@@ -45,6 +47,8 @@ class MongoUserRepository:
 
     def save(self, user: User) -> User:
         user.updated_at = utc_now()
+        if not getattr(user, "org_id", None):
+            user.org_id = "default"
         self._collection.replace_one({"_id": user.id}, self._to_doc(user), upsert=True)
         return user
 
@@ -52,12 +56,40 @@ class MongoUserRepository:
         doc = self._collection.find_one({"_id": user_id})
         return self._from_doc(doc) if doc else None
 
-    def find_by_username(self, username: str) -> Optional[User]:
-        doc = self._collection.find_one({"username": (username or "").strip()})
+    def find_by_username(self, username: str, org_id: str | None = None) -> Optional[User]:
+        from packages.tenancy.context import DEFAULT_ORG_ID, get_org_id
+
+        oid = (org_id or get_org_id() or DEFAULT_ORG_ID).strip() or DEFAULT_ORG_ID
+        uname = (username or "").strip()
+        doc = self._collection.find_one({"username": uname, "org_id": oid})
+        if doc is None and oid == DEFAULT_ORG_ID:
+            doc = self._collection.find_one(
+                {
+                    "username": uname,
+                    "$or": [
+                        {"org_id": {"$exists": False}},
+                        {"org_id": ""},
+                        {"org_id": oid},
+                    ],
+                }
+            )
         return self._from_doc(doc) if doc else None
 
-    def list_all(self) -> List[User]:
-        return [self._from_doc(d) for d in self._collection.find().sort("username", 1)]
+    def list_all(self, org_id: str | None = None) -> List[User]:
+        from packages.tenancy.context import DEFAULT_ORG_ID, get_org_id
+
+        oid = (org_id or get_org_id() or DEFAULT_ORG_ID).strip() or DEFAULT_ORG_ID
+        if oid == DEFAULT_ORG_ID:
+            query: dict = {
+                "$or": [
+                    {"org_id": oid},
+                    {"org_id": {"$exists": False}},
+                    {"org_id": ""},
+                ]
+            }
+        else:
+            query = {"org_id": oid}
+        return [self._from_doc(d) for d in self._collection.find(query).sort("username", 1)]
 
     def delete(self, user_id: str) -> None:
         self._collection.delete_one({"_id": user_id})

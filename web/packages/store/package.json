@@ -1,0 +1,16 @@
+{
+  "name": "@vaybooks/store",
+  "version": "0.0.1",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@reduxjs/toolkit": "^2.0.0",
+    "react": "^18.0.0",
+    "react-redux": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.0",
+    "typescript": "^5.0.0"
+  }
+}

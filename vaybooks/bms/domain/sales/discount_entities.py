@@ -72,6 +72,7 @@ class DiscountRule:
     priority: int = 100
     is_active: bool = True
     product_ids: List[str] = field(default_factory=list)
+    catalog_product_ids: List[str] = field(default_factory=list)
     category_ids: List[str] = field(default_factory=list)
     customer_ids: List[str] = field(default_factory=list)
     segment_ids: List[str] = field(default_factory=list)
@@ -124,12 +125,15 @@ def validate_discount_rule(rule: DiscountRule) -> DiscountRule:
         raise ValidationError("Discount percentage cannot exceed 100")
 
     product_ids = _clean_ids(rule.product_ids)
+    catalog_product_ids = _clean_ids(getattr(rule, "catalog_product_ids", None))
     category_ids = _clean_ids(rule.category_ids)
     customer_ids = _clean_ids(rule.customer_ids)
     segment_ids = _clean_ids(rule.segment_ids)
 
-    if scope == SCOPE_PRODUCT and not product_ids:
-        raise ValidationError("Product discount rules require at least one product")
+    if scope == SCOPE_PRODUCT and not product_ids and not catalog_product_ids:
+        raise ValidationError(
+            "Product discount rules require at least one product or catalog product"
+        )
     if scope == SCOPE_CATEGORY and not category_ids:
         raise ValidationError("Category discount rules require at least one category")
     if scope == SCOPE_CUSTOMER and not customer_ids and not segment_ids:
@@ -166,6 +170,7 @@ def validate_discount_rule(rule: DiscountRule) -> DiscountRule:
         priority=int(rule.priority if rule.priority is not None else 100),
         is_active=bool(rule.is_active),
         product_ids=product_ids,
+        catalog_product_ids=catalog_product_ids,
         category_ids=category_ids,
         customer_ids=customer_ids,
         segment_ids=segment_ids,

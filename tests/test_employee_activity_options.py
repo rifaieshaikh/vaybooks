@@ -7,12 +7,16 @@ from vaybooks.bms.application.parties.workers.activity_options import (
 )
 from vaybooks.bms.domain.entitlements.catalog import (
     MODULE_BOUTIQUE,
+    MODULE_BUSINESS_OPS,
     MODULE_CORE,
+    MODULE_PRODUCTION,
     MODULE_PROJECTS,
     MODULE_SETTINGS,
 )
 from vaybooks.bms.domain.parties.workers.entities import (
+    SOURCE_BUSINESS,
     SOURCE_CUSTOMIZATION,
+    SOURCE_PRODUCTION,
     SOURCE_PROJECT,
     SOURCE_STORE,
     WorkerActivityRef,
@@ -53,6 +57,8 @@ def _service(modules):
         _FakeCatalog([_activity("s1", "Billing"), _activity("s2", "Packing", False)]),
         _FakeCatalog([_activity("c1", "Cutting")]),
         _FakeCatalog([_activity("p1", "Electrical")]),
+        business_activity_service=_FakeCatalog([_activity("b1", "Admin")]),
+        production_activity_service=_FakeCatalog([_activity("pr1", "Cutting floor")]),
     )
 
 
@@ -82,6 +88,11 @@ def test_projects_loads_store_plus_project():
 def test_both_modules_load_all_catalogs():
     options = _service(_BASE + [MODULE_BOUTIQUE, MODULE_PROJECTS]).list_options()
     assert _sources(options) == {SOURCE_STORE, SOURCE_CUSTOMIZATION, SOURCE_PROJECT}
+
+
+def test_business_ops_and_production_sources():
+    options = _service(_BASE + [MODULE_BUSINESS_OPS, MODULE_PRODUCTION]).list_options()
+    assert _sources(options) == {SOURCE_STORE, SOURCE_BUSINESS, SOURCE_PRODUCTION}
 
 
 def test_labels_carry_source_and_keys_are_composite():

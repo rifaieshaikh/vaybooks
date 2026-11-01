@@ -101,6 +101,7 @@ class MongoOrgEntitlementRepository:
             "plan_id": ent.plan_id,
             "enabled_modules": list(ent.enabled_modules or []),
             "version": int(ent.version or 1),
+            "setup_completed": bool(getattr(ent, "setup_completed", False)),
             "updated_at": ent.updated_at,
         }
 
@@ -110,17 +111,25 @@ class MongoOrgEntitlementRepository:
             plan_id=doc.get("plan_id") or PLAN_ENTERPRISE,
             enabled_modules=list(doc.get("enabled_modules") or list(ALL_MODULES)),
             version=int(doc.get("version") or 1),
+            setup_completed=bool(doc.get("setup_completed", False)),
             updated_at=doc.get("updated_at", datetime.utcnow()),
         )
 
-    def get(self) -> Optional[OrgEntitlement]:
-        doc = self._collection.find_one({"_id": ORG_ENTITLEMENT_ID})
+    def get(self, org_id: str | None = None) -> Optional[OrgEntitlement]:
+        from packages.tenancy.context import DEFAULT_ORG_ID, get_org_id
+
+        oid = (org_id or get_org_id() or DEFAULT_ORG_ID).strip() or DEFAULT_ORG_ID
+        doc = self._collection.find_one({"_id": oid})
+        if doc is None and oid == DEFAULT_ORG_ID:
+            # Legacy singleton id before multi-tenant
+            doc = self._collection.find_one({"_id": ORG_ENTITLEMENT_ID})
         return self._from_doc(doc) if doc else None
 
     def save(self, entitlement: OrgEntitlement) -> OrgEntitlement:
-        entitlement.id = ORG_ENTITLEMENT_ID
+        from packages.tenancy.context import DEFAULT_ORG_ID, get_org_id
+
+        oid = (entitlement.id or get_org_id() or DEFAULT_ORG_ID).strip() or DEFAULT_ORG_ID
+        entitlement.id = oid
         entitlement.updated_at = utc_now()
-        self._collection.replace_one(
-            {"_id": ORG_ENTITLEMENT_ID}, self._to_doc(entitlement), upsert=True
-        )
+        self._collection.replace_one({"_id": oid}, self._to_doc(entitlement), upsert=True)
         return entitlement

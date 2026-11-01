@@ -7,6 +7,8 @@ from vaybooks.bms.domain.inventory.category_tree import (
     validate_category_parent,
 )
 from vaybooks.bms.domain.inventory.entities import (
+    CatalogProduct,
+    CatalogSupplier,
     InventoryProduct,
     Location,
     ProductCategory,
@@ -24,6 +26,7 @@ from vaybooks.bms.domain.inventory.field_definitions import (
     validate_custom_field_values,
 )
 from vaybooks.bms.domain.inventory.repository import (
+    CatalogProductRepository,
     InventoryProductRepository,
     LocationRepository,
     ProductCategoryRepository,
@@ -64,6 +67,59 @@ def movement_qty_out(movement_type: StockMovementType, qty: float) -> float:
     return 0.0 if movement_type in INFLOW_TYPES else round(qty, 2)
 
 
+def _whole_supplier_qty(value: Any, label: str, *, days: bool = False) -> int:
+    whole = f"{label} must be a whole number of days" if days else f"{label} must be a whole number"
+    try:
+        qty = int(value or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(whole) from exc
+    if qty < 0:
+        raise ValidationError(f"{label} cannot be negative")
+    return qty
+
+
+def _normalize_suppliers(rows: Optional[List[Any]]) -> List[CatalogSupplier]:
+    cleaned: List[CatalogSupplier] = []
+    seen: set[str] = set()
+    preferred = 0
+    for row in rows or []:
+        if isinstance(row, CatalogSupplier):
+            vendor_id = (row.vendor_id or "").strip()
+            vendor_sku = (row.vendor_sku or "").strip()
+            order_qty = _whole_supplier_qty(row.order_qty, "Qty")
+            minimum_order_qty = _whole_supplier_qty(row.minimum_order_qty, "Minimum order qty")
+            lead_time = _whole_supplier_qty(row.lead_time_days, "Lead time", days=True)
+            is_preferred = bool(row.is_preferred)
+        else:
+            data = row if isinstance(row, dict) else getattr(row, "__dict__", {})
+            vendor_id = str(data.get("vendor_id") or "").strip()
+            vendor_sku = str(data.get("vendor_sku") or "").strip()
+            order_qty = _whole_supplier_qty(data.get("order_qty"), "Qty")
+            minimum_order_qty = _whole_supplier_qty(data.get("minimum_order_qty"), "Minimum order qty")
+            lead_time = _whole_supplier_qty(data.get("lead_time_days"), "Lead time", days=True)
+            is_preferred = bool(data.get("is_preferred"))
+        if not vendor_id:
+            raise ValidationError("Each supplier needs a vendor")
+        if vendor_id in seen:
+            raise ValidationError("A vendor can only be added once")
+        if is_preferred:
+            preferred += 1
+        seen.add(vendor_id)
+        cleaned.append(
+            CatalogSupplier(
+                vendor_id=vendor_id,
+                vendor_sku=vendor_sku,
+                order_qty=order_qty,
+                minimum_order_qty=minimum_order_qty,
+                lead_time_days=lead_time,
+                is_preferred=is_preferred,
+            )
+        )
+    if preferred > 1:
+        raise ValidationError("Only one supplier can be preferred")
+    return cleaned
+
+
 def _movement_sort_key(movement: StockMovement) -> tuple:
     md = movement.movement_date
     if isinstance(md, datetime):
@@ -86,6 +142,7 @@ class InventoryDomainService:
         location_repo: Optional[LocationRepository] = None,
         balance_repo: Optional[StockBalanceRepository] = None,
         transfer_repo: Optional[StockTransferRepository] = None,
+        catalog_repo: Optional[CatalogProductRepository] = None,
     ):
         self._category_repo = category_repo
         self._product_repo = product_repo
@@ -97,6 +154,7 @@ class InventoryDomainService:
         self._warehouse_repo = self._location_repo
         self._balance_repo = balance_repo
         self._transfer_repo = transfer_repo
+        self._catalog_repo = catalog_repo
 
     def _categories_by_id(self) -> Dict[str, ProductCategory]:
         return {c.id: c for c in self._category_repo.list_all(active_only=False)}
@@ -175,8 +233,9 @@ class InventoryDomainService:
         parent_id = normalize_parent_id(parent_id)
         categories_by_id = self._categories_by_id()
         validate_category_parent(None, parent_id, categories_by_id)
-        if self._category_repo.find_by_parent_and_name(parent_id, name):
-            raise ValidationError("A category with this name already exists under the parent")
+        existing = self._category_repo.find_by_name(name)
+        if existing:
+            raise ValidationError("A category with this name already exists")
         category = ProductCategory(
             name=name,
             description=description.strip(),
@@ -195,21 +254,15 @@ class InventoryDomainService:
         category = self._category_repo.find_by_id(category_id)
         if not category:
             raise ValidationError("Category not found")
-        name = name.strip()
-        if not name:
-            raise ValidationError("Category name is required")
+        # Name is immutable — keep stored value regardless of payload.
         parent_id = normalize_parent_id(parent_id)
         categories_by_id = self._categories_by_id()
         validate_category_parent(category_id, parent_id, categories_by_id)
-        existing = self._category_repo.find_by_parent_and_name(parent_id, name)
-        if existing and existing.id != category_id:
-            raise ValidationError("A category with this name already exists under the parent")
-        category.update(
-            name=name,
-            description=description.strip(),
-            is_active=is_active,
-            parent_id=parent_id,
-        )
+        category.name = category.name
+        category.description = description.strip()
+        category.is_active = bool(is_active)
+        category.parent_id = parent_id
+        category.updated_at = utc_now()
         return self._category_repo.save(category)
 
     def delete_category(self, category_id: str) -> None:
@@ -459,9 +512,25 @@ class InventoryDomainService:
         opening_location_id = (location_id or "").strip()
         if opening_qty > 0 and not opening_location_id:
             raise ValidationError("Location is required for opening stock")
+        catalog_product_id = ""
+        if self._catalog_repo:
+            catalog = CatalogProduct(
+                name=name,
+                category_ids=resolved_ids,
+                category_names=paths,
+                unit_id=unit.id,
+                unit=unit.code,
+                hsn_sac=(hsn_sac or "").strip(),
+                specifications=specs,
+                custom_fields=field_values,
+            )
+            catalog.sync_legacy_category_fields()
+            catalog = self._catalog_repo.save(catalog)
+            catalog_product_id = catalog.id
         product = InventoryProduct(
             sku=sku,
             name=name,
+            catalog_product_id=catalog_product_id,
             category_ids=resolved_ids,
             category_names=paths,
             unit_id=unit.id,
@@ -555,22 +624,21 @@ class InventoryDomainService:
             }
         field_values = product.custom_fields
         if custom_fields is not None:
-            field_values = custom_fields
+            field_values = dict(custom_fields)
             if self._field_def_repo:
                 definitions = self._field_def_repo.list_all(active_only=True)
                 field_values = validate_custom_field_values(
                     definitions, field_values, resolved_ids
                 )
-        was_active = bool(product.is_active)
-        has_stock = float(product.current_qty or 0) > 0.001 or any(
-            float(bal.qty or 0) > 0.001
-            for bal in self.list_balances_by_product(product_id)
-        )
-        if not is_active and (was_active or has_stock):
-            self._clear_stock_on_discontinue(product)
-            product = self._product_repo.find_by_id(product_id)
-            if not product:
-                raise ValidationError("Product not found")
+        if selling_rate is not None and mrp is not None and gst_rate is not None:
+            from vaybooks.bms.domain.inventory.rate_history import (
+                validate_gst_rate_value,
+                validate_product_pricing,
+            )
+
+            validate_product_pricing(selling_rate, mrp)
+            validate_gst_rate_value(gst_rate, required=gst_required)
+        product.inactive_via_catalog_id = ""
         product.update(
             sku=sku,
             name=name,
@@ -590,6 +658,26 @@ class InventoryDomainService:
             product.track_serial = bool(track_serial)
         product.sync_legacy_category_fields()
         saved = self._product_repo.save(product)
+        if self._catalog_repo and saved.catalog_product_id:
+            catalog = self._catalog_repo.find_by_id(saved.catalog_product_id)
+            if catalog:
+                catalog_changes: Dict[str, Any] = {
+                    "name": name,
+                    "category_ids": resolved_ids,
+                    "category_names": paths,
+                    "unit_id": unit.id,
+                    "unit": unit.code,
+                    "hsn_sac": saved.hsn_sac,
+                }
+                if specifications is not None:
+                    catalog_changes["specifications"] = specs
+                if custom_fields is not None:
+                    catalog_changes["custom_fields"] = field_values
+                catalog.update(**catalog_changes)
+                if not is_active:
+                    catalog.is_active = False
+                catalog.sync_legacy_category_fields()
+                self._catalog_repo.save(catalog)
         if selling_rate is not None and mrp is not None and gst_rate is not None:
             self._rate_history.apply_form_changes(
                 saved.id,
@@ -603,18 +691,41 @@ class InventoryDomainService:
         return self._product_repo.save(saved)
 
     def discontinue_product(self, product_id: str) -> InventoryProduct:
-        """Deactivate a product and clear remaining stock with ADJUST_OUT movements."""
+        """Mark a SKU inactive. On-hand quantity is left in place."""
         product = self._product_repo.find_by_id(product_id)
         if not product:
             raise ValidationError("Product not found")
-        if not product.is_active and float(product.current_qty or 0) <= 0.001:
+        if not product.is_active:
+            return product
+        product.is_active = False
+        product.inactive_via_catalog_id = ""
+        return self._product_repo.save(product)
+
+    def dispose_stock(self, product_id: str) -> InventoryProduct:
+        """Write Adjust Out for remaining quantity. Does not change active state."""
+        product = self._product_repo.find_by_id(product_id)
+        if not product:
+            raise ValidationError("Product not found")
+        if float(product.current_qty or 0) <= 0.001 and not any(
+            float(bal.qty or 0) > 0.001
+            for bal in self.list_balances_by_product(product_id)
+        ):
             return product
         self._clear_stock_on_discontinue(product)
         product = self._product_repo.find_by_id(product_id)
         if not product:
             raise ValidationError("Product not found")
-        product.update(is_active=False)
-        return self._product_repo.save(product)
+        return product
+
+    def dispose_catalog_stock(self, catalog_product_id: str) -> CatalogProduct:
+        if not self._catalog_repo:
+            raise ValidationError("Catalog product repository not configured")
+        catalog = self._catalog_repo.find_by_id(catalog_product_id)
+        if not catalog:
+            raise ValidationError("Catalog product not found")
+        for sku in self._product_repo.list_by_catalog_product(catalog.id):
+            self.dispose_stock(sku.id)
+        return catalog
 
     def _fallback_location_id_for_clear(self, product_id: str) -> Optional[str]:
         balances = self.list_balances_by_product(product_id)
@@ -629,7 +740,7 @@ class InventoryDomainService:
     def _clear_stock_on_discontinue(self, product: InventoryProduct) -> InventoryProduct:
         """Zero on-hand qty via ADJUST_OUT per location; leave an audit trail."""
         product_id = product.id
-        notes = "Stock cleared on discontinue"
+        notes = "Stock disposed"
         md = date.today()
         balances = [
             bal
@@ -667,8 +778,7 @@ class InventoryDomainService:
             loc_id = self._fallback_location_id_for_clear(product_id)
             if not loc_id:
                 raise ValidationError(
-                    "Cannot discontinue: stock remains but no location is available "
-                    "to clear it"
+                    "Cannot dispose stock: quantity remains but no location is available"
                 )
             loc_qty = self.get_stock_balance(product_id, loc_id)
             if loc_qty + 0.001 < residual:
@@ -1353,3 +1463,331 @@ class InventoryDomainService:
         if not self._transfer_repo or not transfer_id:
             return None
         return self._transfer_repo.find_by_id(transfer_id)
+
+    # --- Catalog products (parents) ---
+
+    def list_catalog_products(self, active_only: bool = True) -> List[CatalogProduct]:
+        if not self._catalog_repo:
+            return []
+        return self._catalog_repo.list_all(active_only=active_only)
+
+    def search_catalog_products(self, query: str) -> List[CatalogProduct]:
+        if not self._catalog_repo:
+            return []
+        return self._catalog_repo.search(query)
+
+    def get_catalog_product(self, catalog_product_id: str) -> Optional[CatalogProduct]:
+        if not self._catalog_repo or not catalog_product_id:
+            return None
+        return self._catalog_repo.find_by_id(catalog_product_id)
+
+    def create_catalog_product(
+        self,
+        name: str,
+        category_ids: Optional[List[str]] = None,
+        *,
+        unit_id: str = "",
+        unit_code: str = "",
+        hsn_sac: str = "",
+        specifications: Optional[Dict[str, str]] = None,
+        custom_fields: Optional[Dict[str, Any]] = None,
+        brand: str = "",
+        suppliers: Optional[List[Any]] = None,
+    ) -> CatalogProduct:
+        if not self._catalog_repo:
+            raise ValidationError("Catalog product repository not configured")
+        name = (name or "").strip()
+        if not name:
+            raise ValidationError("Product name is required")
+        resolved_ids, paths = self._resolve_categories(category_ids or [])
+        unit = self._resolve_unit(unit_id, unit_code) if (unit_id or unit_code) else None
+        specs = {
+            k.strip(): str(v).strip()
+            for k, v in (specifications or {}).items()
+            if k and str(k).strip() and str(v).strip()
+        }
+        field_values = custom_fields or {}
+        if self._field_def_repo:
+            definitions = self._field_def_repo.list_all(active_only=True)
+            field_values = validate_custom_field_values(
+                definitions, field_values, resolved_ids
+            )
+        catalog = CatalogProduct(
+            name=name,
+            category_ids=resolved_ids,
+            category_names=paths,
+            unit_id=unit.id if unit else "",
+            unit=unit.code if unit else "pcs",
+            hsn_sac=(hsn_sac or "").strip(),
+            specifications=specs,
+            custom_fields=field_values,
+            brand=(brand or "").strip(),
+            suppliers=_normalize_suppliers(suppliers),
+        )
+        catalog.sync_legacy_category_fields()
+        return self._catalog_repo.save(catalog)
+
+    def update_catalog_product(
+        self,
+        catalog_product_id: str,
+        *,
+        name: Optional[str] = None,
+        category_ids: Optional[List[str]] = None,
+        unit_id: Optional[str] = None,
+        hsn_sac: Optional[str] = None,
+        specifications: Optional[Dict[str, str]] = None,
+        custom_fields: Optional[Dict[str, Any]] = None,
+        brand: Optional[str] = None,
+        suppliers: Optional[List[Any]] = None,
+        is_active: Optional[bool] = None,
+    ) -> CatalogProduct:
+        if not self._catalog_repo:
+            raise ValidationError("Catalog product repository not configured")
+        catalog = self._catalog_repo.find_by_id(catalog_product_id)
+        if not catalog:
+            raise ValidationError("Catalog product not found")
+
+        next_name = catalog.name
+        if name is not None:
+            next_name = name.strip()
+            if not next_name:
+                raise ValidationError("Product name is required")
+
+        next_category_ids = list(catalog.category_ids)
+        next_category_names = list(catalog.category_names)
+        if category_ids is not None:
+            next_category_ids, next_category_names = self._resolve_categories(category_ids)
+
+        next_unit_id = catalog.unit_id
+        next_unit = catalog.unit
+        if unit_id:
+            unit = self._resolve_unit(unit_id, "")
+            next_unit_id = unit.id
+            next_unit = unit.code
+
+        next_hsn = catalog.hsn_sac
+        if hsn_sac is not None:
+            next_hsn = (hsn_sac or "").strip()
+
+        next_specs = dict(catalog.specifications or {})
+        if specifications is not None:
+            next_specs = {
+                k.strip(): str(v).strip()
+                for k, v in specifications.items()
+                if k and str(k).strip() and str(v).strip()
+            }
+
+        next_fields = dict(catalog.custom_fields or {})
+        if custom_fields is not None:
+            next_fields = dict(custom_fields)
+            if self._field_def_repo:
+                definitions = self._field_def_repo.list_all(active_only=True)
+                next_fields = validate_custom_field_values(
+                    definitions, next_fields, next_category_ids
+                )
+
+        next_brand = catalog.brand
+        if brand is not None:
+            next_brand = (brand or "").strip()
+        next_suppliers = list(catalog.suppliers or [])
+        if suppliers is not None:
+            next_suppliers = _normalize_suppliers(suppliers)
+
+        next_active = catalog.is_active if is_active is None else bool(is_active)
+
+        catalog.name = next_name
+        catalog.category_ids = next_category_ids
+        catalog.category_names = next_category_names
+        catalog.unit_id = next_unit_id
+        catalog.unit = next_unit
+        catalog.hsn_sac = next_hsn
+        catalog.specifications = next_specs
+        catalog.custom_fields = next_fields
+        catalog.brand = next_brand
+        catalog.suppliers = next_suppliers
+        catalog.is_active = next_active
+        catalog.sync_legacy_category_fields()
+        if hsn_sac is not None:
+            for sku in self._product_repo.list_by_catalog_product(catalog.id):
+                sku.hsn_sac = next_hsn
+                self._product_repo.save(sku)
+        if is_active is not None and not next_active:
+            for sku in self._product_repo.list_by_catalog_product(catalog.id):
+                if not sku.is_active:
+                    continue
+                sku.is_active = False
+                sku.inactive_via_catalog_id = catalog.id
+                self._product_repo.save(sku)
+        elif is_active is not None and next_active:
+            for sku in self._product_repo.list_by_catalog_product(catalog.id):
+                if sku.inactive_via_catalog_id != catalog.id:
+                    continue
+                sku.is_active = True
+                sku.inactive_via_catalog_id = ""
+                self._product_repo.save(sku)
+        return self._catalog_repo.save(catalog)
+
+    def list_skus_for_catalog(self, catalog_product_id: str) -> List[InventoryProduct]:
+        if not catalog_product_id:
+            return []
+        return self._product_repo.list_by_catalog_product(catalog_product_id)
+
+    def create_sku_under_catalog(
+        self,
+        catalog_product_id: str,
+        sku: str,
+        *,
+        name_override: str = "",
+        attributes: Optional[Dict[str, str]] = None,
+        barcode: str = "",
+        opening_qty: float = 0.0,
+        selling_rate: float = 0.0,
+        mrp: float = 0.0,
+        gst_rate: float = 0.0,
+        gst_required: bool = False,
+        track_batch: bool = False,
+        track_serial: bool = False,
+        location_id: str = "",
+    ) -> InventoryProduct:
+        if not self._catalog_repo:
+            raise ValidationError("Catalog product repository not configured")
+        catalog = self._catalog_repo.find_by_id(catalog_product_id)
+        if not catalog:
+            raise ValidationError("Catalog product not found")
+        sku = (sku or "").strip()
+        if not sku:
+            raise ValidationError("SKU is required")
+        if self._product_repo.find_by_sku(sku):
+            raise ValidationError("A product with this SKU already exists")
+        if not self._rate_history:
+            raise ValidationError("Rate history is not configured")
+        opening_qty = round(max(opening_qty, 0.0), 2)
+        opening_location_id = (location_id or "").strip()
+        if opening_qty > 0 and not opening_location_id:
+            raise ValidationError("Location is required for opening stock")
+        attrs = {
+            str(k).strip(): str(v).strip()
+            for k, v in (attributes or {}).items()
+            if str(k).strip() and str(v).strip()
+        }
+        display = (name_override or "").strip() or catalog.name
+        product = InventoryProduct(
+            sku=sku,
+            name=display,
+            catalog_product_id=catalog.id,
+            name_override=(name_override or "").strip(),
+            attributes=attrs,
+            barcode=(barcode or "").strip(),
+            category_ids=list(catalog.category_ids),
+            category_names=list(catalog.category_names),
+            unit_id=catalog.unit_id,
+            unit=catalog.unit,
+            hsn_sac=catalog.hsn_sac,
+            specifications=dict(catalog.specifications or {}),
+            custom_fields=dict(catalog.custom_fields or {}),
+            opening_qty=opening_qty,
+            current_qty=0.0,
+            track_batch=bool(track_batch),
+            track_serial=bool(track_serial),
+            is_active=True,
+        )
+        product.sync_legacy_category_fields()
+        saved = self._product_repo.save(product)
+        self._rate_history.apply_form_changes(
+            saved.id,
+            selling_rate=selling_rate,
+            mrp=mrp,
+            gst_rate=gst_rate,
+            is_new=True,
+            gst_required=gst_required,
+        )
+        self._rate_history.hydrate_active_values(saved.id, saved)
+        saved = self._product_repo.save(saved)
+        if opening_qty > 0:
+            self._record_movement(
+                saved,
+                StockMovementType.RECEIVE,
+                opening_qty,
+                date.today(),
+                StockReferenceType.MANUAL,
+                None,
+                "Opening stock",
+                location_id=opening_location_id,
+            )
+        return saved
+
+    def merge_catalog_products(
+        self,
+        target_catalog_product_id: str,
+        source_catalog_product_ids: List[str],
+        *,
+        force: bool = False,
+    ) -> CatalogProduct:
+        if not self._catalog_repo:
+            raise ValidationError("Catalog product repository not configured")
+        target = self._catalog_repo.find_by_id(target_catalog_product_id)
+        if not target:
+            raise ValidationError("Target catalog product not found")
+        sources: List[CatalogProduct] = []
+        for sid in source_catalog_product_ids:
+            sid = (sid or "").strip()
+            if not sid or sid == target.id:
+                continue
+            src = self._catalog_repo.find_by_id(sid)
+            if not src:
+                raise ValidationError(f"Source catalog product not found: {sid}")
+            sources.append(src)
+        if not sources:
+            raise ValidationError("No source catalog products to merge")
+
+        conflicts: List[str] = []
+        for src in sources:
+            if (src.hsn_sac or "").strip() and (target.hsn_sac or "").strip():
+                if src.hsn_sac.strip() != target.hsn_sac.strip():
+                    conflicts.append("hsn_sac")
+            if (src.brand or "").strip() and (target.brand or "").strip():
+                if src.brand.strip().lower() != target.brand.strip().lower():
+                    conflicts.append("brand")
+            if (src.unit_id or "").strip() and (target.unit_id or "").strip():
+                if src.unit_id.strip() != target.unit_id.strip():
+                    conflicts.append("unit_id")
+        conflicts = sorted(set(conflicts))
+        if conflicts and not force:
+            raise ValidationError(
+                "Merge conflict on fields: " + ", ".join(conflicts) + " (pass force=true)"
+            )
+
+        if not (target.hsn_sac or "").strip():
+            agreed = {(s.hsn_sac or "").strip() for s in sources if (s.hsn_sac or "").strip()}
+            if len(agreed) == 1:
+                target.hsn_sac = next(iter(agreed))
+        if not (target.brand or "").strip():
+            agreed_brand = {(s.brand or "").strip() for s in sources if (s.brand or "").strip()}
+            if len(agreed_brand) == 1:
+                target.brand = next(iter(agreed_brand))
+        if not (target.unit_id or "").strip():
+            agreed_u = {(s.unit_id or "").strip() for s in sources if (s.unit_id or "").strip()}
+            if len(agreed_u) == 1:
+                sid = next(iter(agreed_u))
+                unit = self._unit_repo.find_by_id(sid) if self._unit_repo else None
+                if unit:
+                    target.unit_id = unit.id
+                    target.unit = unit.code
+
+        for src in sources:
+            for sku in self._product_repo.list_by_catalog_product(src.id):
+                sku.catalog_product_id = target.id
+                if target.category_ids:
+                    sku.category_ids = list(target.category_ids)
+                    sku.category_names = list(target.category_names)
+                if (target.unit_id or "").strip():
+                    sku.unit_id = target.unit_id
+                    sku.unit = target.unit
+                if (target.hsn_sac or "").strip():
+                    sku.hsn_sac = target.hsn_sac
+                sku.sync_legacy_category_fields()
+                self._product_repo.save(sku)
+            src.is_active = False
+            self._catalog_repo.save(src)
+        target.sync_legacy_category_fields()
+        return self._catalog_repo.save(target)

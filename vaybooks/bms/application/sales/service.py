@@ -130,7 +130,10 @@ class SalesAppService:
             )
 
     def _line_resolver(self) -> SalesLineResolver:
-        return SalesLineResolver(get_product=self._inventory.get_product)
+        return SalesLineResolver(
+            get_product=self._inventory.get_product,
+            get_catalog_product=getattr(self._inventory, "get_catalog_product", None),
+        )
 
     def _customer_from_account(self, customer_account_id: str) -> Customer:
         account = self._accounting.get_account(customer_account_id)
@@ -355,6 +358,11 @@ class SalesAppService:
             return []
         return self._estimate_repo.list_all(location_filter=location_filter)
 
+    def query_estimates(self, query: dict | None = None, **page_kw):
+        if not self._estimate_repo:
+            return {"items": [], "total": 0, "page": 1, "page_size": page_kw.get("page_size", 12)}
+        return self._estimate_repo.query_page(query, **page_kw)
+
     def get_estimate(self, estimate_id: str) -> Optional[Estimate]:
         return self._estimate_repo.find_by_id(estimate_id) if self._estimate_repo else None
 
@@ -431,6 +439,11 @@ class SalesAppService:
         if not self._quotation_repo:
             return []
         return self._quotation_repo.list_all(location_filter=location_filter)
+
+    def query_quotations(self, query: dict | None = None, **page_kw):
+        if not self._quotation_repo:
+            return {"items": [], "total": 0, "page": 1, "page_size": page_kw.get("page_size", 12)}
+        return self._quotation_repo.query_page(query, **page_kw)
 
     def get_quotation(self, quotation_id: str) -> Optional[Quotation]:
         return (
@@ -735,6 +748,9 @@ class SalesAppService:
     def list_sales_orders(self, *, location_filter: dict | None = None) -> List[SalesOrder]:
         return self._so_repo.list_all(location_filter=location_filter)
 
+    def query_sales_orders(self, query: dict | None = None, **page_kw):
+        return self._so_repo.query_page(query, **page_kw)
+
     def get_sales_order(self, order_id: str) -> Optional[SalesOrder]:
         return self._so_repo.find_by_id(order_id)
 
@@ -864,6 +880,9 @@ class SalesAppService:
 
     def list_delivery_notes(self, *, location_filter: dict | None = None) -> List[DeliveryNote]:
         return self._dn_repo.list_all(location_filter=location_filter)
+
+    def query_delivery_notes(self, query: dict | None = None, **page_kw):
+        return self._dn_repo.query_page(query, **page_kw)
 
     def get_delivery_note(self, dn_id: str) -> Optional[DeliveryNote]:
         return self._dn_repo.find_by_id(dn_id)
@@ -1479,6 +1498,7 @@ class SalesAppService:
         commission: Optional[dict] = None,
         commission_tags: Optional[dict] = None,
         location_id: str = "",
+        due_date: Optional[date] = None,
     ) -> Voucher:
         sales_lines = None
         note = line_items_note
@@ -1538,6 +1558,7 @@ class SalesAppService:
             advance_applied=advance_applied,
             location_id=location_id,
             location_name=self._location_name(location_id),
+            due_date=due_date,
         )
         if self._commission_service and tags:
             try:
@@ -1602,6 +1623,7 @@ class SalesAppService:
         advance_applied: float = 0.0,
         commission: Optional[dict] = None,
         commission_tags: Optional[dict] = None,
+        due_date: Optional[date] = None,
     ) -> Voucher:
         line_discount_total = round(discount_amount - invoice_discount, 2)
         if line_discount_total < 0:
@@ -1621,6 +1643,7 @@ class SalesAppService:
             advance_applied=advance_applied,
             commission=commission,
             commission_tags=commission_tags,
+            due_date=due_date,
         )
 
     def convert_sales_order_to_invoice(
@@ -1809,6 +1832,9 @@ class SalesAppService:
 
     def list_sales_returns(self, *, location_filter: dict | None = None) -> List[SalesReturn]:
         return self._return_repo.list_all(location_filter=location_filter)
+
+    def query_sales_returns(self, query: dict | None = None, **page_kw):
+        return self._return_repo.query_page(query, **page_kw)
 
     def get_sales_return(self, return_id: str) -> Optional[SalesReturn]:
         return self._return_repo.find_by_id(return_id)
@@ -2331,13 +2357,20 @@ class SalesAppService:
         )
         return self._return_repo.save(sales_return)
 
-    def list_sales_invoices(self, *, location_filter: dict | None = None) -> list[dict]:
+    def list_sales_invoices(
+        self,
+        *,
+        location_filter: dict | None = None,
+        mongo_filter: dict | None = None,
+    ) -> list[dict]:
         discount = self._accounting.get_discount_account()
         discount_id = discount.id if discount else None
         settlement_map = self._accounting.invoice_settlement_map()
         rows = []
         for voucher in self._accounting.list_vouchers_by_type(
-            VoucherType.SALES_INVOICE, location_filter=location_filter
+            VoucherType.SALES_INVOICE,
+            location_filter=location_filter,
+            extra_filter=mongo_filter,
         ):
             row = self._accounting.enrich_sales_invoice_row(
                 voucher,
@@ -2347,6 +2380,8 @@ class SalesAppService:
             row["reference_so_id"] = getattr(voucher, "reference_so_id", None)
             row["reference_dn_id"] = getattr(voucher, "reference_dn_id", None)
             row["reference_project_id"] = getattr(voucher, "reference_project_id", None)
+            row["voucher_number"] = getattr(voucher, "voucher_number", None)
+            row["voucher_date"] = getattr(voucher, "voucher_date", None)
             rows.append(row)
         rows.sort(
             key=lambda r: (r.get("sale_date") or date.min, r.get("voucher_number") or ""),
@@ -2451,6 +2486,63 @@ class SalesAppService:
                 )
         return rows
 
+    def customer_product_history(
+        self, customer_id: str, *, limit: int = 200
+    ) -> list[dict]:
+        """Flatten sales-invoice product lines for one customer (newest first)."""
+        if not (customer_id or "").strip():
+            return []
+        account = self._accounting.get_customer_account(customer_id)
+        if not account:
+            return []
+        account_id = account.id
+        rows: list[dict] = []
+        for voucher in self._accounting.list_vouchers_by_type(VoucherType.SALES_INVOICE):
+            if not self._accounting._voucher_touches_account(voucher, account_id):
+                continue
+            sale_date = voucher.voucher_date
+            if hasattr(sale_date, "date") and callable(sale_date.date):
+                sale_date = sale_date.date()
+            description = voucher.description or ""
+            items, _, _ = parse_sales_line_items_note(description)
+            if not items:
+                continue
+            store_number = parse_store_invoice_number(description)
+            doc_number = (
+                store_number
+                or getattr(voucher, "voucher_number", None)
+                or ""
+            )
+            for item in items:
+                qty = float(item.get("qty") or 0)
+                rate = float(item.get("rate") or 0)
+                line_total = item.get("line_total")
+                if line_total is None:
+                    amount = round(qty * rate, 2)
+                else:
+                    amount = round(float(line_total), 2)
+                rows.append(
+                    {
+                        "date": sale_date.isoformat()
+                        if hasattr(sale_date, "isoformat")
+                        else str(sale_date or ""),
+                        "doc_type": "sales_invoice",
+                        "doc_number": doc_number,
+                        "product_id": str(item.get("product_id") or ""),
+                        "product_name": str(
+                            item.get("item_name")
+                            or item.get("description")
+                            or ""
+                        ),
+                        "sku": str(item.get("sku") or ""),
+                        "qty": qty,
+                        "rate": rate,
+                        "amount": amount,
+                    }
+                )
+        rows.sort(key=lambda r: (r.get("date") or "", r.get("doc_number") or ""), reverse=True)
+        return rows[: max(int(limit or 200), 0)]
+
     def related_document_counts(
         self, customer_id: str, *, customer_account_id: str = ""
     ) -> dict:
@@ -2533,6 +2625,7 @@ class SalesAppService:
         advance_applied: float = 0.0,
         commission: Optional[dict] = None,
         commission_tags: Optional[dict] = None,
+        due_date: Optional[date] = None,
     ) -> Voucher:
         from vaybooks.bms.application.sales.commission_service import parse_commission_tags
 
@@ -2647,6 +2740,7 @@ class SalesAppService:
             financial_year=financial_year,
             credit_applied=round(max(float(credit_applied or 0), 0.0), 2),
             advance_applied=round(max(float(advance_applied or 0), 0.0), 2),
+            due_date=due_date,
         )
         if self._commission_service:
             # Reverse prior accruals for this invoice, then re-accrue from tags.
@@ -2732,6 +2826,53 @@ class SalesAppService:
             return []
         return self._customer_price_repo.list_for_pair(
             customer_id, product_id, limit=limit
+        )
+
+    def create_customer_price(
+        self,
+        *,
+        customer_id: str,
+        product_id: str,
+        rate: float,
+        effective_date: Optional[date] = None,
+        customer_name: str = "",
+        sku: str = "",
+        product_name: str = "",
+    ) -> CustomerPriceEntry:
+        """Manually record a customer-specific rate (web / inventory UI)."""
+        if not self._customer_price_repo:
+            raise ValueError("Customer price repository is not configured")
+        customer_id = (customer_id or "").strip()
+        product_id = (product_id or "").strip()
+        if not customer_id or not product_id:
+            raise ValueError("customer_id and product_id are required")
+        rate = round(float(rate or 0), 2)
+        if rate <= 0:
+            raise ValueError("rate must be greater than zero")
+        effective = effective_date or date.today()
+        if isinstance(effective, datetime):
+            effective = effective.date()
+        name = (customer_name or "").strip()
+        if not name and self._customer_service:
+            detail = self._customer_service.get_customer_detail(customer_id)
+            if detail is not None:
+                name = getattr(detail, "customer_name", "") or ""
+        product_sku = (sku or "").strip()
+        product_label = (product_name or "").strip()
+        product = self._inventory.get_product(product_id) if self._inventory else None
+        if product is not None:
+            product_sku = product_sku or (getattr(product, "sku", "") or "")
+            product_label = product_label or (getattr(product, "name", "") or "")
+        return self._customer_price_repo.save(
+            CustomerPriceEntry(
+                customer_id=customer_id,
+                customer_name=name,
+                product_id=product_id,
+                sku=product_sku,
+                product_name=product_label,
+                rate=rate,
+                effective_date=effective,
+            )
         )
 
     def _record_customer_prices_from_invoice(

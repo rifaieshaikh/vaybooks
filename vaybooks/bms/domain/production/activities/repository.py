@@ -1,0 +1,13 @@
+from typing import List, Optional, Protocol
+
+from vaybooks.bms.domain.production.activities.entities import ProductionActivityConfig
+
+
+class ProductionActivityRepository(Protocol):
+    def save(self, activity: ProductionActivityConfig) -> ProductionActivityConfig: ...
+
+    def find_by_id(self, activity_id: str) -> Optional[ProductionActivityConfig]: ...
+
+    def find_by_name(self, name: str) -> Optional[ProductionActivityConfig]: ...
+
+    def list_all(self, active_only: bool = True) -> List[ProductionActivityConfig]: ...

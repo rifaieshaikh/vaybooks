@@ -77,6 +77,11 @@ class OrderDomainService:
         customer_specification: str = "",
         measurement_id: Optional[str] = None,
         measurement_number: Optional[str] = None,
+        estimated_hours_map: Optional[dict] = None,
+        sell_amount: float = 0.0,
+        category_id: Optional[str] = None,
+        sku_id: Optional[str] = None,
+        catalog_product_id: Optional[str] = None,
     ) -> CustomizationItem:
         bill_number = bill_number.strip().upper()
         if not bill_number:
@@ -95,6 +100,10 @@ class OrderDomainService:
                 f"Measurement bill number {bill_number} already belongs to another order"
             )
 
+        amount = round(float(sell_amount or 0), 2)
+        if amount < 0:
+            raise ValidationError("Estimate amount cannot be negative")
+
         item = CustomizationItem(
             bill_number=bill_number,
             description=description.strip(),
@@ -102,6 +111,10 @@ class OrderDomainService:
             customer_specification=(customer_specification or "").strip(),
             measurement_id=measurement_id,
             measurement_number=(measurement_number or "").strip().upper() or None,
+            sell_amount=amount,
+            category_id=(category_id or "").strip() or None,
+            sku_id=(sku_id or "").strip() or None,
+            catalog_product_id=(catalog_product_id or "").strip() or None,
         )
         if not existing:
             entry = BillRegistryEntry(
@@ -111,15 +124,20 @@ class OrderDomainService:
             )
             self._bill_registry_repo.register(entry)
 
+        hours_map = estimated_hours_map or {}
         order.customization_items.append(item)
         for config in activity_configs:
             if required_map.get(config.activity_name, False):
+                hours = float(hours_map.get(config.activity_name) or 0)
+                if hours < 0:
+                    raise ValidationError("Estimated hours cannot be negative")
                 order.order_activities.append(
                     OrderActivity(
                         activity_id=config.id,
                         activity_name=config.activity_name,
                         is_required=True,
                         bill_id=item.item_id,
+                        estimated_hours=round(hours, 2),
                     )
                 )
         item.item_status = CustomizationItemStatus.IN_PROGRESS
@@ -336,6 +354,10 @@ class OrderDomainService:
         description: str,
         expected_delivery_date=None,
         customer_specification: Optional[str] = None,
+        sell_amount: Optional[float] = None,
+        category_id: Optional[str] = None,
+        sku_id: Optional[str] = None,
+        catalog_product_id: Optional[str] = None,
     ) -> CustomizationItem:
         item = order.get_item_by_id(item_id)
         if not item:
@@ -374,6 +396,14 @@ class OrderDomainService:
             item.expected_delivery_date = expected_delivery_date
         if customer_specification is not None:
             item.customer_specification = customer_specification.strip()
+        if sell_amount is not None:
+            amount = round(float(sell_amount), 2)
+            if amount < 0:
+                raise ValidationError("Estimate amount cannot be negative")
+            item.sell_amount = amount
+        item.category_id = (category_id or "").strip() or None
+        item.sku_id = (sku_id or "").strip() or None
+        item.catalog_product_id = (catalog_product_id or "").strip() or None
         item.updated_at = utc_now()
         order.updated_at = utc_now()
         return item
@@ -419,6 +449,7 @@ class OrderDomainService:
         activity_id: str,
         activity_name: str,
         is_required: bool = True,
+        estimated_hours: float = 0.0,
     ) -> OrderActivity:
         if not order.get_item_by_id(item_id):
             raise ValidationError("Customization item not found")
@@ -426,11 +457,15 @@ class OrderDomainService:
             if activity.activity_id == activity_id:
                 raise ValidationError("Activity is already assigned to this item")
 
+        hours = round(float(estimated_hours or 0), 2)
+        if hours < 0:
+            raise ValidationError("Estimated hours cannot be negative")
         activity = OrderActivity(
             activity_id=activity_id,
             activity_name=activity_name,
             is_required=is_required,
             bill_id=item_id,
+            estimated_hours=hours,
         )
         order.order_activities.append(activity)
         order.updated_at = utc_now()

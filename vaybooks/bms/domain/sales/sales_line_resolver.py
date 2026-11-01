@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from vaybooks.bms.domain.business.entities import BusinessProfile
 from vaybooks.bms.domain.parties.customers.entities import Customer
@@ -46,8 +46,25 @@ def effective_sales_gst_rate(
 
 
 class SalesLineResolver:
-    def __init__(self, *, get_product):
+    def __init__(
+        self,
+        *,
+        get_product,
+        get_catalog_product: Optional[Callable[[str], object]] = None,
+    ):
         self._get_product = get_product
+        self._get_catalog_product = get_catalog_product
+
+    def _resolve_stockable_id(self, raw: dict) -> str:
+        stockable_id = str(raw.get("sku_id") or raw.get("product_id") or "").strip()
+        if not stockable_id:
+            return ""
+        product = self._get_product(stockable_id)
+        if product:
+            return stockable_id
+        if self._get_catalog_product and self._get_catalog_product(stockable_id):
+            raise ValidationError("Select a SKU, not a catalog product")
+        raise ValidationError("Product not found")
 
     def resolve_lines(
         self,
@@ -75,7 +92,7 @@ class SalesLineResolver:
             rate = float(raw.get("rate") or 0)
             if qty <= 0:
                 continue
-            product_id = str(raw.get("product_id") or "").strip()
+            product_id = self._resolve_stockable_id(raw)
             if not product_id:
                 desc = (raw.get("description") or "").strip()
                 if not desc:
@@ -112,7 +129,13 @@ class SalesLineResolver:
             line_gross = round(qty * rate, 2)
             line_discount = _resolved_line_discount(raw, qty=qty, rate=rate)
             taxable = round(max(line_gross - line_discount, 0.0), 2)
-            raw = {**raw, "discount": line_discount, "rate": rate}
+            raw = {
+                **raw,
+                "discount": line_discount,
+                "rate": rate,
+                "product_id": product_id,
+                "sku_id": product_id,
+            }
             gst = compute_sales_gst(
                 taxable,
                 gst_rate,
@@ -120,12 +143,17 @@ class SalesLineResolver:
                 business_state_code=business_state,
                 customer_state_code=customer_state,
             )
+            parent_name = ""
+            display = getattr(product, "display_name", None)
+            item_name = (
+                display(parent_name) if callable(display) else None
+            ) or product.name
             resolved.append(
                 SalesInvoiceLine.from_raw(
                     raw,
                     tax_profile=tax_profile,
                     gst=gst,
-                    item_name=product.name,
+                    item_name=item_name,
                     gst_rate=gst_rate,
                 )
             )

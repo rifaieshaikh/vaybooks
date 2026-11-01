@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VayBooks-BMS desktop launcher — ensure service is running and open browser."""
+"""VayBooks desktop launcher — ensure local API (if any) then start Electron."""
 
 from __future__ import annotations
 
@@ -9,27 +9,66 @@ import sys
 import time
 import urllib.error
 import urllib.request
-import webbrowser
 from pathlib import Path
 
 
 SERVICE_NAME = "VayBooksBMS"
-DEFAULT_PORT = 8501
+DEFAULT_PORT = 8000
+ELECTRON_REL = Path("electron") / "win-unpacked" / "VayBooks.exe"
 
 
-def _read_app_port() -> int:
-    data_dir = os.environ.get("VAYBOOKS_DATA_DIR")
-    if data_dir:
-        config_path = Path(data_dir) / "config" / "config.toml"
-        if config_path.exists():
-            try:
-                text = config_path.read_text(encoding="utf-8")
-                for line in text.splitlines():
-                    if line.strip().startswith("APP_PORT"):
-                        return int(line.split("=", 1)[1].strip().strip('"'))
-            except Exception:
-                pass
-    return int(os.environ.get("APP_PORT", DEFAULT_PORT))
+def _install_dir() -> Path:
+    env = os.environ.get("VAYBOOKS_INSTALL_DIR")
+    if env:
+        return Path(env)
+    # launcher lives in tools/ or is frozen beside install root
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent.parent
+    return Path(__file__).resolve().parents[2]
+
+
+def _data_dir() -> Path | None:
+    raw = os.environ.get("VAYBOOKS_DATA_DIR")
+    if raw:
+        return Path(raw)
+    return None
+
+
+def _read_config() -> dict[str, str]:
+    values: dict[str, str] = {}
+    data_dir = _data_dir()
+    if not data_dir:
+        # Default ProgramData path on Windows
+        program_data = os.environ.get("PROGRAMDATA")
+        if program_data:
+            data_dir = Path(program_data) / "VayBooks-BMS"
+    if not data_dir:
+        return values
+    config_path = data_dir / "config" / "config.toml"
+    if not config_path.exists():
+        return values
+    for line in config_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, val = stripped.partition("=")
+        values[key.strip()] = val.strip().strip('"').strip("'")
+    return values
+
+
+def _backend_mode(cfg: dict[str, str]) -> str:
+    return (cfg.get("BACKEND_MODE") or os.environ.get("BACKEND_MODE") or "local").strip().lower()
+
+
+def _api_base(cfg: dict[str, str]) -> str:
+    url = (
+        cfg.get("API_BASE_URL")
+        or os.environ.get("API_BASE_URL")
+        or os.environ.get("VAYBOOKS_UI_URL")
+        or f"http://127.0.0.1:{cfg.get('APP_PORT') or DEFAULT_PORT}"
+    )
+    url = url.strip()
+    return url if url.endswith("/") else url + "/"
 
 
 def _service_running() -> bool:
@@ -49,32 +88,58 @@ def _start_service() -> None:
     subprocess.run(["net", "start", SERVICE_NAME], capture_output=True)
 
 
-def _wait_for_app(port: int, timeout: float = 60.0) -> bool:
-    url = f"http://127.0.0.1:{port}/_stcore/health"
+def _wait_for_health(base_url: str, timeout: float = 60.0) -> bool:
+    health = base_url.rstrip("/") + "/health"
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=2) as resp:
-                if resp.status == 200:
+            with urllib.request.urlopen(health, timeout=2) as resp:
+                if 200 <= resp.status < 400:
                     return True
-        except (urllib.error.URLError, TimeoutError):
+        except (urllib.error.URLError, TimeoutError, ValueError):
             time.sleep(1)
     return False
 
 
+def _start_electron(install_dir: Path, cfg: dict[str, str]) -> int:
+    electron = install_dir / ELECTRON_REL
+    if not electron.exists():
+        # alternate layout if staged differently
+        alt = install_dir / "electron" / "VayBooks.exe"
+        electron = alt if alt.exists() else electron
+    if not electron.exists():
+        print(f"Electron executable not found under {install_dir}", file=sys.stderr)
+        return 1
+    env = os.environ.copy()
+    env["API_BASE_URL"] = _api_base(cfg)
+    env["VAYBOOKS_UI_URL"] = env["API_BASE_URL"]
+    data_dir = _data_dir()
+    if data_dir:
+        env["VAYBOOKS_DATA_DIR"] = str(data_dir)
+    env["VAYBOOKS_INSTALL_DIR"] = str(install_dir)
+    subprocess.Popen([str(electron)], cwd=str(electron.parent), env=env)
+    return 0
+
+
 def main() -> int:
-    port = _read_app_port()
+    cfg = _read_config()
+    install_dir = _install_dir()
+    mode = _backend_mode(cfg)
+    base = _api_base(cfg)
+
+    if mode == "remote":
+        return _start_electron(install_dir, cfg)
+
     if sys.platform == "win32" and not _service_running():
         _start_service()
-        if not _wait_for_app(port):
-            print("Service did not become ready in time.", file=sys.stderr)
+        if not _wait_for_health(base):
+            print("Local API service did not become ready in time.", file=sys.stderr)
             return 1
-    elif not _wait_for_app(port, timeout=5):
-        print(f"Application not reachable on port {port}.", file=sys.stderr)
+    elif not _wait_for_health(base, timeout=5):
+        print(f"API not reachable at {base}", file=sys.stderr)
         return 1
 
-    webbrowser.open(f"http://127.0.0.1:{port}")
-    return 0
+    return _start_electron(install_dir, cfg)
 
 
 if __name__ == "__main__":

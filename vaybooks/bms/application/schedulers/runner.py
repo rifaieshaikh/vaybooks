@@ -13,7 +13,7 @@ LEASE_TTL_SECONDS = 300
 
 
 class ProcessLocks:
-    """In-process guard so one Streamlit process never double-starts a key."""
+    """In-process guard so one process never double-starts a key."""
 
     def __init__(self) -> None:
         self._guard = threading.Lock()
@@ -40,7 +40,7 @@ class ProcessLocks:
 
 
 def start_background(target: Callable[[], None], *, name: str) -> threading.Thread:
-    """Run work on a daemon thread so the Streamlit script never blocks."""
+    """Run work on a daemon thread so the caller never blocks."""
 
     def _wrapped() -> None:
         try:

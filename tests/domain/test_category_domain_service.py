@@ -18,21 +18,20 @@ def test_create_root_and_child_path():
     assert service.get_category_path(cotton.id) == "Fabric > Cotton"
 
 
-def test_same_name_under_different_parents_allowed():
+def test_same_name_under_different_parents_rejected():
     service = _service()
     fabric = service.create_category("Fabric")
     ready = service.create_category("Ready-made")
     service.create_category("Cotton", parent_id=fabric.id)
-    cotton2 = service.create_category("Cotton", parent_id=ready.id)
-    assert cotton2.parent_id == ready.id
+    with pytest.raises(ValidationError, match="already exists"):
+        service.create_category("Cotton", parent_id=ready.id)
 
 
-def test_duplicate_name_same_parent_rejected():
+def test_duplicate_name_case_insensitive_rejected():
     service = _service()
-    fabric = service.create_category("Fabric")
-    service.create_category("Cotton", parent_id=fabric.id)
-    with pytest.raises(ValidationError, match="already exists under the parent"):
-        service.create_category("Cotton", parent_id=fabric.id)
+    service.create_category("Cotton")
+    with pytest.raises(ValidationError, match="already exists"):
+        service.create_category("cotton")
 
 
 def test_create_with_invalid_parent():
@@ -53,11 +52,12 @@ def test_update_not_found():
         service.update_category("missing", "Name")
 
 
-def test_empty_name_on_update():
+def test_update_ignores_name_change():
     service = _service()
     cat = service.create_category("Fabric")
-    with pytest.raises(ValidationError, match="Category name is required"):
-        service.update_category(cat.id, "  ")
+    updated = service.update_category(cat.id, "Renamed", description="x")
+    assert updated.name == "Fabric"
+    assert updated.description == "x"
 
 
 def test_reparent_updates_path():
@@ -65,7 +65,7 @@ def test_reparent_updates_path():
     fabric = service.create_category("Fabric")
     ready = service.create_category("Ready-made")
     cotton = service.create_category("Cotton", parent_id=fabric.id)
-    service.update_category(cotton.id, "Cotton", parent_id=ready.id)
+    service.update_category(cotton.id, "Ignored", parent_id=ready.id)
     assert service.get_category_path(cotton.id) == "Ready-made > Cotton"
 
 

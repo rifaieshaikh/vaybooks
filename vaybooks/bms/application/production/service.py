@@ -84,6 +84,76 @@ class ProductionAppService:
         self._snapshot_issue_costs(batch)
         return self._domain.save_batch(batch)
 
+    def update_batch_lines(
+        self,
+        batch_id: str,
+        *,
+        issues: list[dict[str, Any]] | None = None,
+        outputs: list[dict[str, Any]] | None = None,
+        notes: str | None = None,
+    ) -> ProductionBatch:
+        """Patch issue/output lines by id for editable batches, then save."""
+        batch = self._required_batch(batch_id)
+        if not batch.is_editable:
+            raise ValidationError("Posted or cancelled batches cannot be edited")
+
+        if issues is not None:
+            by_id = {line.id: line for line in batch.issues}
+            for patch in issues:
+                line_id = str(patch.get("id") or "").strip()
+                if not line_id or line_id not in by_id:
+                    raise ValidationError(f"Unknown issue line: {line_id or '(empty)'}")
+                line = by_id[line_id]
+                if "qty" in patch and patch["qty"] is not None:
+                    line.qty = float(patch["qty"])
+                if "location_id" in patch and patch["location_id"] is not None:
+                    line.location_id = str(patch["location_id"])
+
+        if outputs is not None:
+            by_id = {line.id: line for line in batch.outputs}
+            for patch in outputs:
+                line_id = str(patch.get("id") or "").strip()
+                if not line_id or line_id not in by_id:
+                    raise ValidationError(f"Unknown output line: {line_id or '(empty)'}")
+                line = by_id[line_id]
+                if "qty" in patch and patch["qty"] is not None:
+                    line.qty = float(patch["qty"])
+                if "location_id" in patch and patch["location_id"] is not None:
+                    line.location_id = str(patch["location_id"])
+                if "nrv_rate" in patch and patch["nrv_rate"] is not None:
+                    line.nrv_rate = float(patch["nrv_rate"])
+                if "allocation_pct" in patch and patch["allocation_pct"] is not None:
+                    line.allocation_pct = float(patch["allocation_pct"])
+
+        if notes is not None:
+            batch.notes = str(notes).strip()
+
+        return self.save_batch(batch)
+
+    def unpost_batch(self, batch_id: str) -> ProductionBatch:
+        """Reverse stock + void posting journals; return batch to In Progress."""
+        batch = self._required_batch(batch_id)
+        if batch.status != ProductionBatchStatus.POSTED:
+            raise ValidationError("Only posted batches can be unposted")
+
+        voucher_ids = list(batch.posting.voucher_ids or [])
+        self._inventory.reverse_movements_by_reference(batch.id)
+        for voucher_id in voucher_ids:
+            try:
+                self._accounting.void_voucher(voucher_id)
+            except Exception as exc:
+                raise ValidationError(
+                    f"Failed to reverse posting voucher {voucher_id}: {exc}"
+                ) from exc
+
+        batch.posting.movement_ids = []
+        batch.posting.voucher_ids = []
+        batch.posting.posted_at = None
+        batch.posting.posted_by = ""
+        batch.status = ProductionBatchStatus.IN_PROGRESS
+        batch.touch()
+        return self._batch_repo.save(batch)
+
     def add_cost(self, batch_id: str, cost: BatchCost) -> ProductionBatch:
         batch = self._required_batch(batch_id)
         self._domain.add_cost(batch, cost)
