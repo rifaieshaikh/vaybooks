@@ -17,6 +17,8 @@ export type SearchableSelectProps = {
   className?: string;
   /** When menu is closed, Enter advances (header/grid nav). */
   onKeyDownAdvance?: (e: KeyboardEvent<HTMLElement>) => void;
+  /** Offer to create the typed name when no option matches it exactly. */
+  onCreate?: (name: string) => void | Promise<void>;
 };
 
 type MenuPos = {
@@ -54,6 +56,7 @@ export function SearchableSelect({
   disabled,
   className,
   onKeyDownAdvance,
+  onCreate,
 }: SearchableSelectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -62,6 +65,7 @@ export function SearchableSelect({
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const selected = useMemo(
     () => options.find((o) => o.value === value) ?? null,
@@ -78,6 +82,16 @@ export function SearchableSelect({
         o.value.toLowerCase().includes(q),
     );
   }, [options, query]);
+
+  const typedName = query.trim();
+  const hasExactName = options.some((option) => option.label.trim().toLowerCase() === typedName.toLowerCase());
+  const showCreate = Boolean(onCreate && typedName && !hasExactName);
+  const menuItems = useMemo(() => {
+    const rows: { kind: 'create' | 'option'; option?: SearchableSelectOption; name?: string }[] = [];
+    if (showCreate) rows.push({ kind: 'create', name: typedName });
+    for (const option of filtered) rows.push({ kind: 'option', option });
+    return rows;
+  }, [filtered, showCreate, typedName]);
 
   useEffect(() => {
     if (!open) {
@@ -119,6 +133,17 @@ export function SearchableSelect({
     setOpen(false);
   }
 
+  async function createTyped() {
+    if (!onCreate || !typedName || creating) return;
+    setCreating(true);
+    try {
+      await onCreate(typedName);
+      setOpen(false);
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div
       className={['de-search', className].filter(Boolean).join(' ')}
@@ -150,14 +175,16 @@ export function SearchableSelect({
           }
           if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setActiveIndex((i) => Math.min(i + 1, Math.max(filtered.length - 1, 0)));
+            setActiveIndex((i) => Math.min(i + 1, Math.max(menuItems.length - 1, 0)));
           } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             setActiveIndex((i) => Math.max(i - 1, 0));
           } else if (e.key === 'Enter') {
             e.preventDefault();
-            const opt = filtered[activeIndex];
-            if (opt) pick(opt.value);
+            e.stopPropagation();
+            const item = menuItems[activeIndex];
+            if (item?.kind === 'create') void createTyped();
+            else if (item?.option) pick(item.option.value);
           } else if (e.key === 'Escape') {
             e.preventDefault();
             e.stopPropagation();
@@ -168,6 +195,27 @@ export function SearchableSelect({
         aria-autocomplete="list"
         role="combobox"
       />
+      <button
+        type="button"
+        className="de-search-toggle"
+        aria-label="Show options"
+        disabled={disabled}
+        tabIndex={-1}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          if (disabled) return;
+          if (open) {
+            setOpen(false);
+            return;
+          }
+          setQuery('');
+          setActiveIndex(0);
+          setOpen(true);
+          inputRef.current?.focus();
+        }}
+      >
+        ▾
+      </button>
       {open && !disabled && menuPos && typeof document !== 'undefined'
         ? createPortal(
             <ul
@@ -183,25 +231,46 @@ export function SearchableSelect({
               }}
               onMouseDown={(e) => e.preventDefault()}
             >
-              {filtered.length === 0 ? (
+              {menuItems.length === 0 ? (
                 <li className="de-search-empty">No matches</li>
               ) : (
-                filtered.map((opt, index) => (
-                  <li key={`${opt.value}:${opt.label}`} role="option" aria-selected={opt.value === value}>
-                    <button
-                      type="button"
-                      className="de-search-option"
-                      data-active={index === activeIndex ? 'true' : 'false'}
-                      onMouseEnter={() => setActiveIndex(index)}
-                      onClick={() => pick(opt.value)}
+                menuItems.map((item, index) =>
+                  item.kind === 'create' ? (
+                    <li key="create" role="option" aria-selected={false}>
+                      <button
+                        type="button"
+                        className="de-search-option"
+                        data-active={index === activeIndex ? 'true' : 'false'}
+                        disabled={creating}
+                        onMouseEnter={() => setActiveIndex(index)}
+                        onClick={() => void createTyped()}
+                      >
+                        <span className="de-search-option-label">
+                          {creating ? 'Creating…' : `Create “${item.name}”`}
+                        </span>
+                      </button>
+                    </li>
+                  ) : (
+                    <li
+                      key={`${item.option?.value}:${item.option?.label}`}
+                      role="option"
+                      aria-selected={item.option?.value === value}
                     >
-                      <span className="de-search-option-label">{opt.label}</span>
-                      {opt.sublabel ? (
-                        <span className="de-search-option-sub">{opt.sublabel}</span>
-                      ) : null}
-                    </button>
-                  </li>
-                ))
+                      <button
+                        type="button"
+                        className="de-search-option"
+                        data-active={index === activeIndex ? 'true' : 'false'}
+                        onMouseEnter={() => setActiveIndex(index)}
+                        onClick={() => item.option && pick(item.option.value)}
+                      >
+                        <span className="de-search-option-label">{item.option?.label}</span>
+                        {item.option?.sublabel ? (
+                          <span className="de-search-option-sub">{item.option.sublabel}</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  ),
+                )
               )}
             </ul>,
             document.body,

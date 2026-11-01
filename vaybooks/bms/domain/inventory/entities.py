@@ -108,6 +108,18 @@ class StockTransfer:
 
 
 @dataclass
+class CatalogSupplier:
+    """A vendor that supplies this catalog product."""
+
+    vendor_id: str
+    vendor_sku: str = ""
+    order_qty: int = 0
+    minimum_order_qty: int = 0
+    lead_time_days: int = 0
+    is_preferred: bool = False
+
+
+@dataclass
 class CatalogProduct:
     """Catalog parent — no stock, rates, or transactional identity."""
 
@@ -122,6 +134,8 @@ class CatalogProduct:
     hsn_sac: str = ""
     specifications: Dict[str, str] = field(default_factory=dict)
     custom_fields: Dict[str, Any] = field(default_factory=dict)
+    brand: str = ""
+    suppliers: List[CatalogSupplier] = field(default_factory=list)
     is_active: bool = True
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
@@ -171,6 +185,7 @@ class InventoryProduct:
     track_batch: bool = False
     track_serial: bool = False
     is_active: bool = True
+    inactive_via_catalog_id: str = ""
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
 

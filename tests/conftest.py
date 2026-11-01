@@ -897,7 +897,7 @@ class FakeStockMovementRepository:
         self._store.pop(movement_id, None)
 
 
-def make_inventory_app_service():
+def make_inventory_app_service(field_def_repo=None):
     from vaybooks.bms.application.inventory.service import InventoryAppService
     from vaybooks.bms.domain.inventory.rate_history_service import ProductRateHistoryService
 
@@ -911,6 +911,7 @@ def make_inventory_app_service():
         FakeInventoryProductRepository(),
         FakeStockMovementRepository(),
         FakeProductUnitRepository(),
+        field_def_repo=field_def_repo,
         rate_history=rate_history,
         location_repo=FakeLocationRepository(),
         balance_repo=FakeStockBalanceRepository(),

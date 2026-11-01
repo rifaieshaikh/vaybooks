@@ -37,6 +37,15 @@ class InMemoryVendorRepository:
                 return vendor
         return None
 
+    def find_by_name(self, name: str) -> Optional[Vendor]:
+        needle = (name or "").strip().lower()
+        if not needle:
+            return None
+        for vendor in self._store.values():
+            if vendor.vendor_name.strip().lower() == needle:
+                return vendor
+        return None
+
     def find_by_gstin(self, gstin: str) -> Optional[Vendor]:
         if not gstin:
             return None
@@ -197,3 +206,15 @@ def test_update_allows_same_vendor_phone():
         _vendor_input(vendor_name="Acme Supplies Pvt Ltd"),
     )
     assert updated.vendor_name == "Acme Supplies Pvt Ltd"
+
+
+def test_find_or_create_by_name_reuses_the_same_vendor():
+    repo = InMemoryVendorRepository()
+    service = VendorDomainService(repo)
+    first = service.find_or_create_by_name("Loom House", ["loc-main"])
+    second = service.find_or_create_by_name("loom house", ["loc-main"])
+    other = service.find_or_create_by_name("Other Mill", ["loc-main"])
+    assert first.id == second.id
+    assert first.phone_number == ""
+    assert other.id != first.id
+    assert len(repo.list_all()) == 2

@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useCan,
   useCreateInventoryProductMutation,
+  useDisposeProductStockMutation,
   useGetCatalogProductQuery,
   useGetInventoryProductQuery,
   useGetSkuActivityQuery,
@@ -21,6 +22,7 @@ import {
 import {
   Button,
   ChipsMultiPicker,
+  ConfirmDialog,
   DataTable,
   EntityDetailBack,
   EntityDetailForm,
@@ -579,6 +581,7 @@ export function SkuDetailPage() {
   const can = useCan();
 
   const canView = can('inventory.products.view');
+  const canEdit = can('inventory.products.edit');
   const canCustomerPrices = can('inventory.customer_prices.view');
 
   const { data, isLoading, error, refetch } = useGetInventoryProductQuery(id, { skip: !id });
@@ -586,8 +589,16 @@ export function SkuDetailPage() {
   const { data: locations = [] } = useListInventoryLocationsQuery({ active_only: false });
   const { data: units = [] } = useListInventoryUnitsQuery({ active_only: true });
   const [updateProduct, updateState] = useUpdateInventoryProductMutation();
+  const [disposeStock, disposeState] = useDisposeProductStockMutation();
   const [values, setValues] = useState<SkuFormValues>(emptySkuForm());
   const [formError, setFormError] = useState('');
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    danger?: boolean;
+    run: () => Promise<void>;
+  } | null>(null);
 
   const catalogProductId = String(data?.catalog_product_id || '');
   const { data: parentProduct } = useGetCatalogProductQuery(catalogProductId, {
@@ -751,17 +762,49 @@ export function SkuDetailPage() {
     setValues((p) => ({ ...p, [name]: value }));
   }
 
+  async function persistSku() {
+    await updateProduct({
+      id,
+      body: productBody(values, units as Record<string, unknown>[], { includeOpening: false }),
+    }).unwrap();
+    refetch();
+  }
+
   async function onSave() {
     setFormError('');
+    const wasActive = data?.is_active !== false;
+    if (wasActive && !values.is_active) {
+      setConfirm({
+        title: 'Deactivate SKU',
+        message: `Stock stays on hand (${Number(data?.current_qty ?? 0)}). This SKU will be marked inactive. Use Dispose stock to remove the quantity.`,
+        confirmLabel: 'Deactivate',
+        danger: true,
+        run: persistSku,
+      });
+      return;
+    }
     try {
-      await updateProduct({
-        id,
-        body: productBody(values, units as Record<string, unknown>[], { includeOpening: false }),
-      }).unwrap();
-      refetch();
+      await persistSku();
     } catch (e: unknown) {
       setFormError(extractError(e));
     }
+  }
+
+  function askDispose() {
+    const lines = balanceRows
+      .filter((row) => row.qty > 0)
+      .map((row) => `${row.location} ${row.qty}`)
+      .join('; ');
+    setConfirm({
+      title: 'Dispose stock',
+      message: `This writes an Adjust Out and leaves the SKU active. ${lines || `On hand ${Number(data?.current_qty ?? 0)}`}.`,
+      confirmLabel: 'Dispose stock',
+      danger: true,
+      run: async () => {
+        await disposeStock(id).unwrap();
+        refetch();
+      },
+    });
   }
 
   if (isLoading) {
@@ -796,6 +839,11 @@ export function SkuDetailPage() {
       <Button type="button" variant="ghost" onClick={() => void refetch()}>
         Refresh
       </Button>
+      {canEdit && Number(data.current_qty ?? 0) > 0 ? (
+        <Button type="button" variant="ghost" onClick={askDispose} disabled={disposeState.isLoading}>
+          {disposeState.isLoading ? 'Disposing…' : 'Dispose stock'}
+        </Button>
+      ) : null}
       <Button type="button" onClick={() => void onSave()} disabled={updateState.isLoading}>
         {updateState.isLoading ? 'Saving…' : 'Save'}
       </Button>
@@ -1104,6 +1152,25 @@ export function SkuDetailPage() {
           </Button>
         }
         end={heroActions}
+      />
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm?.title || ''}
+        message={confirm?.message || ''}
+        confirmLabel={confirm?.confirmLabel || 'Confirm'}
+        danger={Boolean(confirm?.danger)}
+        busy={updateState.isLoading || disposeState.isLoading}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          const run = confirm?.run;
+          if (!run) return;
+          void run()
+            .then(() => setConfirm(null))
+            .catch((e: unknown) => {
+              setFormError(extractError(e));
+              setConfirm(null);
+            });
+        }}
       />
     </EntityDetailPage>
   );

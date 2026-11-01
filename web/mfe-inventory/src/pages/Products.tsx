@@ -4,17 +4,20 @@ import {
   useCan,
   useCreateCatalogProductMutation,
   useCreateCatalogSkuMutation,
+  useCreateProductFieldDefinitionMutation,
+  useDisposeCatalogStockMutation,
+  useLazyGetCatalogProductQuery,
   useGetCatalogProductActivityQuery,
-  useGetCatalogProductCustomizationBreakdownQuery,
-  useGetCatalogProductPurchaseBreakdownQuery,
-  useGetCatalogProductProductionBreakdownQuery,
   useGetCatalogProductQuery,
-  useGetCatalogProductSalesBreakdownQuery,
   useGetCatalogProductSpecInsightsQuery,
   useListCatalogProductsQuery,
   useListInventoryCategoriesQuery,
+  useListProductFieldDefinitionsQuery,
   useListInventoryLocationsQuery,
   useListInventoryUnitsQuery,
+  useEnsureVendorMutation,
+  useGetWorkingLocationQuery,
+  useListVendorsQuery,
   useMergeCatalogProductsMutation,
   useResolveInventoryEntityQuery,
   useUpdateCatalogProductMutation,
@@ -22,6 +25,7 @@ import {
 import {
   Button,
   ChipsMultiPicker,
+  ConfirmDialog,
   EntityDetailBack,
   EntityDetailForm,
   EntityDetailHero,
@@ -52,24 +56,50 @@ import {
   type EntityListColumn,
   type SearchableSelectOption,
 } from '@vaybooks/ui-kit';
-import { BreakdownPanel, useBreakdownRange } from '../components/BreakdownPanel';
 import { toCategoryOptions, toLocationOptions, toUnitOptions, resolveUnitId, unitCodeForId, withNoneOption } from '../pickerOptions';
 
-type ProductDetailTab =
-  | 'overview'
-  | 'skus'
-  | 'spec'
-  | 'sales'
-  | 'purchase'
-  | 'production'
-  | 'customization'
-  | 'activity';
+type ProductDetailTab = 'overview' | 'skus' | 'spec' | 'activity';
+
+type SupplierDraft = {
+  vendor_id: string;
+  vendor_sku: string;
+  order_qty: string;
+  minimum_order_qty: string;
+  lead_time_days: string;
+  is_preferred: boolean;
+};
+
+type SupplierPayloadRow = {
+  vendor_id: string;
+  vendor_sku: string;
+  order_qty: number;
+  minimum_order_qty: number;
+  lead_time_days: number;
+  is_preferred: boolean;
+};
+
+function blankSupplier(preferred = false): SupplierDraft {
+  return {
+    vendor_id: '',
+    vendor_sku: '',
+    order_qty: '',
+    minimum_order_qty: '',
+    lead_time_days: '',
+    is_preferred: preferred,
+  };
+}
+
+function qtyText(value: unknown): string {
+  return value == null || value === '' ? '' : String(value);
+}
 
 type CatalogForm = {
   name: string;
   category_ids: string[];
   unit_id: string;
   hsn_sac: string;
+  brand: string;
+  suppliers: SupplierDraft[];
   is_active: boolean;
 };
 
@@ -79,8 +109,78 @@ function emptyCatalogForm(): CatalogForm {
     category_ids: [],
     unit_id: '',
     hsn_sac: '',
+    brand: '',
+    suppliers: [],
     is_active: true,
   };
+}
+
+function suppliersFromProduct(raw: unknown): SupplierDraft[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const row = item as Record<string, unknown>;
+    return {
+      vendor_id: String(row.vendor_id || ''),
+      vendor_sku: String(row.vendor_sku || ''),
+      order_qty: qtyText(row.order_qty),
+      minimum_order_qty: qtyText(row.minimum_order_qty),
+      lead_time_days: qtyText(row.lead_time_days),
+      is_preferred: row.is_preferred === true,
+    };
+  });
+}
+
+function wholeQty(text: string, label: string): { error: string } | { value: number } {
+  if (text === '') return { value: 0 };
+  const value = Number(text);
+  if (!Number.isInteger(value) || value < 0) return { error: `${label} must be a whole number` };
+  return { value };
+}
+
+function supplierPayload(rows: SupplierDraft[]): { error: string } | { rows: SupplierPayloadRow[] } {
+  const out: SupplierPayloadRow[] = [];
+  const seen = new Set<string>();
+  let preferred = 0;
+  for (const row of rows) {
+    const vendorId = row.vendor_id.trim();
+    const vendorSku = row.vendor_sku.trim();
+    const orderText = row.order_qty.trim();
+    const minimumText = row.minimum_order_qty.trim();
+    const leadText = row.lead_time_days.trim();
+    if (!vendorId && !vendorSku && !orderText && !minimumText && !leadText && !row.is_preferred) continue;
+    if (!vendorId) return { error: 'Each supplier needs a vendor' };
+    if (seen.has(vendorId)) return { error: 'A vendor can only be added once' };
+    const orderQty = wholeQty(orderText, 'Qty');
+    if ('error' in orderQty) return orderQty;
+    const minimumQty = wholeQty(minimumText, 'Minimum order qty');
+    if ('error' in minimumQty) return minimumQty;
+    const lead = wholeQty(leadText, 'Lead time');
+    if ('error' in lead) return { error: 'Lead time must be a whole number of days' };
+    if (row.is_preferred) preferred += 1;
+    seen.add(vendorId);
+    out.push({
+      vendor_id: vendorId,
+      vendor_sku: vendorSku,
+      order_qty: orderQty.value,
+      minimum_order_qty: minimumQty.value,
+      lead_time_days: lead.value,
+      is_preferred: row.is_preferred,
+    });
+  }
+  if (preferred > 1) return { error: 'Only one supplier can be preferred' };
+  return { rows: out };
+}
+
+function specificationsPayload(rows: SkuAttributeRow[]): { error: string } | { specs: Record<string, string> } {
+  const specs: Record<string, string> = {};
+  for (const row of rows) {
+    const key = row.key.trim();
+    const value = row.value.trim();
+    if (!key && !value) continue;
+    if (!key || !value) return { error: 'Each specification needs a name and a value' };
+    specs[key] = value;
+  }
+  return { specs };
 }
 
 type SkuAttributeRow = { key: string; value: string };
@@ -142,9 +242,12 @@ export function ProductsListPage() {
   const { data = [], isLoading, error, refetch } = useListCatalogProductsQuery({ active_only: false });
   const { data: categories = [] } = useListInventoryCategoriesQuery({ active_only: true });
   const { data: units = [] } = useListInventoryUnitsQuery({ active_only: true });
+  const { data: definitionRows = [] } = useListProductFieldDefinitionsQuery({ active_only: true });
   const [createProduct, createState] = useCreateCatalogProductMutation();
   const [dialog, setDialog] = useState(false);
   const [values, setValues] = useState<CatalogForm>(emptyCatalogForm);
+  const [specRows, setSpecRows] = useState<SkuAttributeRow[]>([]);
+  const [customValues, setCustomValues] = useState<Record<string, string | boolean>>({});
   const [formError, setFormError] = useState('');
   const [page, setPage] = useState(1);
 
@@ -152,6 +255,24 @@ export function ProductsListPage() {
     () => toUnitOptions(units as Record<string, unknown>[]),
     [units],
   );
+  const createDefinitions = useMemo(
+    () =>
+      asFieldDefinitions(definitionRows as Record<string, unknown>[]).filter((definition) =>
+        fieldApplies(definition, values.category_ids),
+      ),
+    [definitionRows, values.category_ids],
+  );
+
+  function openCreate() {
+    setValues({
+      ...emptyCatalogForm(),
+      unit_id: resolveUnitId(units as Record<string, unknown>[]),
+    });
+    setSpecRows([]);
+    setCustomValues({});
+    setFormError('');
+    setDialog(true);
+  }
 
   useEffect(() => {
     if (searchParams.get('new') === '1') {
@@ -159,6 +280,9 @@ export function ProductsListPage() {
         ...emptyCatalogForm(),
         unit_id: resolveUnitId(units as Record<string, unknown>[]),
       });
+      setSpecRows([]);
+      setCustomValues({});
+      setFormError('');
       setDialog(true);
       setSearchParams({}, { replace: true });
     }
@@ -218,6 +342,21 @@ export function ProductsListPage() {
       setFormError('Select a unit');
       return;
     }
+    const specs = specificationsPayload(specRows);
+    if ('error' in specs) {
+      setFormError(specs.error);
+      return;
+    }
+    const fields = customFieldsPayload(createDefinitions, customValues);
+    if ('error' in fields) {
+      setFormError(fields.error);
+      return;
+    }
+    const suppliers = supplierPayload(values.suppliers);
+    if ('error' in suppliers) {
+      setFormError(suppliers.error);
+      return;
+    }
     try {
       const created = await createProduct({
         name: values.name.trim(),
@@ -225,6 +364,10 @@ export function ProductsListPage() {
         unit_id: unitId,
         unit_code: unitCodeForId(units as Record<string, unknown>[], unitId),
         hsn_sac: values.hsn_sac,
+        brand: values.brand.trim(),
+        suppliers: suppliers.rows,
+        specifications: specs.specs,
+        custom_fields: fields.fields,
         is_active: values.is_active,
       }).unwrap();
       setDialog(false);
@@ -240,16 +383,7 @@ export function ProductsListPage() {
         title="Products"
         count={`${data.length} ${data.length === 1 ? 'product' : 'products'}`}
         actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setValues({
-                ...emptyCatalogForm(),
-                unit_id: resolveUnitId(units as Record<string, unknown>[]),
-              });
-              setDialog(true);
-            }}
-          >
+          <Button type="button" onClick={openCreate}>
             Add product
           </Button>
         }
@@ -279,7 +413,7 @@ export function ProductsListPage() {
         </Button>
       </EntityListFoot>
 
-      <Modal open={dialog} onClose={() => setDialog(false)} title="Add product">
+      <Modal open={dialog} wide onClose={() => setDialog(false)} title="Add product">
         <ModalForm
           onSubmit={(e) => {
             e.preventDefault();
@@ -299,20 +433,38 @@ export function ProductsListPage() {
               onChange={(ids) => setValues((v) => ({ ...v, category_ids: ids }))}
             />
           </FormRow>
-          <FormRow label="Unit *">
-            <SearchableSelect
-              options={unitOptions}
-              value={values.unit_id}
-              placeholder="Select unit"
-              onChange={(next) => setValues((v) => ({ ...v, unit_id: next }))}
-            />
-          </FormRow>
-          <FormRow label="HSN">
-            <TextInput
-              value={values.hsn_sac}
-              onChange={(e) => setValues((v) => ({ ...v, hsn_sac: e.target.value }))}
-            />
-          </FormRow>
+          <div className="ed-grid ed-grid-2">
+            <FormRow label="Unit *">
+              <SearchableSelect
+                options={unitOptions}
+                value={values.unit_id}
+                placeholder="Select unit"
+                onChange={(next) => setValues((v) => ({ ...v, unit_id: next }))}
+              />
+            </FormRow>
+            <FormRow label="Brand">
+              <TextInput
+                value={values.brand}
+                onChange={(e) => setValues((v) => ({ ...v, brand: e.target.value }))}
+              />
+            </FormRow>
+            <FormRow label="HSN">
+              <TextInput
+                value={values.hsn_sac}
+                onChange={(e) => setValues((v) => ({ ...v, hsn_sac: e.target.value }))}
+              />
+            </FormRow>
+          </div>
+          <SupplierEditor
+            rows={values.suppliers}
+            onChange={(suppliers) => setValues((v) => ({ ...v, suppliers }))}
+          />
+          <SpecificationRows rows={specRows} onChange={setSpecRows} />
+          <CustomFieldSection
+            definitions={createDefinitions}
+            values={customValues}
+            onChange={setCustomValues}
+          />
           {formError ? <ErrorText>{formError}</ErrorText> : null}
           <ModalFormActions
             onCancel={() => setDialog(false)}
@@ -366,6 +518,551 @@ function AttributeRowsEditor({
   );
 }
 
+type FieldDefinitionRow = {
+  id: string;
+  key: string;
+  label: string;
+  field_type: string;
+  options: string[];
+  required: boolean;
+  applies_to_category_ids: string[];
+  is_active: boolean;
+};
+
+function asFieldDefinitions(rows: Record<string, unknown>[]): FieldDefinitionRow[] {
+  return rows.map((row) => ({
+    id: String(row.id || ''),
+    key: String(row.key || ''),
+    label: String(row.label || row.key || 'Field'),
+    field_type: String(row.field_type || 'text'),
+    options: Array.isArray(row.options) ? row.options.map(String) : [],
+    required: row.required === true,
+    applies_to_category_ids: Array.isArray(row.applies_to_category_ids)
+      ? row.applies_to_category_ids.map(String)
+      : [],
+    is_active: row.is_active !== false,
+  }));
+}
+
+function fieldApplies(definition: FieldDefinitionRow, categoryIds: string[]): boolean {
+  if (!definition.is_active) return false;
+  if (definition.applies_to_category_ids.length === 0) return true;
+  return definition.applies_to_category_ids.some((id) => categoryIds.includes(id));
+}
+
+function specDictToRows(value: unknown): SkuAttributeRow[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.entries(value as Record<string, unknown>).map(([key, raw]) => ({
+    key,
+    value: raw == null ? '' : String(raw),
+  }));
+}
+
+const FIELD_TYPE_OPTIONS: SearchableSelectOption[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'number', label: 'Number' },
+  { value: 'date', label: 'Date' },
+  { value: 'select', label: 'Select' },
+  { value: 'boolean', label: 'Boolean' },
+];
+
+function customFieldsPayload(
+  definitions: FieldDefinitionRow[],
+  values: Record<string, string | boolean>,
+): { error: string } | { fields: Record<string, string | number | boolean> } {
+  const fields: Record<string, string | number | boolean> = {};
+  for (const definition of definitions) {
+    const raw = values[definition.key];
+    if (definition.field_type === 'boolean') {
+      fields[definition.key] = raw === true;
+      continue;
+    }
+    const text = raw == null ? '' : String(raw).trim();
+    if (!text) continue;
+    if (definition.field_type === 'number') {
+      const amount = Number(text);
+      if (!Number.isFinite(amount)) return { error: `${definition.label} must be a number` };
+      fields[definition.key] = amount;
+      continue;
+    }
+    fields[definition.key] = text;
+  }
+  return { fields };
+}
+
+function SpecificationRows({
+  rows,
+  onChange,
+}: {
+  rows: SkuAttributeRow[];
+  onChange: (next: SkuAttributeRow[]) => void;
+}) {
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+        <div style={{ fontWeight: 650 }}>Specifications</div>
+        <Button type="button" variant="ghost" onClick={() => onChange([...rows, { key: '', value: '' }])}>
+          + Add specification
+        </Button>
+      </div>
+      <p className="ed-panel-note">Free-form details for this product, such as fabric or fit.</p>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {rows.map((row, index) => (
+          <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
+            <TextInput
+              aria-label="Specification name"
+              placeholder="Name (e.g. Fabric)"
+              value={row.key}
+              onChange={(e) => {
+                const next = [...rows];
+                next[index] = { ...row, key: e.target.value };
+                onChange(next);
+              }}
+            />
+            <TextInput
+              aria-label="Specification value"
+              placeholder="Value (e.g. Cotton)"
+              value={row.value}
+              onChange={(e) => {
+                const next = [...rows];
+                next[index] = { ...row, value: e.target.value };
+                onChange(next);
+              }}
+            />
+            <Button type="button" variant="ghost" onClick={() => onChange(rows.filter((_, i) => i !== index))}>
+              Remove
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SupplierEditor({
+  rows,
+  onChange,
+  disabled,
+}: {
+  rows: SupplierDraft[];
+  onChange: (next: SupplierDraft[]) => void;
+  disabled?: boolean;
+}) {
+  const { data: vendors = [], isLoading: vendorsLoading } = useListVendorsQuery();
+  const { data: workingLoc } = useGetWorkingLocationQuery();
+  const [ensureVendor] = useEnsureVendorMutation();
+  const [knownVendors, setKnownVendors] = useState<{ id: string; name: string }[]>([]);
+  const [supplierError, setSupplierError] = useState('');
+  const options = useMemo(() => {
+    const listed = (vendors as Record<string, unknown>[])
+      .map((vendor) => ({
+        value: String(vendor.id || ''),
+        label: String(vendor.name || vendor.vendor_name || 'Vendor'),
+        sublabel: String(vendor.phone_number || ''),
+      }))
+      .filter((option) => option.value);
+    for (const vendor of knownVendors) {
+      if (!listed.some((option) => option.value === vendor.id)) {
+        listed.push({ value: vendor.id, label: vendor.name, sublabel: '' });
+      }
+    }
+    return listed.sort((a, b) => a.label.localeCompare(b.label));
+  }, [vendors, knownVendors]);
+  const shown = rows.length > 0 ? rows : [blankSupplier()];
+
+  async function createVendor(index: number, name: string) {
+    setSupplierError('');
+    const locationId = String(workingLoc?.working_location_id || '').trim();
+    if (!locationId) {
+      const message = 'Choose a working location before creating a vendor';
+      setSupplierError(message);
+      throw new Error(message);
+    }
+    try {
+      const created = await ensureVendor({ vendor_name: name, location_ids: [locationId] }).unwrap();
+      const id = String(created.id || '');
+      const label = String(created.name || created.vendor_name || name);
+      setKnownVendors((current) => (current.some((row) => row.id === id) ? current : [...current, { id, name: label }]));
+      update(index, { vendor_id: id });
+    } catch (e) {
+      setSupplierError(extractError(e));
+      throw e;
+    }
+  }
+
+  function update(index: number, patch: Partial<SupplierDraft>) {
+    const next = shown.map((row, i) => (i === index ? { ...row, ...patch } : row));
+    onChange(next);
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+        <div style={{ fontWeight: 650 }}>Suppliers</div>
+        {disabled ? null : (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onChange([...rows, blankSupplier(rows.length === 0)])}
+          >
+            + Add supplier
+          </Button>
+        )}
+      </div>
+      <p className="ed-panel-note">
+        Search suppliers, or type a name that is not there to add one. Qty is the amount you order. Minimum order qty is the smallest amount that supplier accepts.
+      </p>
+      <div style={{ display: 'grid', gap: 10 }}>
+        {shown.map((row, index) => (
+          <div key={index} style={{ display: 'grid', gap: 8 }}>
+            <FormRow label="Supplier">
+              <SearchableSelect
+                options={options}
+                value={row.vendor_id}
+                placeholder={vendorsLoading ? 'Loading suppliers…' : 'Search suppliers'}
+                disabled={disabled}
+                onChange={(next) => update(index, { vendor_id: next })}
+                onCreate={disabled ? undefined : (name) => createVendor(index, name)}
+              />
+            </FormRow>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
+              <FormRow label="Vendor item code">
+                <TextInput
+                  value={row.vendor_sku}
+                  disabled={disabled}
+                  onChange={(e) => update(index, { vendor_sku: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Qty">
+                <TextInput
+                  type="number"
+                  min={0}
+                  value={row.order_qty}
+                  disabled={disabled}
+                  onChange={(e) => update(index, { order_qty: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Minimum order qty">
+                <TextInput
+                  type="number"
+                  min={0}
+                  value={row.minimum_order_qty}
+                  disabled={disabled}
+                  onChange={(e) => update(index, { minimum_order_qty: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Lead time (days)">
+                <TextInput
+                  type="number"
+                  min={0}
+                  value={row.lead_time_days}
+                  disabled={disabled}
+                  onChange={(e) => update(index, { lead_time_days: e.target.value })}
+                />
+              </FormRow>
+            </div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={row.is_preferred}
+                  disabled={disabled}
+                  onChange={(e) => {
+                    const preferred = e.target.checked;
+                    onChange(
+                      shown.map((item, i) => ({
+                        ...item,
+                        is_preferred: i === index ? preferred : preferred ? false : item.is_preferred,
+                      })),
+                    );
+                  }}
+                />
+                Preferred
+              </label>
+              {disabled || (rows.length === 0 && !row.vendor_id) ? null : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => onChange(rows.filter((_, i) => i !== index))}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {supplierError ? <ErrorText>{supplierError}</ErrorText> : null}
+    </div>
+  );
+}
+
+function CustomFieldSection({
+  definitions,
+  values,
+  onChange,
+}: {
+  definitions: FieldDefinitionRow[];
+  values: Record<string, string | boolean>;
+  onChange: (next: Record<string, string | boolean>) => void;
+}) {
+  const [createField, createFieldState] = useCreateProductFieldDefinitionMutation();
+  const [adding, setAdding] = useState(false);
+  const [fieldError, setFieldError] = useState('');
+  const [newLabel, setNewLabel] = useState('');
+  const [newType, setNewType] = useState('text');
+  const [newOptions, setNewOptions] = useState('');
+  const [newRequired, setNewRequired] = useState(false);
+
+  function openAddField() {
+    setFieldError('');
+    setNewLabel('');
+    setNewType('text');
+    setNewOptions('');
+    setNewRequired(false);
+    setAdding(true);
+  }
+
+  async function onAddField() {
+    setFieldError('');
+    const label = newLabel.trim();
+    if (!label) {
+      setFieldError('Custom field label is required');
+      return;
+    }
+    const options = newOptions
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (newType === 'select' && options.length === 0) {
+      setFieldError('A select field needs at least one option');
+      return;
+    }
+    try {
+      await createField({
+        label,
+        key: label,
+        field_type: newType,
+        options,
+        required: newRequired,
+      }).unwrap();
+      setAdding(false);
+    } catch (e) {
+      setFieldError(extractError(e));
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+        <div style={{ fontWeight: 650 }}>Custom fields</div>
+        <Button type="button" variant="ghost" onClick={openAddField}>
+          + Add custom field
+        </Button>
+      </div>
+      <p className="ed-panel-note">
+        A custom field is defined once for the catalog. The value you enter here belongs to this product.
+      </p>
+      {definitions.length === 0 ? <p className="ed-panel-note">No custom fields defined yet.</p> : null}
+      <div style={{ display: 'grid', gap: 10 }}>
+        {definitions.map((definition) => (
+          <FormRow
+            key={definition.id || definition.key}
+            label={definition.required ? `${definition.label} *` : definition.label}
+          >
+            {definition.field_type === 'boolean' ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  aria-label={definition.label}
+                  checked={values[definition.key] === true}
+                  onChange={(e) => onChange({ ...values, [definition.key]: e.target.checked })}
+                />
+                {values[definition.key] === true ? 'Yes' : 'No'}
+              </span>
+            ) : definition.field_type === 'select' ? (
+              <SearchableSelect
+                options={[
+                  ...(definition.required ? [] : [{ value: '', label: 'None' }]),
+                  ...definition.options.map((option) => ({ value: option, label: option })),
+                ]}
+                value={String(values[definition.key] ?? '')}
+                placeholder={definition.required ? 'Select…' : 'None'}
+                onChange={(next) => onChange({ ...values, [definition.key]: next })}
+              />
+            ) : (
+              <TextInput
+                aria-label={definition.label}
+                type={definition.field_type === 'number' ? 'number' : definition.field_type === 'date' ? 'date' : 'text'}
+                value={String(values[definition.key] ?? '')}
+                onChange={(e) => onChange({ ...values, [definition.key]: e.target.value })}
+              />
+            )}
+          </FormRow>
+        ))}
+      </div>
+      <Modal
+        open={adding}
+        compact
+        zIndex={1100}
+        title="Add custom field"
+        onClose={() => {
+          if (!createFieldState.isLoading) setAdding(false);
+        }}
+      >
+        <ModalForm
+          onSubmit={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void onAddField();
+          }}
+        >
+          <p className="ed-panel-note" style={{ marginTop: 0 }}>
+            This field is shared across products. You set this product’s value after adding it.
+          </p>
+          <FormRow label="Label">
+            <TextInput
+              aria-label="Custom field label"
+              placeholder="e.g. Season"
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+            />
+          </FormRow>
+          <FormRow label="Type">
+            <SearchableSelect
+              options={FIELD_TYPE_OPTIONS}
+              value={newType}
+              placeholder="Select type"
+              onChange={setNewType}
+            />
+          </FormRow>
+          {newType === 'select' ? (
+            <FormRow label="Options">
+              <TextInput
+                aria-label="Custom field options"
+                placeholder="Summer, Winter"
+                value={newOptions}
+                onChange={(e) => setNewOptions(e.target.value)}
+              />
+            </FormRow>
+          ) : null}
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={newRequired} onChange={(e) => setNewRequired(e.target.checked)} />
+            Required
+          </label>
+          {fieldError ? <ErrorText>{fieldError}</ErrorText> : null}
+          <ModalFormActions
+            onCancel={() => setAdding(false)}
+            submitLabel="Add field"
+            busyLabel="Adding…"
+            busy={createFieldState.isLoading}
+          />
+        </ModalForm>
+      </Modal>
+    </div>
+  );
+}
+
+function CatalogSpecEditor({ product }: { product: Record<string, unknown> }) {
+  const productId = String(product.id || '');
+  const categoryIds = Array.isArray(product.category_ids)
+    ? (product.category_ids as unknown[]).map(String)
+    : [];
+  const specStamp = JSON.stringify(product.specifications || {});
+  const fieldStamp = JSON.stringify(product.custom_fields || {});
+  const { data: definitionRows = [] } = useListProductFieldDefinitionsQuery({ active_only: true });
+  const [updateProduct, updateState] = useUpdateCatalogProductMutation();
+  const [specRows, setSpecRows] = useState<SkuAttributeRow[]>([]);
+  const [customValues, setCustomValues] = useState<Record<string, string | boolean>>({});
+  const [error, setError] = useState('');
+  const [savedNote, setSavedNote] = useState('');
+
+  useEffect(() => {
+    setSpecRows(specDictToRows(product.specifications));
+    const raw = product.custom_fields;
+    const next: Record<string, string | boolean> = {};
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+        next[key] = typeof value === 'boolean' ? value : value == null ? '' : String(value);
+      }
+    }
+    setCustomValues(next);
+  }, [productId, specStamp, fieldStamp, product.specifications, product.custom_fields]);
+
+  useEffect(() => {
+    setSavedNote('');
+    setError('');
+  }, [productId]);
+
+  const definitions = useMemo(
+    () =>
+      asFieldDefinitions(definitionRows as Record<string, unknown>[]).filter((definition) =>
+        fieldApplies(definition, categoryIds),
+      ),
+    [definitionRows, categoryIds],
+  );
+
+  async function onSave() {
+    setError('');
+    setSavedNote('');
+    const specs = specificationsPayload(specRows);
+    if ('error' in specs) {
+      setError(specs.error);
+      return;
+    }
+    const fields = customFieldsPayload(definitions, customValues);
+    if ('error' in fields) {
+      setError(fields.error);
+      return;
+    }
+    try {
+      await updateProduct({
+        id: productId,
+        body: {
+          name: String(product.name || '').trim(),
+          category_ids: categoryIds,
+          unit_id: String(product.unit_id || ''),
+          unit_code: String(product.unit || product.unit_code || 'pcs'),
+          hsn_sac: String(product.hsn_sac || ''),
+          is_active: product.is_active !== false,
+          specifications: specs.specs,
+          custom_fields: fields.fields,
+        },
+      }).unwrap();
+      setSavedNote('Specifications and custom fields saved.');
+    } catch (e) {
+      setError(extractError(e));
+    }
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 22 }}>
+      <SpecificationRows
+        rows={specRows}
+        onChange={(next) => {
+          setSpecRows(next);
+          setSavedNote('');
+        }}
+      />
+      <CustomFieldSection
+        definitions={definitions}
+        values={customValues}
+        onChange={(next) => {
+          setCustomValues(next);
+          setSavedNote('');
+        }}
+      />
+      {error ? <ErrorText>{error}</ErrorText> : null}
+      {savedNote ? <p className="ed-panel-note">{savedNote}</p> : null}
+      <div>
+        <Button type="button" onClick={() => void onSave()} disabled={updateState.isLoading}>
+          {updateState.isLoading ? 'Saving…' : 'Save specifications'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** Product 360 — catalog parent with SKUs + insights tabs. */
 export function ProductDetailPage() {
   const { id = '' } = useParams();
@@ -389,6 +1086,15 @@ export function ProductDetailPage() {
   const [updateProduct, updateState] = useUpdateCatalogProductMutation();
   const [createSku, createSkuState] = useCreateCatalogSkuMutation();
   const [mergeProducts, mergeState] = useMergeCatalogProductsMutation();
+  const [disposeStock, disposeState] = useDisposeCatalogStockMutation();
+  const [loadCatalog] = useLazyGetCatalogProductQuery();
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    danger?: boolean;
+    run: () => Promise<void>;
+  } | null>(null);
 
   const [values, setValues] = useState<CatalogForm>(emptyCatalogForm);
   const [formError, setFormError] = useState('');
@@ -414,10 +1120,6 @@ export function ProductDetailPage() {
       { id: 'overview', label: 'Overview', show: canView },
       { id: 'skus', label: 'SKUs', show: canView },
       { id: 'spec', label: 'Spec insights', show: canView },
-      { id: 'sales', label: 'Sales', show: canView },
-      { id: 'purchase', label: 'Purchase', show: canView },
-      { id: 'production', label: 'Production', show: canView },
-      { id: 'customization', label: 'Customization', show: canView },
       { id: 'activity', label: 'Activity', show: canView },
     ];
     return all.filter((t) => t.show);
@@ -437,28 +1139,6 @@ export function ProductDetailPage() {
     }
   }, [tabs, requestedTab, searchParams, setSearchParams]);
 
-  const range = useBreakdownRange();
-  const breakdownArgs = useMemo(
-    () => ({ id, start_date: range.start, end_date: range.end, grain: range.grain }),
-    [id, range.start, range.end, range.grain],
-  );
-
-  const { data: salesBreakdown, isLoading: salesLoading } = useGetCatalogProductSalesBreakdownQuery(
-    breakdownArgs,
-    { skip: !id || !canView || tab !== 'sales' },
-  );
-  const { data: purchaseBreakdown, isLoading: purchaseLoading } = useGetCatalogProductPurchaseBreakdownQuery(
-    breakdownArgs,
-    { skip: !id || !canView || tab !== 'purchase' },
-  );
-  const { data: productionBreakdown, isLoading: productionLoading } =
-    useGetCatalogProductProductionBreakdownQuery(breakdownArgs, {
-      skip: !id || !canView || tab !== 'production',
-    });
-  const { data: customizationBreakdown, isLoading: customizationLoading } =
-    useGetCatalogProductCustomizationBreakdownQuery(breakdownArgs, {
-      skip: !id || !canView || tab !== 'customization',
-    });
   const { data: specInsights, isLoading: specLoading } = useGetCatalogProductSpecInsightsQuery(id, {
     skip: !id || !canView || tab !== 'spec',
   });
@@ -486,6 +1166,8 @@ export function ProductDetailPage() {
         unit: String(data.unit || ''),
       }),
       hsn_sac: String(data.hsn_sac || ''),
+      brand: String(data.brand || ''),
+      suppliers: suppliersFromProduct(data.suppliers),
       is_active: data.is_active !== false,
     });
   }, [data, units]);
@@ -575,6 +1257,34 @@ export function ProductDetailPage() {
     setAddSkuOpen(true);
   }
 
+  async function persistCatalog() {
+    const suppliers = supplierPayload(values.suppliers);
+    if ('error' in suppliers) {
+      setFormError(suppliers.error);
+      throw { data: { detail: suppliers.error } };
+    }
+    const unitId =
+      values.unit_id ||
+      resolveUnitId(units as Record<string, unknown>[], {
+        unit_id: String(data?.unit_id || ''),
+        unit: String(data?.unit || ''),
+      });
+    await updateProduct({
+      id,
+      body: {
+        name: values.name.trim(),
+        category_ids: values.category_ids,
+        unit_id: unitId,
+        unit_code: unitCodeForId(units as Record<string, unknown>[], unitId),
+        hsn_sac: values.hsn_sac,
+        brand: values.brand.trim(),
+        suppliers: suppliers.rows,
+        is_active: values.is_active,
+      },
+    }).unwrap();
+    refetch();
+  }
+
   async function onSave() {
     setFormError('');
     if (!values.name.trim()) {
@@ -591,22 +1301,56 @@ export function ProductDetailPage() {
       setFormError('Select a unit');
       return;
     }
+    const wasActive = data?.is_active !== false;
+    if (wasActive && !values.is_active) {
+      const lines = skus
+        .filter((row) => row.is_active !== false)
+        .map((row) => `${String(row.sku || row.name || 'SKU')} (${Number(row.current_qty ?? 0)})`)
+        .join('; ');
+      setConfirm({
+        title: 'Deactivate product',
+        message: `Stock stays on hand. These SKUs will be marked inactive: ${lines || 'none'}. Use Dispose stock when you want the quantity removed.`,
+        confirmLabel: 'Deactivate',
+        danger: true,
+        run: persistCatalog,
+      });
+      return;
+    }
+    if (!wasActive && values.is_active) {
+      const restored = skus.filter((row) => String(row.inactive_via_catalog_id || '') === id);
+      if (restored.length > 0) {
+        const lines = restored.map((row) => String(row.sku || row.name || 'SKU')).join('; ');
+        setConfirm({
+          title: 'Reactivate product',
+          message: `These SKUs will become active again: ${lines}. SKUs you deactivated directly stay inactive. Stock is unchanged.`,
+          confirmLabel: 'Reactivate',
+          run: persistCatalog,
+        });
+        return;
+      }
+    }
     try {
-      await updateProduct({
-        id,
-        body: {
-          name: values.name.trim(),
-          category_ids: values.category_ids,
-          unit_id: unitId,
-          unit_code: unitCodeForId(units as Record<string, unknown>[], unitId),
-          hsn_sac: values.hsn_sac,
-          is_active: values.is_active,
-        },
-      }).unwrap();
-      refetch();
+      await persistCatalog();
     } catch (e) {
       setFormError(extractError(e));
     }
+  }
+
+  function askDispose() {
+    const lines = skus
+      .filter((row) => Number(row.current_qty ?? 0) > 0)
+      .map((row) => `${String(row.sku || row.name || 'SKU')} ${Number(row.current_qty ?? 0)}`)
+      .join('; ');
+    setConfirm({
+      title: 'Dispose stock',
+      message: `This writes an Adjust Out for the on-hand quantity and leaves the product active. ${lines}.`,
+      confirmLabel: 'Dispose stock',
+      danger: true,
+      run: async () => {
+        await disposeStock(id).unwrap();
+        refetch();
+      },
+    });
   }
 
   async function submitAddSku() {
@@ -651,20 +1395,39 @@ export function ProductDetailPage() {
     }
   }
 
+  async function runMerge() {
+    await mergeProducts({
+      target_catalog_product_id: id,
+      source_catalog_product_ids: mergeSourceIds,
+      force: mergeForce,
+    }).unwrap();
+    setMergeOpen(false);
+    setMergeSourceIds([]);
+    setMergeForce(false);
+    setMergeConflicts([]);
+    refetch();
+  }
+
   async function submitMerge() {
     setMergeError('');
     if (!id || mergeSourceIds.length === 0) return;
     try {
-      await mergeProducts({
-        target_catalog_product_id: id,
-        source_catalog_product_ids: mergeSourceIds,
-        force: mergeForce,
-      }).unwrap();
-      setMergeOpen(false);
-      setMergeSourceIds([]);
-      setMergeForce(false);
-      setMergeConflicts([]);
-      refetch();
+      const parts: string[] = [];
+      for (const sourceId of mergeSourceIds) {
+        const row = await loadCatalog(sourceId).unwrap();
+        const children = Array.isArray(row.skus) ? (row.skus as Record<string, unknown>[]) : [];
+        const lines = children.map(
+          (sku) => `${String(sku.sku || sku.name || 'SKU')} qty ${Number(sku.current_qty ?? 0)}`,
+        );
+        parts.push(`${String(row.name || 'Product')}: ${lines.join(', ') || 'no SKUs'}`);
+      }
+      setConfirm({
+        title: 'Merge products',
+        message: `${parts.join('; ')}. Stock and SKU ids stay. Categories, unit, and HSN become this product's values where this product has them. The other products stay in the catalog as inactive.`,
+        confirmLabel: 'Merge',
+        danger: true,
+        run: runMerge,
+      });
     } catch (e) {
       const msg = extractError(e);
       setMergeError(msg);
@@ -727,8 +1490,16 @@ export function ProductDetailPage() {
         ariaLabel="Product facts"
         items={[
           { label: 'SKUs', value: String(data.sku_count ?? skus.length) },
+          { label: 'Brand', value: String(data.brand || '—') },
           { label: 'HSN', value: String(data.hsn_sac || '—') },
-          { label: 'Active', value: data.is_active === false ? 'No' : 'Yes' },
+          {
+            label: 'Status',
+            value: (
+              <span className={data.is_active === false ? 'ed-pill is-off' : 'ed-pill is-on'}>
+                {data.is_active === false ? 'Inactive' : 'Active'}
+              </span>
+            ),
+          },
         ]}
       />
       <EntityDetailTabs
@@ -770,6 +1541,13 @@ export function ProductDetailPage() {
                   disabled={!canEdit}
                 />
               </FormRow>
+              <FormRow label="Brand">
+                <TextInput
+                  value={values.brand}
+                  onChange={(e) => setValues((v) => ({ ...v, brand: e.target.value }))}
+                  disabled={!canEdit}
+                />
+              </FormRow>
               <FormRow label="HSN">
                 <TextInput
                   value={values.hsn_sac}
@@ -780,23 +1558,48 @@ export function ProductDetailPage() {
               <FormRow label="SKU count (read-only)">
                 <TextInput value={String(data.sku_count ?? skus.length)} readOnly disabled />
               </FormRow>
+              {canEdit ? (
+                <FormRow label="Active">
+                  <span className="ed-switch">
+                    <input
+                      type="checkbox"
+                      checked={values.is_active}
+                      aria-label="Active"
+                      onChange={(e) => setValues((v) => ({ ...v, is_active: e.target.checked }))}
+                    />
+                    <span className="ed-switch-track" aria-hidden="true" />
+                    <span className="ed-switch-note">
+                      {values.is_active
+                        ? 'Shown in the catalog. Stock stays on hand.'
+                        : 'Marked inactive. Stock stays on hand.'}
+                    </span>
+                  </span>
+                </FormRow>
+              ) : (
+                <FormRow label="Active">
+                  <TextInput value={data.is_active === false ? 'Inactive' : 'Active'} readOnly disabled />
+                </FormRow>
+              )}
             </div>
-            {canEdit ? (
-              <FormRow label="Active">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={values.is_active}
-                    onChange={(e) => setValues((v) => ({ ...v, is_active: e.target.checked }))}
-                  />{' '}
-                  Active
-                </label>
-              </FormRow>
-            ) : null}
+            <SupplierEditor
+              rows={values.suppliers}
+              disabled={!canEdit}
+              onChange={(suppliers) => setValues((v) => ({ ...v, suppliers }))}
+            />
             {formError ? <ErrorText>{formError}</ErrorText> : null}
           </EntityDetailForm>
           {canEdit ? (
             <EntityDetailStickyActions>
+              {skus.some((row) => Number(row.current_qty ?? 0) > 0) ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={askDispose}
+                  disabled={disposeState.isLoading}
+                >
+                  {disposeState.isLoading ? 'Disposing…' : 'Dispose stock'}
+                </Button>
+              ) : null}
               <Button type="button" onClick={() => void onSave()} disabled={updateState.isLoading}>
                 {updateState.isLoading ? 'Saving…' : 'Save'}
               </Button>
@@ -855,8 +1658,9 @@ export function ProductDetailPage() {
             title="Specifications & custom fields"
             note="Parent-level values shared across all SKUs."
           >
-            {specLoading ? <EntityListLoading>Loading spec insights…</EntityListLoading> : null}
-            {!specLoading ? (
+            {canEdit ? <CatalogSpecEditor product={data} /> : null}
+            {!canEdit && specLoading ? <EntityListLoading>Loading spec insights…</EntityListLoading> : null}
+            {!canEdit && !specLoading ? (
               <div className="ed-grid ed-grid-2">
                 <div>
                   <div style={{ fontWeight: 650, marginBottom: 8 }}>Specifications</div>
@@ -955,58 +1759,6 @@ export function ProductDetailPage() {
             ) : null}
           </EntityDetailPanel>
         </>
-      ) : null}
-
-      {tab === 'sales' ? (
-        <BreakdownPanel
-          title="Sales breakdown"
-          metricLabel="Sales"
-          mode="money"
-          range={range}
-          data={salesBreakdown}
-          isLoading={salesLoading}
-          entitySlug={title}
-          emptyMessage="No sales data for this range."
-        />
-      ) : null}
-
-      {tab === 'purchase' ? (
-        <BreakdownPanel
-          title="Purchase breakdown"
-          metricLabel="Purchases"
-          mode="money"
-          range={range}
-          data={purchaseBreakdown}
-          isLoading={purchaseLoading}
-          entitySlug={title}
-          emptyMessage="No purchase data for this range."
-        />
-      ) : null}
-
-      {tab === 'production' ? (
-        <BreakdownPanel
-          title="Production breakdown"
-          metricLabel="Production"
-          mode="qty"
-          range={range}
-          data={productionBreakdown}
-          isLoading={productionLoading}
-          entitySlug={title}
-          emptyMessage="No production data for this range."
-        />
-      ) : null}
-
-      {tab === 'customization' ? (
-        <BreakdownPanel
-          title="Customization breakdown"
-          metricLabel="Customization"
-          mode="customization"
-          range={range}
-          data={customizationBreakdown}
-          isLoading={customizationLoading}
-          entitySlug={title}
-          emptyMessage="No customization items for this range."
-        />
       ) : null}
 
       {tab === 'activity' ? (
@@ -1177,8 +1929,9 @@ export function ProductDetailPage() {
           }}
         >
           <p style={{ marginTop: 0, fontSize: 13, color: '#5c736a' }}>
-            Selected products' SKUs move under <strong>{title}</strong> and the source products are
-            deactivated. This cannot be undone.
+            SKUs move under <strong>{title}</strong>. Stock and SKU ids stay. Categories, unit, and
+            HSN become this product's values where this product has them. The other products stay in
+            the catalog as inactive.
           </p>
           {mergeError ? <ErrorText>{mergeError}</ErrorText> : null}
           {mergeConflicts.length > 0 ? (
@@ -1332,6 +2085,31 @@ export function ProductDetailPage() {
           />
         </ModalForm>
       </Modal>
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm?.title || ''}
+        message={confirm?.message || ''}
+        confirmLabel={confirm?.confirmLabel || 'Confirm'}
+        danger={Boolean(confirm?.danger)}
+        busy={updateState.isLoading || disposeState.isLoading || mergeState.isLoading}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          const run = confirm?.run;
+          if (!run) return;
+          void run()
+            .then(() => setConfirm(null))
+            .catch((e: unknown) => {
+              const msg = extractError(e);
+              if (confirm?.title === 'Merge products') {
+                setMergeError(msg);
+                setMergeConflicts(parseConflictFields(msg));
+              } else {
+                setFormError(msg);
+              }
+              setConfirm(null);
+            });
+        }}
+      />
     </EntityDetailPage>
   );
 }

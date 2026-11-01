@@ -6,6 +6,7 @@ from pymongo.database import Database
 
 from vaybooks.bms.domain.inventory.entities import (
     CatalogProduct,
+    CatalogSupplier,
     InventoryProduct,
     Location,
     ProductCategory,
@@ -334,6 +335,34 @@ class MongoProductFieldDefinitionRepository:
         self._collection.delete_one({"_id": definition_id})
 
 
+def _stored_supplier_qty(value: Any) -> int:
+    try:
+        return max(int(value or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _suppliers_from_doc(raw: Any) -> List[CatalogSupplier]:
+    rows: List[CatalogSupplier] = []
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        vendor_id = str(item.get("vendor_id") or "").strip()
+        if not vendor_id:
+            continue
+        rows.append(
+            CatalogSupplier(
+                vendor_id=vendor_id,
+                vendor_sku=str(item.get("vendor_sku") or ""),
+                order_qty=_stored_supplier_qty(item.get("order_qty")),
+                minimum_order_qty=_stored_supplier_qty(item.get("minimum_order_qty")),
+                lead_time_days=_stored_supplier_qty(item.get("lead_time_days")),
+                is_preferred=bool(item.get("is_preferred")),
+            )
+        )
+    return rows
+
+
 class MongoCatalogProductRepository:
     def __init__(self, db: Database):
         self._collection = db.inventory_catalog_products
@@ -362,6 +391,18 @@ class MongoCatalogProductRepository:
             "hsn_sac": product.hsn_sac,
             "specifications": dict(product.specifications or {}),
             "custom_fields": dict(product.custom_fields or {}),
+            "brand": product.brand or "",
+            "suppliers": [
+                {
+                    "vendor_id": row.vendor_id,
+                    "vendor_sku": row.vendor_sku or "",
+                    "order_qty": int(row.order_qty or 0),
+                    "minimum_order_qty": int(row.minimum_order_qty or 0),
+                    "lead_time_days": int(row.lead_time_days or 0),
+                    "is_preferred": bool(row.is_preferred),
+                }
+                for row in (product.suppliers or [])
+            ],
             "is_active": product.is_active,
             "created_at": product.created_at,
             "updated_at": product.updated_at,
@@ -379,6 +420,8 @@ class MongoCatalogProductRepository:
             hsn_sac=str(doc.get("hsn_sac") or ""),
             specifications=dict(doc.get("specifications") or {}),
             custom_fields=dict(doc.get("custom_fields") or {}),
+            brand=str(doc.get("brand") or ""),
+            suppliers=_suppliers_from_doc(doc.get("suppliers")),
             is_active=doc.get("is_active", True),
             created_at=doc.get("created_at", datetime.utcnow()),
             updated_at=doc.get("updated_at", datetime.utcnow()),
@@ -424,6 +467,7 @@ class MongoCatalogProductRepository:
                     {"category_name": regex},
                     {"category_names": regex},
                     {"hsn_sac": regex},
+                    {"brand": regex},
                 ]
             }
         )
@@ -470,6 +514,7 @@ class MongoInventoryProductRepository:
             "track_batch": product.track_batch,
             "track_serial": product.track_serial,
             "is_active": product.is_active,
+            "inactive_via_catalog_id": product.inactive_via_catalog_id or "",
             "created_at": product.created_at,
             "updated_at": product.updated_at,
         }
@@ -498,6 +543,7 @@ class MongoInventoryProductRepository:
             track_batch=bool(doc.get("track_batch")),
             track_serial=bool(doc.get("track_serial")),
             is_active=doc.get("is_active", True),
+            inactive_via_catalog_id=str(doc.get("inactive_via_catalog_id") or ""),
             created_at=doc.get("created_at", datetime.utcnow()),
             updated_at=doc.get("updated_at", datetime.utcnow()),
         )

@@ -8,7 +8,7 @@ const PARENT_ROUTES: Record<string, string> = {
   dashboard: '/',
   mtd_dashboard: '/mtd-dashboard',
   customers_list: '/parties/customers',
-  vendors_list: '/parties/vendors',
+  vendors_list: '/inventory/suppliers',
   delivery_partners_list: '/parties/delivery-partners',
   commission_agents_list: '/parties/commission-agents',
   workers_list: '/parties/employees',
@@ -133,9 +133,9 @@ const ACTION_ROUTES: Record<string, string> = {
   'sales.returns.create': '/sales/returns/new',
   'boutique.orders.create': '/boutique/orders/workspace',
   'parties.customers.create': '/parties/customers?new=1',
-  'parties.vendors.create': '/parties/vendors?new=1',
+  'parties.vendors.create': '/inventory/suppliers?new=1',
   'customers.add': '/parties/customers?new=1',
-  'vendors.add': '/parties/vendors?new=1',
+  'vendors.add': '/inventory/suppliers?new=1',
   'orders.add': '/boutique/orders/workspace',
   'export.csv.customers': '/finance/export-backup',
   'export.csv.orders': '/finance/export-backup',
@@ -175,7 +175,7 @@ const LIST_PRIMARY_NEW: Record<string, string> = {
   '/purchases/bills': '/purchases/bills/new',
   '/purchases/returns': '/purchases/returns/new',
   '/parties/customers': '/parties/customers?new=1',
-  '/parties/vendors': '/parties/vendors?new=1',
+  '/inventory/suppliers': '/inventory/suppliers?new=1',
   '/parties/delivery-partners': '/parties/delivery-partners?new=1',
   '/parties/commission-agents': '/parties/commission-agents?new=1',
   '/parties/employees': '/parties/employees?new=1',
@@ -326,7 +326,7 @@ function resolveContextRoute(actionId: string, pathname: string): string | null 
   }
   if (actionId === 'customers.back') return '/parties/customers';
 
-  const vendId = pathId(pathname, '/parties/vendors');
+  const vendId = pathId(pathname, '/inventory/suppliers') || pathId(pathname, '/parties/vendors');
   if (actionId === 'vendors.record_payment' && vendId) {
     return `/finance/payments?new=1&vendor_id=${vendId}`;
   }

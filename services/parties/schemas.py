@@ -33,6 +33,13 @@ class CustomerWrite(AddressTaxFields):
     is_commission_agent: bool = False
 
 
+class VendorNameWrite(BaseModel):
+    """Create a vendor from a name when that name is not already used."""
+
+    vendor_name: str = Field(min_length=1)
+    location_ids: List[str] = Field(default_factory=list)
+
+
 class VendorWrite(AddressTaxFields):
     vendor_name: str = Field(min_length=1)
     phone_number: str = Field(min_length=1)

@@ -21,6 +21,7 @@ from services.parties.schemas import (
     SalaryPayBody,
     SegmentWrite,
     SettleBody,
+    VendorNameWrite,
     VendorWrite,
     WorkerWrite,
 )
@@ -410,6 +411,15 @@ def list_vendors(
         data["current_balance"] = float(acct.current_balance) if acct else 0.0
         out.append(data)
     return out
+
+
+@router.post("/vendors/ensure")
+def ensure_vendor(body: VendorNameWrite) -> dict[str, Any]:
+    try:
+        vendor = _svc().vendors.find_or_create_by_name(body.vendor_name, list(body.location_ids or []))
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return entity_dict(vendor)
 
 
 @router.post("/vendors", status_code=201)

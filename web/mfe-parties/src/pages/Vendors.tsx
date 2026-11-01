@@ -53,6 +53,8 @@ import {
 } from '../components/PartyLocationFields';
 import { Modal } from '../components/Modal';
 
+const SUPPLIERS_LIST = '/inventory/suppliers';
+
 function vendorBody(v: PartyFormValues, locationIds: string[]) {
   return {
     vendor_name: v.vendor_name || '',
@@ -141,7 +143,7 @@ function VendorFormFields({
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <FormRow label="Vendor Name *">
+        <FormRow label="Supplier name *">
           <TextInput value={values.vendor_name || ''} onChange={(e) => onChange('vendor_name', e.target.value)} required />
         </FormRow>
         <FormRow label="Contact Person">
@@ -264,7 +266,7 @@ export function VendorsListPage() {
 
   const filterFields: FilterFieldDef[] = useMemo(
     () => [
-      { key: 'vendor_name', label: 'Vendor name', type: 'text' },
+      { key: 'vendor_name', label: 'Supplier name', type: 'text' },
       { key: 'phone_number', label: 'Phone', type: 'text' },
       { key: 'alternate_phone_number', label: 'Alternate phone', type: 'text' },
       {
@@ -281,7 +283,7 @@ export function VendorsListPage() {
         options: [
           { value: 'zero', label: 'Settled' },
           { value: 'dr', label: 'Amount Payable' },
-          { value: 'cr', label: 'Vendor Advance' },
+          { value: 'cr', label: 'Supplier advance' },
         ],
       },
     ],
@@ -360,9 +362,9 @@ export function VendorsListPage() {
     () => [
       {
         id: 'vendor',
-        header: 'Vendor',
+        header: 'Supplier',
         render: (row) => {
-          const name = displayName(row, ['vendor_name'], 'Unnamed vendor');
+          const name = displayName(row, ['vendor_name'], 'Unnamed supplier');
           const phone = String(row.phone_number || '').trim();
           return (
             <div className="el-customer">
@@ -405,12 +407,12 @@ export function VendorsListPage() {
   return (
     <EntityListPage>
       <EntityListHero
-        kicker="Parties"
-        title="Vendors"
-        count={`${filtered.length} ${filtered.length === 1 ? 'vendor' : 'vendors'}`}
+        kicker="Inventory"
+        title="Suppliers"
+        count={`${filtered.length} ${filtered.length === 1 ? 'supplier' : 'suppliers'}`}
         actions={
           <Button type="button" onClick={openAdd}>
-            Add Vendor
+            Add supplier
           </Button>
         }
         chips={
@@ -446,7 +448,7 @@ export function VendorsListPage() {
             defaultSort={DEFAULT_VENDOR_SORT}
             sortOptions={[
               { value: 'created_at', label: 'Created' },
-              { value: 'vendor_name', label: 'Vendor name' },
+              { value: 'vendor_name', label: 'Supplier name' },
               { value: 'current_balance', label: 'Payable balance' },
             ]}
             onSortChange={(next) => {
@@ -457,11 +459,11 @@ export function VendorsListPage() {
         }
       />
 
-      {isLoading ? <EntityListLoading>Loading vendors…</EntityListLoading> : null}
-      {error ? <ErrorText>Failed to load vendors.</ErrorText> : null}
+      {isLoading ? <EntityListLoading>Loading suppliers…</EntityListLoading> : null}
+      {error ? <ErrorText>Failed to load suppliers.</ErrorText> : null}
       {!isLoading && !error && pageRows.length === 0 ? (
         <EntityListEmpty>
-          <strong>No vendors found.</strong>
+          <strong>No suppliers found.</strong>
         </EntityListEmpty>
       ) : null}
 
@@ -471,12 +473,12 @@ export function VendorsListPage() {
           rows={pageRows}
           rowKey={(row) => String(row.id)}
           keyboardNav
-          onActivateRow={(row) => navigate(`/parties/vendors/${row.id}`)}
+          onActivateRow={(row) => navigate(`${SUPPLIERS_LIST}/${row.id}`)}
           onEditRow={(row) => openEdit(row)}
           onNew={openAdd}
           actions={(row) => (
             <EntityListActions
-              onOpen={() => navigate(`/parties/vendors/${row.id}`)}
+              onOpen={() => navigate(`${SUPPLIERS_LIST}/${row.id}`)}
               onEdit={() => openEdit(row)}
             />
           )}
@@ -492,7 +494,7 @@ export function VendorsListPage() {
       ) : null}
 
       <Modal
-        title={dialog === 'edit' ? 'Edit Vendor' : 'Add Vendor'}
+        title={dialog === 'edit' ? 'Edit supplier' : 'Add supplier'}
         open={dialog !== null}
         onClose={() => setDialog(null)}
         footer={
@@ -515,7 +517,7 @@ export function VendorsListPage() {
               </Button>
             ) : null}
             <Button type="button" onClick={() => void submitForm()}>
-              {dialog === 'edit' ? 'Save Changes' : 'Create Vendor'}
+              {dialog === 'edit' ? 'Save changes' : 'Create supplier'}
             </Button>
             <Button type="button" variant="ghost" onClick={() => setDialog(null)}>
               Cancel
@@ -574,15 +576,15 @@ export function VendorDetailPage() {
   if (isLoading) {
     return (
       <EntityDetailPage>
-        <EntityListLoading>Loading vendor…</EntityListLoading>
+        <EntityListLoading>Loading supplier…</EntityListLoading>
       </EntityDetailPage>
     );
   }
   if (error || !data) {
     return (
       <EntityDetailPage>
-        <EntityDetailBack to="/parties/vendors" label="Vendors" />
-        <ErrorText>Vendor not found.</ErrorText>
+        <EntityDetailBack to={SUPPLIERS_LIST} label="Suppliers" />
+        <ErrorText>Supplier not found.</ErrorText>
       </EntityDetailPage>
     );
   }
@@ -594,10 +596,10 @@ export function VendorDetailPage() {
 
   return (
     <EntityDetailPage>
-      <EntityDetailBack to="/parties/vendors" label="Vendors" />
+      <EntityDetailBack to={SUPPLIERS_LIST} label="Suppliers" />
 
       <EntityDetailHero
-        kicker="Parties · Vendor"
+        kicker="Inventory · Supplier"
         title={String(data.vendor_name)}
         lead={
           <>
@@ -633,7 +635,7 @@ export function VendorDetailPage() {
       />
 
       <EntityDetailSnapshot
-        ariaLabel="Vendor facts"
+        ariaLabel="Supplier facts"
         items={[
           { label: 'Phone', value: phone || '—' },
           ...(email ? [{ label: 'Email', value: email }] : []),
@@ -652,7 +654,7 @@ export function VendorDetailPage() {
 
       <EntityDetailStickyActions
         start={
-          <Button type="button" variant="ghost" onClick={() => navigate('/parties/vendors')}>
+          <Button type="button" variant="ghost" onClick={() => navigate(SUPPLIERS_LIST)}>
             Back to list
           </Button>
         }
@@ -664,7 +666,7 @@ export function VendorDetailPage() {
       />
 
       <Modal
-        title="Edit Vendor"
+        title="Edit supplier"
         open={editOpen}
         onClose={() => setEditOpen(false)}
         footer={

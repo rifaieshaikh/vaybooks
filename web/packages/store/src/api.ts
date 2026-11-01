@@ -564,6 +564,13 @@ export const baseApi = createApi({
       query: (body) => ({ url: '/parties/vendors', method: 'POST', body }),
       invalidatesTags: ['Vendor', 'Party'],
     }),
+    ensureVendor: build.mutation<
+      Record<string, unknown>,
+      { vendor_name: string; location_ids: string[] }
+    >({
+      query: (body) => ({ url: '/parties/vendors/ensure', method: 'POST', body }),
+      invalidatesTags: ['Vendor', 'Party'],
+    }),
     getVendor: build.query<Record<string, unknown>, string>({
       query: (id) => `/parties/vendors/${id}`,
       providesTags: ['Vendor'],
@@ -1302,6 +1309,20 @@ export const baseApi = createApi({
       }),
       invalidatesTags: ['Inventory'],
     }),
+    disposeCatalogStock: build.mutation<{ id: string }, string>({
+      query: (catalogProductId) => ({
+        url: `/inventory/catalog-products/${catalogProductId}/dispose`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Inventory'],
+    }),
+    disposeProductStock: build.mutation<{ id: string }, string>({
+      query: (productId) => ({
+        url: `/inventory/products/${productId}/dispose`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Inventory'],
+    }),
     resolveInventoryEntity: build.query<Record<string, unknown>, string>({
       query: (id) => `/inventory/resolve/${id}`,
       providesTags: ['Inventory'],
@@ -1456,6 +1477,17 @@ export const baseApi = createApi({
     listInventoryUnits: build.query<Record<string, unknown>[], { active_only?: boolean } | void>({
       query: (args) => ({ url: '/inventory/units', params: args || undefined }),
       providesTags: ['Inventory'],
+    }),
+    listProductFieldDefinitions: build.query<
+      Record<string, unknown>[],
+      { active_only?: boolean } | void
+    >({
+      query: (args) => ({ url: '/inventory/field-definitions', params: args || undefined }),
+      providesTags: ['Inventory'],
+    }),
+    createProductFieldDefinition: build.mutation<Record<string, unknown>, Record<string, unknown>>({
+      query: (body) => ({ url: '/inventory/field-definitions', method: 'POST', body }),
+      invalidatesTags: ['Inventory'],
     }),
     listCustomerPrices: build.query<
       Record<string, unknown>[],
@@ -3984,6 +4016,7 @@ export const {
   useGetProjectsCustomerRelatedSummaryQuery,
   useListVendorsQuery,
   useCreateVendorMutation,
+  useEnsureVendorMutation,
   useGetVendorQuery,
   useUpdateVendorMutation,
   useGetVendorSummaryQuery,
@@ -4094,6 +4127,7 @@ export const {
   useListCatalogProductsQuery,
   useCreateCatalogProductMutation,
   useGetCatalogProductQuery,
+  useLazyGetCatalogProductQuery,
   useUpdateCatalogProductMutation,
   useCreateCatalogSkuMutation,
   useGetCatalogProductSalesBreakdownQuery,
@@ -4103,6 +4137,8 @@ export const {
   useGetCatalogProductSpecInsightsQuery,
   useGetCatalogProductActivityQuery,
   useMergeCatalogProductsMutation,
+  useDisposeCatalogStockMutation,
+  useDisposeProductStockMutation,
   useResolveInventoryEntityQuery,
   useListInventorySkusQuery,
   useGetSkuSalesBreakdownQuery,
@@ -4128,6 +4164,8 @@ export const {
   useUpdateInventoryLocationMutation,
   useDeleteInventoryLocationMutation,
   useListInventoryUnitsQuery,
+  useListProductFieldDefinitionsQuery,
+  useCreateProductFieldDefinitionMutation,
   useListCustomerPricesQuery,
   useCreateCustomerPriceMutation,
   useListCustomerPriceHistoryQuery,

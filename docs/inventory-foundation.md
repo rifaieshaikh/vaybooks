@@ -79,10 +79,11 @@ The React shell is the current UI (`docs/cutover.md`). Streamlit pages under `va
 
 | Action | Effect | Coverage |
 | --- | --- | --- |
-| Deactivate parent | Clears each active child's stock with Adjust Out notes "Stock cleared on discontinue", then marks those children inactive. | Implemented in `tests/test_inventory_movements.py`. Whether this should happen is undecided. |
-| Deactivate SKU | Same stock clear, then `is_active = false`. | Implemented in the same test. |
-| Reactivate parent or SKU | Flips `is_active` only. Children stay inactive. Cleared quantity is not restored. | Partial. No dedicated reactivate path. |
-| Merge parents | Reparents source SKUs onto the target and copies the target's categories, unit, and HSN. Source parents become inactive. Stock stays on the SKU. Conflicting unit or HSN raises unless `force` is set. | Implemented in `tests/domain/test_catalog_skus.py` and `tests/domain/test_product_sku_finish.py`. |
+| Deactivate parent | Marks active children inactive and tags them with `inactive_via_catalog_id`. Stock stays. | Decided in INV-03. Covered by `tests/domain/test_inventory_lifecycle.py`. |
+| Deactivate SKU | Sets `is_active` false and clears `inactive_via_catalog_id`. Stock stays. | Same tests. |
+| Dispose stock | Writes Adjust Out per location with note "Stock disposed". A second dispose does nothing. Active state is unchanged. | `POST /products/{id}/dispose` and `POST /catalog-products/{id}/dispose`. |
+| Reactivate parent | Restores only children tagged with that parent's id. Directly deactivated SKUs stay inactive. | Same lifecycle tests. |
+| Merge parents | Reparents source SKUs onto the target. Copies categories, unit, and HSN only when the target has that value. Source parents become inactive and remain. Stock, SKU ids, and SKU specifications stay. Conflicting unit or HSN raises unless `force` is set. | `tests/domain/test_inventory_lifecycle.py`, `tests/domain/test_catalog_skus.py`, and `tests/domain/test_product_sku_finish.py`. |
 
 ### Transfer
 
@@ -200,8 +201,6 @@ Later tasks must not invent these. Each one is current behavior plus the decisio
 
 | Topic | Current behavior | Decision needed before |
 | --- | --- | --- |
-| Deactivation | Clears stock and deactivates children. Reactivation does not undo either. | [INV-03](tasks/INV-03-lifecycle-and-merge.md) |
-| Merge | Rewrites child categories, unit, and HSN. `force` bypasses conflicts. | INV-03 |
 | Negative stock | Company total is guarded except on transfer, which guards the source location only. A location can go negative. | [INV-07](tasks/INV-07-stock-and-counts.md) |
 | Reservations | In-memory lock only. Quantity is not held. | [INV-09](tasks/INV-09-transaction-integrations.md) |
 | In-transit | Quantity leaves the company total on dispatch. No partial receipt. | [INV-08](tasks/INV-08-warehouse-transfers.md) |

@@ -1,4 +1,4 @@
-import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom';
 import { useGetSetupStatusQuery, useAppSelector } from '@vaybooks/store';
 import { AppLayout } from './components/AppLayout';
 import { RequireModule, RequirePermission } from './components/PermissionGate';
@@ -7,6 +7,11 @@ import { LoginPage } from './components/LoginPage';
 import { SetupWizardModal } from './components/SetupWizardModal';
 import { useShellKeyboardShortcuts } from './useShellKeyboardShortcuts';
 import { ShellListKeyboardProvider } from './ShellListKeyboardProvider';
+
+function VendorRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/inventory/suppliers/${id || ''}`} replace />;
+}
 
 function ModuleGate({ module }: { module: string }) {
   return (
@@ -276,8 +281,10 @@ export default function App() {
               </RequirePermission>
             }
           />
-          <Route path="parties/vendors" element={<VendorsListPage />} />
-          <Route path="parties/vendors/:id" element={<VendorDetailPage />} />
+          <Route path="inventory/suppliers" element={<VendorsListPage />} />
+          <Route path="inventory/suppliers/:id" element={<VendorDetailPage />} />
+          <Route path="parties/vendors" element={<Navigate to="/inventory/suppliers" replace />} />
+          <Route path="parties/vendors/:id" element={<VendorRedirect />} />
           <Route path="parties/delivery-partners" element={<DeliveryPartnersListPage />} />
           <Route path="parties/delivery-partners/:id" element={<DeliveryPartnerDetailPage />} />
           <Route path="parties/commission-agents" element={<CommissionAgentsListPage />} />

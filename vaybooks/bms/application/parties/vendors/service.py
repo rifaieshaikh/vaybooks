@@ -29,6 +29,16 @@ class VendorAppService:
         self._accounting_domain.ensure_vendor_account(vendor.id, account_name)
         return vendor
 
+    def find_or_create_by_name(self, name: str, location_ids: List[str]) -> Vendor:
+        existing = self._vendor_repo.find_by_name((name or "").strip())
+        if existing:
+            return existing
+        vendor = self._vendor_domain.find_or_create_by_name(name, location_ids)
+        vendor = self._apply_segment_names(vendor)
+        account_name = VendorDomainService.build_account_name(vendor)
+        self._accounting_domain.ensure_vendor_account(vendor.id, account_name)
+        return vendor
+
     def search_vendors(
         self, query: str, *, location_filter: dict | None = None
     ) -> List[Vendor]:

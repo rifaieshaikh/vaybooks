@@ -65,7 +65,7 @@ const SECTION_ORDER = [
   'Migration',
   'System',
   'Customers',
-  'Vendors',
+  'Suppliers',
   'Orders',
   'Items',
   'List',
@@ -101,7 +101,7 @@ function inferGroup(kind: 'parent' | 'action', key: string): string {
     if (key.startsWith('form.')) return 'Form';
     if (key.startsWith('nav.')) return 'Navigation';
     if (key.startsWith('customers.')) return 'Customers';
-    if (key.startsWith('vendors.')) return 'Vendors';
+    if (key.startsWith('vendors.')) return 'Suppliers';
     if (key.startsWith('orders.') || key.startsWith('items.')) return key.startsWith('orders.') ? 'Orders' : 'Items';
     if (key.startsWith('sales.')) return 'Sales';
     if (key.startsWith('purchases.')) return 'Purchases';

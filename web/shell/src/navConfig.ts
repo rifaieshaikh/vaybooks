@@ -97,7 +97,6 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     module: 'parties',
     items: [
       item('/parties/customers', 'Customers', 'parties', 'parties.customers.view', 'users'),
-      item('/parties/vendors', 'Vendors', 'parties', 'parties.vendors.view', 'truck'),
       item(
         '/parties/delivery-partners',
         'Delivery Partners',
@@ -228,6 +227,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       item('/inventory', 'Overview', 'inventory', 'inventory.overview.view', 'layoutGrid'),
       item('/inventory/categories', 'Categories', 'inventory', 'inventory.categories.view', 'tags'),
       item('/inventory/products', 'Products', 'inventory', 'inventory.products.view', 'package'),
+      item('/inventory/suppliers', 'Suppliers', 'parties', 'parties.vendors.view', 'truck'),
       item('/inventory/skus', 'SKUs', 'inventory', 'inventory.products.view', 'layers'),
       item('/inventory/stock', 'Stock', 'inventory', 'inventory.stock.view', 'boxes'),
       item('/inventory/stock-ledger', 'Stock Ledger', 'inventory', 'inventory.stock_ledger.view', 'scrollText'),

@@ -2,7 +2,7 @@
 
 Goal: a complete, reliable inventory management system covering catalog products, SKUs, location stock, stock counts, movements, warehouse transfers, transaction integrations, pricing, valuation, traceability, replenishment, and reports.
 
-Created: 2026-10-14. The user requested tasks first and explicitly prohibited application-code changes. These are planning documents; no task authorizes implementation. All tasks are in Backlog.
+Created: 2026-10-14. INV-01, INV-02, and INV-03 are complete. The remaining tasks are in Backlog until their own work is authorized.
 
 ## Tasks
 
@@ -34,7 +34,7 @@ P0: critical correctness or stock-impact issues. P1: core workflows and scalabil
 
 ## Evidence and limitations
 
-Static review covered inventory screens, shell navigation, shared RTK Query endpoints, API routes, and application/domain/repository code. See [product/SKU reference](../products-vs-skus.md) and the [inventory foundation](../inventory-foundation.md) from INV-01. Confirmed defects, business-rule decisions, and unverified capabilities are distinguished in each task. INV-01 is complete: the capability matrix is recorded, and the representative fixture was measured on an isolated database that was then dropped. Its open business rules are still not approved policy. The measured list APIs miss the agreed speed targets; that work is INV-06.
+Static review covered inventory screens, shell navigation, shared RTK Query endpoints, API routes, and application/domain/repository code. See [product/SKU reference](../products-vs-skus.md) and the [inventory foundation](../inventory-foundation.md) from INV-01. Confirmed defects, business-rule decisions, and unverified capabilities are distinguished in each task. INV-01 is complete: the capability matrix is recorded, and the representative fixture was measured on an isolated database that was then dropped. Deactivation and merge were decided in INV-03. The other open business rules are still not approved policy. The measured list APIs miss the agreed speed targets; that work is INV-06.
 
 No production benchmark was performed. Previously run catalog/SKU domain suites passed 11 tests, which does not establish full system coverage or cover the identified UI/API defects.
 

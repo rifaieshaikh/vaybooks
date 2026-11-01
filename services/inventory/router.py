@@ -16,6 +16,7 @@ from packages.services_kit.sales_container import get_sales_container
 from services.auth.router import _decode_token
 from services.common.authz import assert_permissions, require_permission
 from services.parties.serialize import entity_dict
+from vaybooks.bms.domain.inventory.field_definitions import ProductFieldType
 from vaybooks.bms.domain.shared.enums import StockMovementType, StockTransferStatus
 from vaybooks.bms.domain.shared.exceptions import ValidationError
 
@@ -52,13 +53,13 @@ class ProductWrite(BaseModel):
     gst_rate: float = 0.0
     gst_required: bool = False
     opening_qty: float = 0.0
-    last_purchase_rate: float = 0.0
-    track_batch: bool = False
-    track_serial: bool = False
+    last_purchase_rate: Optional[float] = None
+    track_batch: Optional[bool] = None
+    track_serial: Optional[bool] = None
     is_active: bool = True
     location_id: str = ""
-    specifications: dict[str, str] = Field(default_factory=dict)
-    custom_fields: dict[str, Any] = Field(default_factory=dict)
+    specifications: Optional[dict[str, str]] = None
+    custom_fields: Optional[dict[str, Any]] = None
 
 
 class MovementWrite(BaseModel):
@@ -277,6 +278,51 @@ def list_warehouses(active_only: bool = Query(default=False)) -> list[dict[str, 
     return list_locations(active_only=active_only)
 
 
+class FieldDefinitionWrite(BaseModel):
+    key: str = ""
+    label: str = Field(min_length=1)
+    field_type: str = "text"
+    options: List[str] = Field(default_factory=list)
+    required: bool = False
+    applies_to_category_ids: List[str] = Field(default_factory=list)
+    sort_order: int = 0
+
+
+def _field_type(raw: str) -> ProductFieldType:
+    try:
+        return ProductFieldType((raw or "text").strip().lower())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid field type") from exc
+
+
+@router.get("/field-definitions")
+def list_field_definitions(
+    active_only: bool = Query(default=True),
+    _: str = Depends(require_permission("inventory.products.view")),
+) -> list[dict[str, Any]]:
+    return [entity_dict(row) for row in _svc().list_field_definitions(active_only=active_only)]
+
+
+@router.post("/field-definitions", status_code=201)
+def create_field_definition(
+    body: FieldDefinitionWrite,
+    _: str = Depends(require_permission("inventory.products.edit")),
+) -> dict[str, Any]:
+    try:
+        definition = _svc().create_field_definition(
+            (body.key or body.label).strip(),
+            body.label,
+            _field_type(body.field_type),
+            options=[item.strip() for item in body.options if item and item.strip()],
+            required=body.required,
+            applies_to_category_ids=body.applies_to_category_ids,
+            sort_order=body.sort_order,
+        )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return entity_dict(definition)
+
+
 # --- Categories ----------------------------------------------------------------
 
 
@@ -487,15 +533,32 @@ def category_customization_breakdown(
 # --- Catalog products + SKUs ---------------------------------------------------
 
 
+class CatalogSupplierWrite(BaseModel):
+    vendor_id: str = Field(min_length=1)
+    vendor_sku: str = ""
+    order_qty: int = Field(default=0, ge=0)
+    minimum_order_qty: int = Field(default=0, ge=0)
+    lead_time_days: int = Field(default=0, ge=0)
+    is_preferred: bool = False
+
+
 class CatalogProductWrite(BaseModel):
     name: str = Field(min_length=1)
     category_ids: List[str] = Field(default_factory=list)
     unit_id: str = ""
     unit_code: str = "pcs"
     hsn_sac: str = ""
-    specifications: dict[str, str] = Field(default_factory=dict)
-    custom_fields: dict[str, Any] = Field(default_factory=dict)
+    brand: Optional[str] = None
+    suppliers: Optional[List[CatalogSupplierWrite]] = None
+    specifications: Optional[dict[str, str]] = None
+    custom_fields: Optional[dict[str, Any]] = None
     is_active: bool = True
+
+
+def _supplier_payload(rows: Optional[List[CatalogSupplierWrite]]) -> Optional[list[dict[str, Any]]]:
+    if rows is None:
+        return None
+    return [row.model_dump() for row in rows]
 
 
 class CatalogMergeWrite(BaseModel):
@@ -553,6 +616,8 @@ def create_catalog_product(
             unit_id=body.unit_id,
             unit_code=body.unit_code,
             hsn_sac=body.hsn_sac,
+            brand=body.brand or "",
+            suppliers=_supplier_payload(body.suppliers) or [],
             specifications=body.specifications,
             custom_fields=body.custom_fields,
         )
@@ -620,10 +685,24 @@ def update_catalog_product(
             category_ids=body.category_ids or [],
             unit_id=body.unit_id or None,
             hsn_sac=body.hsn_sac,
+            brand=body.brand,
+            suppliers=_supplier_payload(body.suppliers),
             specifications=body.specifications,
             custom_fields=body.custom_fields,
             is_active=body.is_active,
         )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return _catalog_dict(product)
+
+
+@router.post("/catalog-products/{catalog_product_id}/dispose")
+def dispose_catalog_stock(
+    catalog_product_id: str,
+    _: str = Depends(require_permission("inventory.products.edit")),
+) -> dict[str, Any]:
+    try:
+        product = _svc().dispose_catalog_stock(catalog_product_id)
     except Exception as exc:
         raise _http_err(exc) from exc
     return _catalog_dict(product)
@@ -1027,6 +1106,18 @@ def update_product(product_id: str, body: ProductWrite) -> dict[str, Any]:
             track_batch=body.track_batch,
             track_serial=body.track_serial,
         )
+    except Exception as exc:
+        raise _http_err(exc) from exc
+    return _product_dict(product)
+
+
+@router.post("/products/{product_id}/dispose")
+def dispose_product_stock(
+    product_id: str,
+    _: str = Depends(require_permission("inventory.products.edit")),
+) -> dict[str, Any]:
+    try:
+        product = _svc().dispose_stock(product_id)
     except Exception as exc:
         raise _http_err(exc) from exc
     return _product_dict(product)

@@ -518,7 +518,7 @@
 .de-search-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 0.4rem 0.55rem;
+  padding: 0.4rem 1.8rem 0.4rem 0.55rem;
   border: 1px solid var(--vb-color-control-border, #c5d4ce);
   border-radius: var(--de-radius);
   background: var(--de-surface);
@@ -528,6 +528,23 @@
 
 .de-search-input:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.de-search-toggle {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 1.7rem;
+  border: none;
+  border-radius: 0 var(--de-radius) var(--de-radius) 0;
+  background: transparent;
+  color: var(--vb-color-muted, #5c736a);
+  cursor: pointer;
+}
+
+.de-search-toggle:disabled {
   cursor: not-allowed;
 }
 
